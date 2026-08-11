@@ -20,7 +20,11 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "!**/*.test.ts", "!**/*.test.tsx"],
-      "outputs": ["dist/**"]
+      // The tsbuildinfo is an output, not a side effect. `incremental: true` means
+      // tsc decides whether to emit by comparing against it — so if turbo restores a
+      // cached `dist` while the tsbuildinfo on disk says something else, tsc emits
+      // nothing and the mismatch sticks. Caching the pair together keeps them honest.
+      "outputs": ["dist/**", "node_modules/.cache/tsc/**"]
     },
     "typecheck": {
       "dependsOn": ["^build"],

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Shared zod schemas, enums, and inferred types \u2014 the single source of truth for the API surface",
+  "description": "Shared zod schemas, enums, and inferred types — the single source of truth for the API surface",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

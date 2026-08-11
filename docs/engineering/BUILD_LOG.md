@@ -18,6 +18,7 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | ----- | ---- | ------ | ------ |
 | 1 · Monorepo shell | pass — `pnpm install`, `typecheck`, `lint` clean; gates verified non-vacuous with throwaway probes | 10 findings, 8 fixed in-stage, 2 deferred (D1, D2) | `Scaffold monorepo shell` |
 | 2 · `packages/contracts` | pass — 155 tests green, builds, and imports cleanly from both a real `node` ESM scratch file and a real `vite build` (no `node:*` in the browser bundle) | 5 findings, all 5 fixed in-stage | `Add packages/contracts` |
+| 3 · Prisma schema + first migration | pass — `db:migrate` applies to an empty file, `prisma generate` succeeds, a scratch script round-trips a ticket, repo-wide `typecheck`/`lint`/`build`/`test` clean | 5 findings, all 5 fixed in-stage | `Add Prisma schema, first migration, and env parsing` |
 
 ## Deferred work
 
@@ -27,6 +28,9 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | D2 | `packages/tsconfig/react-app.json` is unexercised — `types: ["vite/client"]` needs Vite present | Stage 1 review | No React app exists yet; option-set correctness was verified with `tsc`, resolution cannot be | Stage 10 |
 | ~~D3~~ | ~~`pnpm test` is a turbo passthrough with no package implementing `test`~~ | Stage 1 | — | **Resolved in stage 2** — vitest is in the graph; `test:coverage` wired too |
 | D4 | pnpm pinned at `11.1.2` while `11.21.0` is available | Stage 1 | A version bump wants CI to agree with the pin; both should move together | Stage 16 |
+| D6 | `@helpdesk/api` has no `dev` script, so `pnpm dev:api` is a no-op | Stage 3 | `src/server.ts` is stage 4's deliverable; a script pointing at a nonexistent entrypoint is worse than an absent one | Stage 4 |
+| D7 | `@helpdesk/api` has no `test` script | Stage 3 | The vitest config and setup files are stage 5's deliverable | Stage 5 |
+| D8 | `db:seed` and the `prisma.seed` hook are absent, so `db:reset` migrates but does not re-seed | Stage 3 | `prisma/seed.ts` is stage 9's deliverable. `CLAUDE.md` and `DATABASE.md` both describe `db:reset` as re-seeding — that becomes true when the hook lands | Stage 9 |
 | D5 | Schemas carry no `.openapi()` metadata | Stage 2 | `@asteasolutions/zod-to-openapi` would be a second runtime dependency in a package whose hard constraint is "zod and nothing else". Its v9 peers `zod ^4`, so it can extend these schemas from `apps/api` without touching this package | Stage 9 |
 
 ### Constraints established for later stages
@@ -47,6 +51,20 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
   with no field details; a zod `.refine()` would collapse it into `VALIDATION_ERROR`. Stage 8's route
   calls the exported `hasAtLeastOneField()` after parsing.
 
+- **`prisma generate` must run before build/typecheck/test.** `@prisma/client`'s own postinstall
+  `chdir`s to `INIT_CWD` (the repo root, which has no schema), fails, and is swallowed — leaving a
+  throw-stub whose types are `any`. `typecheck` and `build` then pass green with every Prisma call
+  silently untyped, and the first runtime import throws. `apps/api` therefore has its own
+  `postinstall: prisma generate`, which pnpm runs with the correct cwd.
+- **pnpm 11 renamed the build allow-list.** `pnpm.onlyBuiltDependencies` in `package.json` is inert
+  under pnpm 11; the setting is `allowBuilds` in `pnpm-workspace.yaml`. Left unmigrated, install
+  fails with `ERR_PNPM_IGNORED_BUILDS` for the Prisma packages — meaning no engine binaries and a
+  client that cannot connect.
+- **`DATABASE_URL` has no default, and `lib/env.ts` loads `.env` with `override: false`.** Both
+  matter for stage 5: a default would let a missing `setupFiles` entry truncate the dev database
+  instead of failing, and an overriding loader would replace a worker's temp-file URL with the
+  developer's `.env`.
+
 ## Performance ledger
 
 Candidates are recorded when observed and only actioned when a stage's gate or a measurement
@@ -54,10 +72,13 @@ justifies it — the project is a graded take-home on SQLite, not a system under
 
 | # | Observation | Impact | Action |
 | - | ----------- | ------ | ------ |
-| P1 | Cold `pnpm install` 13.8s / warm 0.5s, ~215 packages across 2 workspaces | Baseline | Re-measure after stage 3 (Prisma engines) and stage 15 (Playwright browsers) — those two dominate the final install size |
+| P1 | Install footprint. Before stage 3: 196 MB `node_modules`, ~215 packages. After: **457 MB, 336 packages** — Prisma is ~57% of the tree and essentially the whole delta (`@prisma/client` 95 MB, `prisma` CLI 69 MB, `@prisma/engines` 39 MB) | Native binaries, not JavaScript: one 21 MB schema-engine plus **three separate copies** of the 18–19 MB query-engine `.dylib`. Install *time* barely moved (13.9s cold / 0.28s warm) because pnpm hardlinks from its content-addressed store — disk is the cost, not wall clock | Nothing now. Stage 14 should keep `prisma` and `@prisma/engines` out of the runtime image layer. Re-measure after stage 15 (Playwright browsers) |
 | P2 | `build.inputs` excludes `**/*.test.ts(x)` | Editing a test does not invalidate a package's build cache, and therefore not `^build` for everything downstream | Done in stage 1; matters most for `packages/contracts`, which every workspace depends on |
 | P3 | Turborepo remote caching is off; `globalDependencies` is deliberately narrow | CI wall time at stage 16 | Leave off. Revisit only if CI is slow — enabling it is a one-line change |
 | P4 | `lint` is a single root `eslint .` pass rather than a turbo fan-out | One process instead of N; also keeps the ruleset in one file | Intentional. It is also why `lint` declares `dependsOn: []` — it must never serialize behind builds |
 | P5 | `@helpdesk/contracts` costs `apps/web` 14.3 kB raw / 5.3 kB gzip; **with zod bundled it is 144.6 kB / 30.4 kB gzip** | zod is ~82% of the contracts import cost — it is the number to watch, not the schemas | `sideEffects: false` is set so unused exports tree-shake. Re-measure at stage 10; if the web bundle needs trimming, the lever is importing fewer schemas into the browser, not shrinking them |
 | P6 | Schema parse cost, warmed, 20k iterations: `ticketListQuerySchema` 5.4 µs, `createTicketInputSchema` 2.3 µs | Negligible next to a SQLite round-trip. The query schema is ~2.3× the body schema (preprocess wrapper + three `repeatable()` preprocessors) | None. Recorded so it is not re-measured |
+| P8 | Index coverage vs the stage 7 query surface: the common view (`status` filter + `createdAt:desc`) plans as `SEARCH Ticket USING COVERING INDEX Ticket_statusRank_createdAt_idx` — covering, so no table row lookups | The composite index pays off exactly where it was designed to | Verified with `EXPLAIN QUERY PLAN` in stage 3 |
+| P9 | Three known non-covered paths: `q` is a full scan (leading-wildcard `LIKE` cannot use a B-tree — `DATABASE.md` says so deliberately); `priority:desc` + the `{id:"desc"}` tiebreaker falls back to a sort because `Ticket_priorityRank_idx` is single-column; `facets` is an index-only scan | Irrelevant at 63 seeded rows | Stage 7 should expect these rather than treat them as bugs. If `q` ever matters, the answer is FTS5 — explicitly deferred by the plan. If priority sorting ever matters, it is a `(priorityRank, id)` composite, not a new query |
+| P10 | **Turbo build caching was silently broken and is now fixed.** `incremental: true` writes its tsbuildinfo to `node_modules/.cache/tsc/`, which was not a declared `build` output. tsc decides whether to emit by comparing against that file, so a restored `dist` that disagreed with a surviving tsbuildinfo caused tsc to emit nothing — and the mismatch got re-cached | Severe: `packages/contracts/dist/index.js` was **absent entirely** while `pnpm build` reported success. It would have broken the runtime bundle, not just types | Fixed in stage 3 by caching the pair together: `outputs: ["dist/**", "node_modules/.cache/tsc/**"]` |
 | P7 | `test` declares `outputs: []`; coverage moved to a separate `test:coverage` task | `pnpm test` no longer warns "no output files found" on every run, and coverage output is still cached when asked for | Done in stage 2 |

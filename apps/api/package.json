@@ -1,0 +1,31 @@
+{
+  "name": "@helpdesk/api",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Helpdesk REST API — Express 5 + Prisma (SQLite)",
+  "type": "module",
+  "scripts": {
+    "postinstall": "prisma generate",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist .turbo node_modules/.cache",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset"
+  },
+  "dependencies": {
+    "@helpdesk/contracts": "workspace:*",
+    "@prisma/client": "^6.19.1",
+    "zod": "^4.4.3",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "@helpdesk/tsconfig": "workspace:*",
+    "@types/node": "^20.19.0",
+    "prisma": "^6.19.1",
+    "typescript": "^5.9.3"
+  }
+}

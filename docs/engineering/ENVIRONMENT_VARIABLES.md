@@ -6,9 +6,9 @@ Keep this file in sync with `apps/api/env.example` and `apps/web/env.example`. A
 
 | Variable | Required | Default | Read by | Purpose |
 | -------- | -------- | ------- | ------- | ------- |
-| `DATABASE_URL` | yes | `file:./data/helpdesk.db` | Prisma | SQLite file path. Relative paths resolve from `apps/api/prisma/` |
+| `DATABASE_URL` | yes | **none** | Prisma | SQLite file path. Relative paths resolve from `apps/api/prisma/`, so `file:./data/helpdesk.db` (the `env.example` value) lands at `apps/api/prisma/data/helpdesk.db`. **Deliberately has no default:** a default is what turns a missing or misordered test `setupFiles` entry into a truncated dev database instead of a boot error |
 | `PORT` | no | `4000` | `src/server.ts` | API listen port |
-| `HOST` | no | `0.0.0.0` | `src/server.ts` | Must be `0.0.0.0` in Docker; `127.0.0.1` is fine locally |
+| `HOST` | no | `0.0.0.0` | `src/server.ts` | The code default suits the container, which is where `0.0.0.0` is actually required. `env.example` ships `127.0.0.1` instead: the app has no authentication by design, so binding every interface on a laptop publishes full ticket CRUD to the LAN |
 | `NODE_ENV` | no | `development` | app-wide | `production` disables verbose errors. It does **not** control seeding — see `ALLOW_SEED` |
 | `ALLOWED_ORIGINS` | no | `http://localhost:5173,http://127.0.0.1:5173` | cors middleware | Comma-separated. **Both spellings of loopback are listed on purpose:** `localhost` and `127.0.0.1` are different origins to a browser, and Playwright drives one while the dev server prints the other. Listing only one makes every E2E request fail preflight |
 | `ALLOW_SEED` | no | unset | `prisma/seed.ts` | `true` permits seeding even under `NODE_ENV=production`. The guard is this variable, not `NODE_ENV`, so the Docker image can ship demo data while still running a production build |
@@ -39,6 +39,12 @@ Vite only exposes variables prefixed `VITE_` to client code. Anything else is si
 - No secrets exist in this project (no auth, no third-party APIs). If that changes, the secret goes in `.env` and a placeholder in `env.example` — never a real value in git.
 - API env vars are parsed **once** at boot through a zod schema in `src/lib/env.ts`. A missing or malformed required variable exits with a clear message instead of failing later as `undefined`.
 - No `process.env` access outside `src/lib/env.ts`.
+- `src/lib/env.ts` loads `apps/api/.env` itself. Without that, the Prisma CLI reads `.env` but the
+  server does not, and `db:migrate` and `pnpm dev:api` end up talking to different databases with no
+  warning. It loads with `override: false`, so a value already in `process.env` wins — that is what
+  keeps a vitest worker's `DATABASE_URL` from being replaced by the developer's `.env`.
+- A blank value is treated as absent, so `PORT=` in a compose file falls back to the default rather
+  than aborting boot. zod's `.default()` only fires on `undefined`, and `z.coerce.number("")` is `0`.
 
 ## Related
 
