@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!env.example
+
+# Database (SQLite file + WAL siblings)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+apps/api/prisma/data/
+
+# Test + tooling output
+coverage/
+playwright-report/
+test-results/
+e2e/*.db
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
