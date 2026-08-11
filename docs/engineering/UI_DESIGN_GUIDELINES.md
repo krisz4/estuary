@@ -10,16 +10,22 @@ No component library theme to fight, and no bespoke design system to maintain.
 
 ## Tokens
 
-Defined as CSS variables in `src/index.css` and mapped in `tailwind.config.ts`. Use the token, never a raw hex.
+Defined as CSS variables in `src/index.css` and mapped to Tailwind utilities in the `@theme inline` block of that same file. Use the token, never a raw hex.
+
+There is **no `tailwind.config.ts`**: Tailwind v4 is configured from CSS, and the `@tailwindcss/vite` plugin reads `index.css` directly. `@theme inline` is what turns `--background` into `bg-background`, and the `inline` keyword is load-bearing — it makes the generated utility reference `var(--background)` rather than baking in a resolved value, which is what lets `.dark` re-point every utility at runtime with no second stylesheet.
 
 | Token | Role |
 | ----- | ---- |
 | `--background` / `--foreground` | Page surface and body text |
-| `--card` / `--border` | Panel surface, hairlines |
+| `--card` / `--card-foreground`, `--popover` / `--popover-foreground` | Panel and overlay surfaces |
+| `--border`, `--input`, `--ring`, `--overlay` | Hairlines, field outlines, focus ring, dialog scrim |
 | `--muted` / `--muted-foreground` | Secondary surfaces, metadata text |
-| `--primary` | Primary actions, focus ring |
+| `--primary` | Primary actions |
+| `--neutral` | Secondary buttons, inert badges |
 | `--destructive` | Delete actions, error states |
 | `--success`, `--warning`, `--info` | Status and priority badges |
+
+Every semantic color comes as a **quartet**: `--x` (solid fill), `--x-foreground` (text on it), `--x-subtle` (tinted fill), `--x-subtle-foreground` (text on that). Badges use the subtle pair so status stays scannable across 60 rows without shouting; solid fills are reserved for actions. 36 tokens in total.
 
 Neutral base, one accent. Status color is the only strong color on the list screen — that is what makes 60 rows scannable.
 
@@ -81,6 +87,10 @@ Not exhaustive WCAG, but these are non-negotiable:
 ## Dark mode
 
 Tokens are defined under a `.dark` class and the app respects `prefers-color-scheme`. If a color is only defined in the light block, it will look wrong in dark — define both or neither.
+
+The class is the single mechanism, and `prefers-color-scheme` feeds *into* it rather than sitting beside it as a second media query: `src/lib/theme.ts` resolves a three-state preference (`light` / `dark` / `system`, default `system`) and toggles `.dark` on `<html>`. "System" is stored explicitly rather than as the absence of a stored value, so "go back to matching my OS" stays reachable after a user has once chosen a theme. An inline script in `index.html` runs the same resolution before first paint, so a dark-mode user never sees a white flash; it is a deliberate duplicate of `theme.ts` and the two must be kept in step.
+
+**The both-blocks rule is enforced, not trusted.** `apps/web/tests/design-tokens.test.ts` parses `index.css`, asserts `:root` and `.dark` declare identical key sets, fails on any empty value, and checks that `@theme inline` maps exactly the tokens that exist — no orphans in either direction. It lives in `tests/` rather than beside the CSS because it needs `node:fs`, and `apps/web` is deliberately browser-typed.
 
 ## Related
 

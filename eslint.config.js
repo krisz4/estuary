@@ -3,6 +3,7 @@ import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
+import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 
 /**
@@ -69,8 +70,27 @@ export default defineConfig(
   // Browser-side source (apps/web).
   {
     files: ["apps/web/**/*.{ts,tsx}"],
+    // The plugin is registered by hand rather than spread from its shipped
+    // config: `configs["recommended-latest"]` carries `plugins` as an *array*,
+    // which ESLint 10 rejects outright ("flat config requires plugins to be an
+    // object"). Taking the rule table and naming the plugin ourselves is the
+    // same result in a shape this ESLint accepts.
+    plugins: { "react-hooks": reactHooks },
     languageOptions: {
       globals: { ...globals.browser },
+    },
+    rules: {
+      ...reactHooks.configs["recommended-latest"].rules,
+      /**
+       * The exhaustive-deps rule is an error rather than the plugin's default
+       * warning, because `pnpm lint` runs with `--max-warnings 0` — a warning
+       * would fail the build anyway, just with a label that says it is optional.
+       *
+       * The rule earns its place on the two screens stages 11–12 build: a
+       * `useEffect` with a stale dependency is how a debounced search box stops
+       * seeing the latest query, and it produces no error, only wrong data.
+       */
+      "react-hooks/exhaustive-deps": "error",
     },
   },
 

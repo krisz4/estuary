@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Helpdesk — IT support ticket tracking" />
+    <title>Helpdesk</title>
+    <!--
+      Theme is applied before first paint so a dark-mode user never sees a white
+      flash. Inline and synchronous on purpose: a deferred module would run after
+      the first paint, which is exactly the flash this exists to prevent.
+      Mirrors `readStoredTheme` / `applyTheme` in src/lib/theme.ts.
+    -->
+    <script>
+      (function () {
+        // Only `getItem` is guarded. localStorage throws in Safari private mode
+        // and in sandboxed iframes — and wrapping the *whole* resolution in the
+        // try meant that in exactly those browsers the matchMedia fallback and
+        // the class were skipped too, so a dark-OS user got the white flash this
+        // script exists to prevent. Mirrors `safeRead()` in src/lib/theme.ts,
+        // which guards the same single call.
+        var stored = null;
+        try {
+          stored = localStorage.getItem("helpdesk.theme");
+        } catch (_) {}
+
+        var mode =
+          stored === "light" || stored === "dark"
+            ? stored
+            : window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        document.documentElement.classList.toggle("dark", mode === "dark");
+        document.documentElement.style.colorScheme = mode;
+      })();
+    </script>
+  </head>
+  <body class="h-full">
+    <div id="root" class="min-h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

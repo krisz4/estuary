@@ -1,0 +1,344 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ *
+ * Dark mode
+ *
+ * Class-based, not `@media (prefers-color-scheme: dark)`. The system
+ * preference is still respected — `src/lib/theme.ts` (and the inline script in
+ * index.html) reads `matchMedia` when no explicit choice is stored and toggles
+ * `.dark` on <html>. Doing it in one place means a single mechanism drives both
+ * the OS preference and the header toggle; a media query plus a class would
+ * give two sources of truth that disagree the moment a user overrides.
+ * ------------------------------------------------------------------ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ *
+ * Tokens
+ *
+ * Every token below is defined in BOTH blocks. That is enforced, not a
+ * convention: `tests/design-tokens.test.ts` parses this file, asserts the two blocks
+ * declare identical key sets, and fails on any empty value. A color defined in
+ * only one theme looks wrong in the other, and finding those later means
+ * re-auditing every screen (docs/engineering/UI_DESIGN_GUIDELINES.md § Dark mode).
+ *
+ * Shape: each semantic color comes as a quartet —
+ *   --x                    solid fill      (button background)
+ *   --x-foreground         text on --x
+ *   --x-subtle             tinted fill     (badge background)
+ *   --x-subtle-foreground  text on --x-subtle
+ * Badges use the subtle pair so status color stays scannable across 60 rows
+ * without shouting; solid fills are reserved for actions.
+ * ------------------------------------------------------------------ */
+
+:root {
+  /* Surfaces */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.21 0.03 256);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.03 256);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.03 256);
+  --muted: oklch(0.968 0.005 256);
+  --muted-foreground: oklch(0.47 0.02 257);
+
+  /* Lines, fields, focus, scrim */
+  --border: oklch(0.91 0.01 256);
+  --input: oklch(0.87 0.012 256);
+  --ring: oklch(0.58 0.16 254);
+  --overlay: oklch(0.21 0.03 256 / 0.5);
+
+  /* Primary — actions and focus */
+  --primary: oklch(0.52 0.17 256);
+  --primary-foreground: oklch(0.985 0 0);
+  --primary-subtle: oklch(0.95 0.03 254);
+  --primary-subtle-foreground: oklch(0.4 0.14 256);
+
+  /* Neutral — secondary buttons, inert badges */
+  --neutral: oklch(0.93 0.008 256);
+  --neutral-foreground: oklch(0.25 0.03 256);
+  --neutral-subtle: oklch(0.965 0.005 256);
+  --neutral-subtle-foreground: oklch(0.33 0.02 257);
+
+  /* Destructive — delete, error */
+  --destructive: oklch(0.52 0.19 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --destructive-subtle: oklch(0.955 0.025 25);
+  --destructive-subtle-foreground: oklch(0.44 0.17 27);
+
+  /* Success — resolved, confirmations */
+  --success: oklch(0.5 0.13 152);
+  --success-foreground: oklch(0.985 0 0);
+  --success-subtle: oklch(0.95 0.04 152);
+  --success-subtle-foreground: oklch(0.39 0.11 152);
+
+  /* Warning — high priority, caution */
+  --warning: oklch(0.58 0.13 70);
+  --warning-foreground: oklch(0.985 0 0);
+  --warning-subtle: oklch(0.96 0.04 85);
+  --warning-subtle-foreground: oklch(0.42 0.1 60);
+
+  /* Info — in progress, neutral notices */
+  --info: oklch(0.53 0.13 240);
+  --info-foreground: oklch(0.985 0 0);
+  --info-subtle: oklch(0.95 0.03 240);
+  --info-subtle-foreground: oklch(0.42 0.11 240);
+}
+
+.dark {
+  /* Surfaces */
+  --background: oklch(0.19 0.02 257);
+  --foreground: oklch(0.95 0.008 256);
+  --card: oklch(0.23 0.02 257);
+  --card-foreground: oklch(0.95 0.008 256);
+  --popover: oklch(0.24 0.02 257);
+  --popover-foreground: oklch(0.95 0.008 256);
+  --muted: oklch(0.27 0.02 257);
+  --muted-foreground: oklch(0.72 0.02 257);
+
+  /* Lines, fields, focus, scrim */
+  --border: oklch(0.32 0.02 257);
+  --input: oklch(0.38 0.02 257);
+  --ring: oklch(0.7 0.13 254);
+  --overlay: oklch(0.13 0.02 257 / 0.7);
+
+  /* Primary */
+  --primary: oklch(0.68 0.15 254);
+  --primary-foreground: oklch(0.18 0.03 257);
+  --primary-subtle: oklch(0.3 0.06 256);
+  --primary-subtle-foreground: oklch(0.85 0.09 254);
+
+  /* Neutral */
+  --neutral: oklch(0.3 0.02 257);
+  --neutral-foreground: oklch(0.95 0.008 256);
+  --neutral-subtle: oklch(0.27 0.02 257);
+  --neutral-subtle-foreground: oklch(0.86 0.012 257);
+
+  /* Destructive */
+  --destructive: oklch(0.62 0.19 25);
+  --destructive-foreground: oklch(0.16 0.03 25);
+  --destructive-subtle: oklch(0.31 0.08 25);
+  --destructive-subtle-foreground: oklch(0.86 0.09 25);
+
+  /* Success */
+  --success: oklch(0.68 0.15 152);
+  --success-foreground: oklch(0.16 0.03 152);
+  --success-subtle: oklch(0.29 0.06 152);
+  --success-subtle-foreground: oklch(0.86 0.1 152);
+
+  /* Warning */
+  --warning: oklch(0.76 0.14 75);
+  --warning-foreground: oklch(0.18 0.03 75);
+  --warning-subtle: oklch(0.31 0.06 75);
+  --warning-subtle-foreground: oklch(0.88 0.1 82);
+
+  /* Info */
+  --info: oklch(0.7 0.12 235);
+  --info-foreground: oklch(0.16 0.03 235);
+  --info-subtle: oklch(0.3 0.06 235);
+  --info-subtle-foreground: oklch(0.86 0.08 235);
+}
+
+/* ------------------------------------------------------------------ *
+ * Token → utility mapping
+ *
+ * `inline` means the generated utilities reference `var(--background)` rather
+ * than baking a resolved value, which is what lets `.dark` re-point them at
+ * runtime with no second stylesheet.
+ * ------------------------------------------------------------------ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+
+  --color-neutral: var(--neutral);
+  --color-neutral-foreground: var(--neutral-foreground);
+  --color-neutral-subtle: var(--neutral-subtle);
+  --color-neutral-subtle-foreground: var(--neutral-subtle-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-subtle-foreground: var(--destructive-subtle-foreground);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-subtle-foreground: var(--success-subtle-foreground);
+
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-subtle-foreground: var(--warning-subtle-foreground);
+
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-subtle-foreground: var(--info-subtle-foreground);
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /*
+   * Dialog motion, defined here rather than pulled from `tailwindcss-animate` /
+   * `tw-animate-css`. Those plugins own the familiar `animate-in` / `fade-in-0`
+   * names and neither is a dependency — and Tailwind v4 **silently drops
+   * unknown utilities** instead of erroring, so class names borrowed from them
+   * compile to nothing and read as working animation that never runs. Two
+   * keyframes we actually emit is the smaller, honest version.
+   *
+   * `--animate-<name>` here generates the `animate-<name>` utility; the
+   * `@keyframes` below are emitted with it.
+   */
+  --animate-overlay-in: overlay-in 150ms ease-out;
+  --animate-sheet-in: sheet-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  --animate-dialog-in: dialog-in 150ms ease-out;
+
+  @keyframes overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* Below `sm` the dialog is a bottom sheet, so it rises from the bottom edge. */
+  @keyframes sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /*
+   * From `sm` the dialog is centred with `-translate-x-1/2 -translate-y-1/2`.
+   * The keyframe therefore has to carry that translation itself — animating
+   * `transform` overrides the utility outright, and a keyframe that only scales
+   * would slam the panel to the top-left corner for the duration.
+   */
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Base layer
+ * ------------------------------------------------------------------ */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-size: 0.875rem; /* 14px body, per the design guidelines */
+    line-height: 1.5;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      Arial,
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+   * One focus ring, defined once, never removed. `focus-visible` rather than
+   * `focus` so a mouse click on a button does not leave a ring behind, while
+   * every keyboard path still shows one.
+   */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /*
+   * 16px on mobile. Anything smaller makes iOS Safari zoom the viewport on
+   * focus, which reads as a layout bug (design guidelines § Type and spacing).
+   */
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    input,
+    textarea,
+    select {
+      font-size: 0.875rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Sonner
+ *
+ * Deliberately **outside `@layer`**, and deliberately over-specific. Both are
+ * required, and the first version of this block had neither — it sat in
+ * `@layer utilities` as `[data-sonner-toaster]` and did nothing at all.
+ *
+ * Sonner injects its stylesheet into <head> at runtime. That sheet is unlayered,
+ * and unlayered CSS beats *every* `@layer` regardless of specificity, so a
+ * layered override here can never win. It is also appended after our stylesheet,
+ * so matching Sonner's own `[data-sonner-toaster][data-sonner-theme='light']`
+ * specificity (0,2,0) still loses on document order. `:root ` in front takes it
+ * to (0,3,0), which wins outright.
+ *
+ * This restyles the **neutral** toast only. `richColors` success/error toasts
+ * use Sonner's `--success-*` / `--error-*` palettes, which already follow the
+ * `theme` prop that `App.tsx` passes.
+ * ------------------------------------------------------------------ */
+:root [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--popover);
+  --normal-text: var(--popover-foreground);
+  --normal-border: var(--border);
+}
