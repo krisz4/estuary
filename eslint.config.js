@@ -1,5 +1,6 @@
 // @ts-check
 import js from "@eslint/js";
+import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
 import globals from "globals";
@@ -12,7 +13,7 @@ import globals from "globals";
  * per-workspace duplication. Workspaces layer their own overrides here (by
  * `files:` glob) instead of shipping their own config file.
  */
-export default tseslint.config(
+export default defineConfig(
   {
     ignores: [
       "**/node_modules/**",
@@ -27,10 +28,8 @@ export default tseslint.config(
     ],
   },
 
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
-
   {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",

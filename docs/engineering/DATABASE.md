@@ -4,7 +4,7 @@ SQLite accessed through Prisma. Schema: `apps/api/prisma/schema.prisma`.
 
 ## Why SQLite
 
-The brief says "a database of your preference". SQLite means a reviewer clones, runs one command, and has a working system — no Postgres container, no connection string to configure, no seed that fails because a service was not ready. The schema is portable: switching the Prisma `provider` to `postgresql` would need a migration reset, nothing structural.
+SQLite means a reviewer clones, runs one command, and has a working system — no Postgres container, no connection string to configure, no seed that fails because a service was not ready. The schema is portable: switching the Prisma `provider` to `postgresql` would need a migration reset, nothing structural.
 
 ## Schema
 
