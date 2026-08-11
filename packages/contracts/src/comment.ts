@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TICKET_ID_MAX_DIGITS } from "./reference.js";
 
 export const COMMENT_AUTHOR_NAME_MIN = 2;
 export const COMMENT_AUTHOR_NAME_MAX = 80;
@@ -44,3 +45,26 @@ export const createCommentInputSchema = z
   })
   .strict();
 export type CreateCommentInput = z.infer<typeof createCommentInputSchema>;
+
+/**
+ * `:commentId` — decimal digits only, exactly like `ticketIdParamSchema`.
+ *
+ * A segment that fails this becomes **404 `COMMENT_NOT_FOUND`**, never 422: a
+ * malformed id and a missing comment are indistinguishable to a caller, and
+ * distinguishing them turns the path into a probe
+ * (`docs/engineering/API_ERROR_CONTRACT.md` § Status conventions).
+ *
+ * Written out here rather than reused from `ticket.ts` because `ticket.ts`
+ * imports *this* module — a back-import would close the cycle. What is *not*
+ * duplicated is the digit bound: `TICKET_ID_MAX_DIGITS` comes from
+ * `reference.js`, which imports nothing and is therefore reachable from both.
+ * `comment.test.ts` asserts this schema, `ticketIdParamSchema`, and
+ * `parseReference` all agree over one shared input table — the three of them are
+ * the only ways user input becomes a ticket or comment id, and any disagreement
+ * is a URL that resolves one way through a path and another through search.
+ */
+export const commentIdParamSchema = z
+  .string()
+  .regex(new RegExp(`^\\d{1,${TICKET_ID_MAX_DIGITS}}$`))
+  .transform(Number)
+  .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));

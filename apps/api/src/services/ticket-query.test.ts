@@ -7,6 +7,7 @@ import {
   buildOrderBy,
   buildWhere,
   escapeLikePattern,
+  LIKE_ESCAPE_CHAR,
   listTickets,
   needsEscapedSearch,
   resolveTextSearch,
@@ -256,6 +257,46 @@ describe("filters", () => {
     expect(page.meta.total).toBe(0);
   });
 
+  /**
+   * **The consequence of ANDing the two predicates, stated as a test.**
+   *
+   * A drifted row is not merely filed under the wrong status — it is
+   * unreachable through the status filter entirely: it fails the *text* term
+   * under its true status and the *rank* term under the drifted one. So the
+   * union of all four statuses returns strictly fewer rows than no status
+   * filter at all, and the two `meta.total` values disagree.
+   *
+   * That is the intended trade (a drifted row is corrupt data; hiding it beats
+   * reporting it under a status it does not have), and it is pinned here so it
+   * is a decision rather than an accident. It stays hypothetical only while
+   * `applyTicketRanks()` is the sole writer of the rank columns — the stage-9
+   * seed is exactly the kind of write that could bypass it, and a seeded row
+   * that vanished from the list page would be a genuinely confusing bug.
+   */
+  it("makes a rank-drifted row unreachable under every status, so the totals disagree", async () => {
+    const healthy = await makeTicket({ status: "open" });
+    const drifted = await makeTicket({ status: "open" });
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Ticket" SET status = 'archived' WHERE id = ?`,
+      drifted.id,
+    );
+
+    const everyStatus = await listTickets(
+      query({ status: ["open", "in_progress", "resolved", "closed"] }),
+    );
+    const noFilter = await listTickets(query());
+
+    // Unreachable under the union of every legal status…
+    expect(everyStatus.data.map((ticket) => ticket.id)).toEqual([healthy.id]);
+    expect(everyStatus.meta.total).toBe(1);
+
+    // …while an unfiltered list still sees it. The two totals disagreeing is
+    // the observable symptom, and it is the point of the test.
+    expect(noFilter.data.map((ticket) => ticket.id)).toContain(drifted.id);
+    expect(noFilter.meta.total).toBe(2);
+    expect(everyStatus.meta.total).toBeLessThan(noFilter.meta.total);
+  });
+
   it("matches requesterEmail case-insensitively by lowercasing the input to match storage", async () => {
     const ticket = await makeTicket({ requesterEmail: "dana.whitfield@example.com" });
     await makeTicket({ requesterEmail: "other@example.com" });
@@ -418,6 +459,45 @@ describe("q with LIKE metacharacters", () => {
 
     expect(ids).toEqual([open.id]);
     expect(ids).not.toContain(resolved.id);
+  });
+
+  /**
+   * **The coupling test for `LIKE_ESCAPE_CHAR`.**
+   *
+   * SQLite will not accept a bind parameter after `ESCAPE`, so the literal in
+   * `resolveTextSearch`'s SQL is a hand-maintained copy of the constant. This
+   * asserts the copy is in step — and it asserts it against the *disagreement
+   * itself* rather than against a helper's output: `escapeLikePattern` doubles
+   * whatever `LIKE_ESCAPE_CHAR` says, the SQL declares whatever its literal
+   * says, and only a round trip through the database can tell whether those two
+   * are the same character.
+   *
+   * Change the constant to `#` without changing the SQL and this fails: the
+   * pattern arrives as `%a#%b%` while SQLite still treats `!` as its escape
+   * character, so `#` and `%` are both taken literally, the wildcard match
+   * disappears, and the search silently returns nothing.
+   */
+  it("declares the same escape character in its SQL that escapeLikePattern emits", async () => {
+    const literal = await makeTicket({
+      // Contains the escape character *and* a wildcard, so the pattern only
+      // matches if the two sides agree on which one is which.
+      title: `Payment ${LIKE_ESCAPE_CHAR}% surcharge`,
+      description: "Nothing else",
+    });
+    const decoy = await makeTicket({ title: "Payment XY surcharge", description: "Nothing else" });
+
+    const term = `${LIKE_ESCAPE_CHAR}%`;
+    expect(needsEscapedSearch(term), "the probe term must take the raw path").toBe(true);
+
+    const matched = await resolveTextSearch(prisma, term);
+
+    expect(matched).toContain(literal.id);
+    expect(matched).not.toContain(decoy.id);
+    // And the escaped form really is the doubled-then-escaped spelling, so a
+    // pass above cannot come from escaping having been skipped altogether.
+    expect(escapeLikePattern(term)).toBe(
+      `${LIKE_ESCAPE_CHAR}${LIKE_ESCAPE_CHAR}${LIKE_ESCAPE_CHAR}%`,
+    );
   });
 
   it("takes the raw prefilter path only for a term carrying a LIKE metacharacter", () => {

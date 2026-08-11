@@ -5,6 +5,15 @@ import { env } from "./lib/env.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFound } from "./middleware/notFound.js";
 import { requestId } from "./middleware/requestId.js";
+import { commentsRouter } from "./routes/comments.route.js";
+import { ticketsRouter } from "./routes/tickets.route.js";
+
+/**
+ * The API version prefix. `GET /health` deliberately sits outside it, at the
+ * root, because a Docker healthcheck should not have to move the day the version
+ * does.
+ */
+export const API_V1 = "/api/v1";
 
 /**
  * Express application **factory**. It does not call `listen()` — `server.ts`
@@ -18,7 +27,7 @@ import { requestId } from "./middleware/requestId.js";
  *   requestId    →  every response, including a body-parser failure, carries an id
  *   cors         →  ALLOWED_ORIGINS
  *   json         →  BODY_LIMIT; failures surface as entity.parse.failed / entity.too.large
- *   routers      →  /health at the root, /api/v1/* from stage 8 onwards
+ *   routers      →  /health at the root, /api/v1/tickets(/…/comments) below it
  *   notFound     →  unmatched path or verb → NOT_FOUND 404
  *   errorHandler →  the single exit for every failure
  * ```
@@ -36,7 +45,10 @@ import { requestId } from "./middleware/requestId.js";
  * consequence was demonstrated.
  *
  * Express 5 forwards a rejected promise from an async handler to the error
- * chain on its own, so there is no `express-async-handler` here.
+ * chain on its own, so there is no `express-async-handler` package here. Route
+ * handlers still go through the local one-line `asyncHandler()`
+ * (`lib/asyncHandler.ts`) — explicit at the call site, and correct if the
+ * framework is ever downgraded.
  */
 export function createApp(): Express {
   const app = express();
@@ -76,7 +88,19 @@ export function createApp(): Express {
     });
   });
 
-  // Stage 8 mounts /api/v1 here.
+  /**
+   * `/api/v1`, mounted between the parser and `notFound` because that window is
+   * the only place a router keeps both halves of the contract: a request id
+   * (assigned above) and the error envelope (written below).
+   *
+   * The comment router is mounted at its own absolute path rather than nested
+   * inside `ticketsRouter`, so the two files stay independent of each other and
+   * the full URL of every endpoint is readable here. Order between the two does
+   * not matter — `ticketsRouter` declares nothing that matches a three-segment
+   * path — but comments are listed first so the more specific mount reads first.
+   */
+  app.use(`${API_V1}/tickets/:ticketId/comments`, commentsRouter);
+  app.use(`${API_V1}/tickets`, ticketsRouter);
 
   if (env.NODE_ENV === "test") mountDiagnosticRoutes(app);
 

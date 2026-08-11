@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { commentSchema } from "./comment.js";
+import { TICKET_ID_MAX_DIGITS } from "./reference.js";
 
 /* ------------------------------------------------------------------ *
  * Enums
@@ -182,10 +183,19 @@ export const hasAtLeastOneField = (input: UpdateTicketInput): boolean =>
  * URLs. It would also disagree with `parseReference()`, the other entry point
  * that turns user input into a ticket id — and two disagreeing parsers for the
  * same concept is how `q=1e3` and `/tickets/1e3` end up resolving differently.
+ *
+ * **The `{1,15}` bound is the other half of that agreement, and it was missing
+ * until it was measured.** With a bare `\d+`, `/tickets/0000000000000000042`
+ * returned ticket 42 while `?q=0000000000000000042` matched nothing — two
+ * parsers for one concept, disagreeing exactly as the paragraph above says they
+ * must not, because `parseReference` caps its digit run at 15 and this did not.
+ * A leading-zero id is still an alias (`/tickets/042` is ticket 42), but it is
+ * now an alias *both* parsers accept, which is the property that matters.
+ * `comment.test.ts` compares all three parsers against one shared input table.
  */
 export const ticketIdParamSchema = z
   .string()
-  .regex(/^\d+$/)
+  .regex(new RegExp(`^\\d{1,${TICKET_ID_MAX_DIGITS}}$`))
   .transform(Number)
   .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
 

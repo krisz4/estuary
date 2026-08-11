@@ -53,12 +53,14 @@ The contracts package is bundled into browser code, so it must stay runtime-agno
 
 | Layer         | May import                              | Must not                      |
 | ------------- | --------------------------------------- | ----------------------------- |
-| `routes/`     | contracts, services, middleware helpers | Prisma                        |
+| `routes/`     | contracts, services, `lib/` helpers     | Prisma                        |
 | `services/`   | contracts, `lib/prisma`, other services | `req` / `res` / Express types |
 | `lib/`        | contracts, third-party                  | services, routes              |
 | `middleware/` | contracts, `lib/errors`                 | services                      |
 
-The rule that matters: **routes do not touch Prisma, services do not touch HTTP.** That is what makes services testable without booting a server, and it is the boundary a reviewer checks first.
+The rule that matters: **routes do not touch Prisma, services do not touch HTTP.** That is what makes services testable without booting a server, and it is the boundary a reviewer checks first. `apps/api/src/routes/layers.test.ts` asserts both halves against the source text, so the rule fails a test run rather than a code review.
+
+The `lib/` helpers a route uses are `asyncHandler` (the local one-liner, not the `express-async-handler` package), `params` (path-parameter parsing, where a malformed id becomes a 404 rather than a 422), and the `errors` factories.
 
 ### Request lifecycle
 
@@ -69,8 +71,8 @@ request
   → json body parser   1MB limit
   → router             zod-parse params/query/body  ─┐ throws ZodError
   → service            business rules + Prisma       ─┤ throws ApiError
-  → serialize          Date → ISO, add `reference`   ─┘
-  → res.json                                          │
+      └─ serialize     Date → ISO, add `reference`   ─┘ (inside the service)
+  → res.json           whatever the service returned  │
   → notFound (unmatched path or verb → 404)           │
   → errorHandler ◄──────────────────────────────────── (single exit for all failures)
 ```

@@ -1,0 +1,47 @@
+import { commentIdParamSchema, ticketIdParamSchema } from "@helpdesk/contracts";
+
+import { commentNotFound, ticketNotFound } from "./errors.js";
+
+/**
+ * Path-parameter parsing, and the one rule that makes it worth its own module:
+ * **a malformed id is a 404, not a 422.**
+ *
+ * `/tickets/abc` and `/tickets/999999` must be indistinguishable to a caller
+ * (`docs/engineering/API_ERROR_CONTRACT.md` § Status conventions). A 422 on the
+ * first and a 404 on the second tells a prober which ids are well-formed, and it
+ * leaks the shape of the key space for no benefit — the client cannot act on the
+ * difference either way.
+ *
+ * So the parse failure is swallowed here and re-thrown as the resource's own
+ * not-found error, rather than being allowed to reach `errorHandler` as a
+ * `ZodError` (which would become `VALIDATION_ERROR` 422). This is the **only**
+ * place in the API where a zod failure is deliberately not a 422.
+ *
+ * The schemas themselves are decimal-digits-only, not `z.coerce.number()` — see
+ * `packages/contracts/src/ticket.ts`. Loosening them would serve ticket 42 under
+ * `/tickets/0x2a`, `/tickets/1e3`, and `/tickets/%2012%20`, and would disagree
+ * with `parseReference()`, the other parser that turns user input into an id.
+ */
+
+/**
+ * `:ticketId` → a positive integer, or `TICKET_NOT_FOUND` (404).
+ *
+ * The parameter is typed `unknown` rather than `string`. Express 5 types
+ * `req.params[k]` as `string | string[] | undefined`, and the array case is real
+ * — a router mounted with `mergeParams` under a path that names the same
+ * parameter twice yields one. Narrowing with a cast would make that case a
+ * `TypeError` inside zod; handing it to the schema makes it an ordinary 404,
+ * which is what a caller who sent a nonsense path should get.
+ */
+export const parseTicketId = (raw: unknown): number => {
+  const parsed = ticketIdParamSchema.safeParse(raw);
+  if (!parsed.success) throw ticketNotFound();
+  return parsed.data;
+};
+
+/** `:commentId` → a positive integer, or `COMMENT_NOT_FOUND` (404). Typed as above. */
+export const parseCommentId = (raw: unknown): number => {
+  const parsed = commentIdParamSchema.safeParse(raw);
+  if (!parsed.success) throw commentNotFound();
+  return parsed.data;
+};

@@ -44,8 +44,12 @@ No `updatedAt`: comments are append-only. There is no edit endpoint, because an 
 
 | Method | Path | Purpose | Success |
 | ------ | ---- | ------- | ------- |
-| `POST` | `/api/v1/tickets/:ticketId/comments` | Add a comment | `201` + the created comment |
-| `DELETE` | `/api/v1/tickets/:ticketId/comments/:commentId` | Remove one | `204` |
+| `POST` | `/api/v1/tickets/:ticketId/comments` | Add a comment | `201` + `Location` + the created comment |
+| `DELETE` | `/api/v1/tickets/:ticketId/comments/:commentId` | Remove one | `204`, no body |
+
+There is no `GET` and no `PUT`. The thread ships with its ticket (`GET /tickets/:ticketId` includes `comments`), so a second read path would need its own ordering and paging rules to keep in step with the first; and comments are append-only, so there is nothing to `PUT`. Both fall through to the `notFound` middleware as `NOT_FOUND` 404 — the contract has no `METHOD_NOT_ALLOWED`.
+
+The router is mounted at `/api/v1/tickets/:ticketId/comments` with `Router({ mergeParams: true })`. Without that flag `:ticketId` is captured by the mount path and never reaches the handler, so every comment request 404s — which reads as "the ticket does not exist" rather than "the router is misconfigured".
 
 ```http
 POST /api/v1/tickets/42/comments
@@ -68,8 +72,10 @@ The composer sits below the thread with the author name and body fields. On succ
 | Code | Status | When |
 | ---- | ------ | ---- |
 | `TICKET_NOT_FOUND` | 404 | Parent ticket missing, or `:ticketId` is not a positive integer |
-| `COMMENT_NOT_FOUND` | 404 | Comment missing, or not on this ticket |
+| `COMMENT_NOT_FOUND` | 404 | Comment missing, not on this ticket, or `:commentId` is not a positive integer |
 | `VALIDATION_ERROR` | 422 | Empty body, over-length body, missing author |
+
+The body is validated **before** the parent is looked up, so `POST /tickets/999999/comments` with an invalid payload is a 422, not a 404. Either answer would be defensible; a route test pins which one the API gives so a reordering of the handler is a visible change.
 
 ## Related pages
 

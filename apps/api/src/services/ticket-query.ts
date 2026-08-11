@@ -64,7 +64,15 @@ const startOfNextUtcDay = (isoDate: string): Date =>
  * escaping is already happening, which is exactly the assumption this constant
  * exists to correct.
  */
-const LIKE_ESCAPE_CHAR = "!";
+export const LIKE_ESCAPE_CHAR = "!";
+
+/**
+ * Makes a literal safe to drop inside a regular-expression character class.
+ *
+ * `!` needs no escaping, but this constant is a knob someone may turn, and `^`,
+ * `]`, `-`, and `\` all change a class's meaning rather than joining it.
+ */
+const escapeRegExp = (value: string): string => value.replaceAll(/[\\^\]$.*+?()[{}|/-]/g, "\\$&");
 
 /**
  * Escapes the three characters `LIKE … ESCAPE '!'` treats specially.
@@ -92,9 +100,13 @@ export const escapeLikePattern = (value: string): string =>
  * ordering, identical paging. There is nothing to choose between them on
  * correctness, and `contains` is strictly cheaper (see below).
  *
- * `!` is in the class because it is the **escape character**: a term containing
- * it is one whose escaped form differs from itself (`!` → `!!`), so it is exactly
- * a term the no-op argument does not cover.
+ * The escape character is in the class because it is the escape character: a
+ * term containing it is one whose escaped form differs from itself (`!` → `!!`),
+ * so it is exactly a term the no-op argument does not cover. It is therefore
+ * **derived from `LIKE_ESCAPE_CHAR` rather than written out** — a hardcoded `!`
+ * here would silently stop matching the constant the day the constant changed,
+ * and the symptom would be a wildcard term taking the fast path and having its
+ * escape character treated as a wildcard.
  *
  * Why not simply always take the raw path: it charges every search for a problem
  * only some searches have. An `id IN (…)` page gives up `Ticket_createdAt_idx`
@@ -102,7 +114,7 @@ export const escapeLikePattern = (value: string): string =>
  * per match against SQLite's `SQLITE_MAX_VARIABLE_NUMBER`. `?q=printer` — which
  * has no wildcard in it at all — should pay neither.
  */
-const LIKE_METACHARACTERS = /[%_!]/;
+const LIKE_METACHARACTERS = new RegExp(`[%_${escapeRegExp(LIKE_ESCAPE_CHAR)}]`);
 
 export const needsEscapedSearch = (q: string): boolean => LIKE_METACHARACTERS.test(q);
 
@@ -145,6 +157,23 @@ export async function resolveTextSearch(
 ): Promise<number[]> {
   const pattern = `%${escapeLikePattern(q)}%`;
 
+  /**
+   * **`ESCAPE '!'` is a hand-maintained copy of `LIKE_ESCAPE_CHAR`, and it has
+   * to be.** SQLite requires a literal after `ESCAPE` — it will not accept a
+   * bind parameter there (`ESCAPE ?` is a syntax error), and interpolating the
+   * constant into the template would defeat the whole point of using
+   * `$queryRaw` as a tagged template, which is that *every* interpolation is a
+   * bound parameter by construction.
+   *
+   * So the coupling is real and it is manual: **change `LIKE_ESCAPE_CHAR` and
+   * you must change both literals below.** Left out of step, `escapeLikePattern`
+   * emits (say) `#%` while SQLite still treats `!` as the escape character, so
+   * `#` and `%` both reach `LIKE` as ordinary characters and every wildcard
+   * search silently returns zero rows with `meta.total: 0` — no error, no log.
+   * `ticket-query.test.ts` asserts the two agree by round-tripping a term
+   * containing the escape character against a real row, so the disagreement
+   * fails a test rather than a user's search.
+   */
   const rows = await client.$queryRaw<{ id: number }[]>`
     SELECT id FROM "Ticket"
     WHERE title LIKE ${pattern} ESCAPE '!'
@@ -194,6 +223,17 @@ export type TicketWhereQuery = Pick<
  *    `meta.total`, not merely a wrong order. SQLite still uses the index for the
  *    rank term and applies the text term as a residual predicate — verified with
  *    `EXPLAIN QUERY PLAN`.
+ *
+ *    **State the consequence plainly: the two terms are ANDed, so a drifted row
+ *    is not misfiled, it is unreachable.** It fails the text term under its true
+ *    status and the rank term under the drifted one, so *no* `?status=` value
+ *    returns it — asking for all four statuses at once yields strictly fewer
+ *    rows, and a smaller `meta.total`, than sending no status filter at all.
+ *    That is the intended trade (a drifted row is corrupt data, and hiding it
+ *    beats reporting it under a status it does not have), and it stays
+ *    hypothetical only while `applyTicketRanks()` is the sole writer of the rank
+ *    columns. The stage-9 seed is exactly the kind of write that could bypass it.
+ *    Both halves are pinned by tests; do not drop either predicate.
  *
  *    (An index *search*, not a covering one: the list projects every column.
  *    Measured in stage 7 — see `docs/engineering/DATABASE.md` § Indexes.)

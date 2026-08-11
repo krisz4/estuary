@@ -54,7 +54,18 @@ It matches the **whole** number, not a prefix: `q=HD-4` finds ticket 4, not tick
 
 ## Route parameter validation
 
-`:ticketId` is parsed with `z.coerce.number().int().positive()`. A non-numeric path segment (`/tickets/abc`) fails that parse and returns **404 `TICKET_NOT_FOUND`**, not 422 — a malformed id and a missing ticket are indistinguishable to a caller, and treating them differently just tells a prober which ids are well-formed.
+`:ticketId` is parsed by `ticketIdParamSchema` in `packages/contracts/src/ticket.ts`, and `:commentId` by `commentIdParamSchema` beside it. A non-numeric path segment (`/tickets/abc`) fails that parse and returns **404 `TICKET_NOT_FOUND`**, not 422 — a malformed id and a missing ticket are indistinguishable to a caller, and treating them differently just tells a prober which ids are well-formed. `apps/api/src/lib/params.ts` is where the parse failure is turned into that 404, and it is the only place in the API where a zod failure is deliberately not a 422.
+
+**Both schemas are `z.string().regex(/^\d{1,15}$/)` piped into `z.number().int().positive()` — decimal digits only, bounded, and not `z.coerce.number()`.** Coercion accepts `"0x2a"`, `"1e3"`, and `" 12 "`, which would serve ticket 42 under three alias URLs, and it would disagree with `parseReference()`: `?q=1e3` and `/tickets/1e3` would resolve differently.
+
+**The `{1,15}` bound is the half that was missing and had to be measured.** With a bare `\d+`, `/tickets/0000000000000000042` returned ticket 42 while `?q=0000000000000000042` matched nothing — the two parsers disagreeing exactly as this section says they must not, because `parseReference` caps its digit run at 15 and the schemas did not. All three now take that bound from a single exported `TICKET_ID_MAX_DIGITS` in `packages/contracts/src/reference.ts` (15 is the widest run of digits that always fits inside `Number.MAX_SAFE_INTEGER`). It lives in `reference.ts` because `ticket.ts` imports `comment.ts`, so neither of those can share a constant with the other without closing an import cycle.
+
+Two things this deliberately does **not** claim:
+
+- **Leading zeros still alias.** `/tickets/042` is ticket 42. That is fine — what matters is that `?q=042` resolves to ticket 42 as well. The goal is agreement between the parsers, not a single canonical spelling.
+- **Whitespace is the one place they diverge, on purpose.** `parseReference(" 12 ")` is 12, because a user pastes a search term with stray spaces and means the number inside it; `/tickets/%2012%20` is a 404, because a path segment carries no such intent and accepting it would add an alias for nothing. The param schemas are the stricter of the two, and only in that direction.
+
+`packages/contracts/src/comment.test.ts` compares **all three** parsers over one shared input table — including `0000000000000000042`, `042`, `1e3`, `0x2a`, `" 12 "`, and the empty string — and asserts the shared digit cap. The earlier version of that test compared the two param schemas only to each other, which is why it passed while both disagreed with the third. A route test additionally asserts `/tickets/0x2a` and `/tickets/1e3` are 404s while `/tickets/42` is a 200.
 
 ## Related pages
 
