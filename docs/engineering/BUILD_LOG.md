@@ -16,7 +16,8 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 
 | Stage | Gate | Review | Commit |
 | ----- | ---- | ------ | ------ |
-| 1 · Monorepo shell | pass — `pnpm install`, `typecheck`, `lint` clean; gates verified non-vacuous with throwaway probes | 10 findings, 8 fixed in-stage, 2 deferred (D1, D2) | `chore: scaffold monorepo shell` |
+| 1 · Monorepo shell | pass — `pnpm install`, `typecheck`, `lint` clean; gates verified non-vacuous with throwaway probes | 10 findings, 8 fixed in-stage, 2 deferred (D1, D2) | `Scaffold monorepo shell` |
+| 2 · `packages/contracts` | pass — 155 tests green, builds, and imports cleanly from both a real `node` ESM scratch file and a real `vite build` (no `node:*` in the browser bundle) | 5 findings, all 5 fixed in-stage | `Add packages/contracts` |
 
 ## Deferred work
 
@@ -24,8 +25,9 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | - | ---- | --------- | --------------- | -------- |
 | D1 | `pnpm test:e2e` has no runner — `@playwright/test` is not installed | Stage 1 review #4 | Playwright pulls browser binaries; nothing before stage 15 uses it, and it is not in any earlier gate | Stage 15 |
 | D2 | `packages/tsconfig/react-app.json` is unexercised — `types: ["vite/client"]` needs Vite present | Stage 1 review | No React app exists yet; option-set correctness was verified with `tsc`, resolution cannot be | Stage 10 |
-| D3 | `pnpm test` is a turbo passthrough with no package implementing `test` | Stage 1 | vitest arrives with the first workspace that has tests | Stage 2 |
+| ~~D3~~ | ~~`pnpm test` is a turbo passthrough with no package implementing `test`~~ | Stage 1 | — | **Resolved in stage 2** — vitest is in the graph; `test:coverage` wired too |
 | D4 | pnpm pinned at `11.1.2` while `11.21.0` is available | Stage 1 | A version bump wants CI to agree with the pin; both should move together | Stage 16 |
+| D5 | Schemas carry no `.openapi()` metadata | Stage 2 | `@asteasolutions/zod-to-openapi` would be a second runtime dependency in a package whose hard constraint is "zod and nothing else". Its v9 peers `zod ^4`, so it can extend these schemas from `apps/api` without touching this package | Stage 9 |
 
 ### Constraints established for later stages
 
@@ -34,6 +36,16 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
   `Bundler` resolution emits extensionless specifiers, which `apps/api` (NodeNext) cannot resolve —
   it fails as `TS2307` on the first cross-package import. Source imports in contracts are therefore
   written `from "./ticket.js"`. Raised as Stage 1 review finding #5, fixed before it could bite.
+- **Stage 7 must import `parseReference` from `@helpdesk/contracts`, not reimplement it.** The plan
+  lists it under stage 7's `services/ticket-query.ts`, but `Validation_And_Contracts.md` and
+  `Ticket_Numbering.md` both place `reference.ts` in contracts — and the web app needs it too. Built
+  in stage 2 per the "spec wins over plan" rule.
+- **`ticketIdParamSchema` and `parseReference` must agree.** Both turn user input into a ticket id;
+  the param schema is decimal-digits-only (not `z.coerce.number()`, which resolves `"0x2a"`, `"1e3"`,
+  and `" 12 "` all to 42). A test asserts the two parsers agree. Stage 8 should not loosen it.
+- **`updateTicketInputSchema` accepts `{}` on purpose.** `AT_LEAST_ONE_FIELD` is its own 422 code
+  with no field details; a zod `.refine()` would collapse it into `VALIDATION_ERROR`. Stage 8's route
+  calls the exported `hasAtLeastOneField()` after parsing.
 
 ## Performance ledger
 
@@ -46,3 +58,6 @@ justifies it — the project is a graded take-home on SQLite, not a system under
 | P2 | `build.inputs` excludes `**/*.test.ts(x)` | Editing a test does not invalidate a package's build cache, and therefore not `^build` for everything downstream | Done in stage 1; matters most for `packages/contracts`, which every workspace depends on |
 | P3 | Turborepo remote caching is off; `globalDependencies` is deliberately narrow | CI wall time at stage 16 | Leave off. Revisit only if CI is slow — enabling it is a one-line change |
 | P4 | `lint` is a single root `eslint .` pass rather than a turbo fan-out | One process instead of N; also keeps the ruleset in one file | Intentional. It is also why `lint` declares `dependsOn: []` — it must never serialize behind builds |
+| P5 | `@helpdesk/contracts` costs `apps/web` 14.3 kB raw / 5.3 kB gzip; **with zod bundled it is 144.6 kB / 30.4 kB gzip** | zod is ~82% of the contracts import cost — it is the number to watch, not the schemas | `sideEffects: false` is set so unused exports tree-shake. Re-measure at stage 10; if the web bundle needs trimming, the lever is importing fewer schemas into the browser, not shrinking them |
+| P6 | Schema parse cost, warmed, 20k iterations: `ticketListQuerySchema` 5.4 µs, `createTicketInputSchema` 2.3 µs | Negligible next to a SQLite round-trip. The query schema is ~2.3× the body schema (preprocess wrapper + three `repeatable()` preprocessors) | None. Recorded so it is not re-measured |
+| P7 | `test` declares `outputs: []`; coverage moved to a separate `test:coverage` task | `pnpm test` no longer warns "no output files found" on every run, and coverage output is still cached when asked for | Done in stage 2 |
