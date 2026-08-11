@@ -16,6 +16,7 @@ Documentation for the helpdesk ticketing system. AI agents start at [AGENTS.md](
 | Doc | Description |
 | --- | ----------- |
 | [ARCHITECTURE.md](./engineering/ARCHITECTURE.md) | Monorepo layout, layer boundaries, request lifecycle, key decisions |
+| [IMPLEMENTATION_PLAN.md](./engineering/IMPLEMENTATION_PLAN.md) | Build order from empty repo to submission: 16 stages, their gates, and the dependency graph |
 | [DATABASE.md](./engineering/DATABASE.md) | Prisma schema, indexes, SQLite caveats, migration workflow |
 | [API_ERROR_CONTRACT.md](./engineering/API_ERROR_CONTRACT.md) | Error envelope, code table, status mapping |
 | [ENVIRONMENT_VARIABLES.md](./engineering/ENVIRONMENT_VARIABLES.md) | Every env var, its default, and who reads it |
