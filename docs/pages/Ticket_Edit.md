@@ -22,8 +22,10 @@ Task 4.5 of the brief.
 
 | Component | Role |
 | --------- | ---- |
-| `TicketForm` | **Same component as [Ticket_Create.md](./Ticket_Create.md)**, with `mode="edit"` — adds the status field and changes the submit label to "Save changes" |
-| `PageHeader` | "Edit HD-000042" + Cancel |
+| `TicketForm` | **Same component as [Ticket_Create.md](./Ticket_Create.md)**, with `mode="edit"` — swaps the resolver to `updateTicketInputSchema`, adds the status field, and changes the submit label to "Save changes". Those three are the only differences |
+| `PageHeader` | Back link + "Edit HD-000042" |
+| `DetailField` | The read-only metadata `<dl>` below the form |
+| `ConfirmDialog` | Discard confirmation |
 | `FormSkeleton`, `ErrorPanel`, `NotFoundState` | Async states |
 
 ### Hooks / API calls
@@ -46,9 +48,9 @@ Not editable: `id`, `createdAt`, `resolvedAt`, `closedAt`. They render as read-o
 ## Behavior / UI flow
 
 1. Load the ticket, then `reset()` the form with its values. The form does not render before data arrives — a form that repopulates after mount fights anything already typed.
-2. **Only changed fields are sent.** The submit handler diffs against the loaded values and PATCHes the subset. Sending the whole object would clobber a concurrent change to a field the user never touched.
+2. **Only changed fields are sent.** `diffTicketPatch()` compares the schema's *output* against **the ticket the form was initialised from** — a snapshot taken once at mount (`TicketEditForm`'s `baselineRef`), never the live query data. react-hook-form reads `defaultValues` once, so a refetch landing after mount would otherwise make the diff see a field the user never touched as changed and PATCH the stale value over someone else's edit. That is the exact loss the diff exists to prevent, so the two sides of the comparison must come from the same moment. It PATCHes the subset. Both sides are then in the server's canonical shape (`null` for a cleared optional, a trimmed title, a lowercased email), so a trailing space the user typed is correctly *not* a change. Sending the whole object would clobber a concurrent change to a field the user never touched.
 3. If nothing changed, submit short-circuits to a "No changes to save" info toast and does not call the API (the server would answer `AT_LEAST_ONE_FIELD` anyway).
-4. Status changes go through the same lifecycle guard as the detail page — see [../features/Ticket_Status_Lifecycle.md](../features/Ticket_Status_Lifecycle.md). An illegal transition surfaces inline on the status field with the allowed targets.
+4. Status changes go through the same lifecycle guard as the detail page — see [../features/Ticket_Status_Lifecycle.md](../features/Ticket_Status_Lifecycle.md). An illegal transition surfaces inline on the status field with the allowed targets, built from the server's `details.allowed` by `lib/statusTransition.ts`. Neither screen keeps a local copy of the transition table: the guard is deliberately permissive and has been loosened before, and a client-side copy would forbid something the server allows with nothing failing anywhere.
 5. **Success** — invalidate `queryKeys.tickets.detail(id)` and `queryKeys.tickets.all`, toast "Changes saved", navigate back to `/tickets/:id` with `replace: true`.
 6. **Cancel / dirty guard** — identical to create: untouched cancels immediately, dirty confirms discard.
 

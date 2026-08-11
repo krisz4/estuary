@@ -1,5 +1,5 @@
 import { FilterX, Inbox, Plus } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { Pagination } from "@/components/Pagination";
@@ -148,6 +148,8 @@ const ListEmptyState = ({
   onClearFilters: () => void;
   onFirstPage: () => void;
 }) => {
+  const { search } = useLocation();
+
   if (isPastEnd) {
     return (
       <EmptyState
@@ -181,7 +183,9 @@ const ListEmptyState = ({
       description="When someone reports a problem, it will show up here."
       action={
         <Button asChild>
-          <Link to="/tickets/new">
+          {/* Same `{ from }` the rows attach, so cancelling out of the form
+              comes back to this URL rather than a bare `/tickets`. */}
+          <Link to="/tickets/new" state={search === "" ? undefined : { from: search }}>
             <Plus aria-hidden="true" />
             Create the first ticket
           </Link>

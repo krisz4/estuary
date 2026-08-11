@@ -22,13 +22,15 @@ Task 4.2 of the brief — a separate page, not a modal, so the URL is shareable.
 
 | Component | Role on this page |
 | --------- | ----------------- |
-| `PageHeader` | Back link to the list (preserving the previous query string), reference + title, action buttons |
-| `StatusSelect` | Inline status change — the most common action, so it does not require entering the edit form |
-| `StatusBadge`, `PriorityBadge` | Current state |
+| `PageHeader` (`src/components/`) | Back link to the list (preserving the previous query string), reference + title, action buttons |
+| `StatusSelect` (`src/features/tickets/`) | Inline status change — the most common action, so it does not require entering the edit form |
+| `PriorityBadge` | Current priority |
 | `DetailField` | Label/value pair used for requester, assignee, category, timestamps |
-| `CommentThread` (`src/features/comments/`) | Ordered list of comments + composer |
-| `ConfirmDialog` | Destructive delete confirmation |
+| `CommentThread` (`src/features/comments/`) | Ordered list of comments + `CommentComposer` |
+| `ConfirmDialog` (`src/components/`) | Destructive delete confirmation, for the ticket and for each comment |
 | `DetailSkeleton`, `ErrorPanel`, `NotFoundState` | Async states |
+
+**There is no `StatusBadge` on this page.** `StatusSelect` shows the current status *and* is the control that changes it; a badge repeating the same word directly below it reads as two different facts about the ticket. The badge stays on the list, where there is no control to carry the value.
 
 ### Hooks / API calls
 
@@ -45,11 +47,11 @@ Query key: `queryKeys.tickets.detail(ticketId)`. Every mutation on this page inv
 ## Behavior / UI flow
 
 1. **Header** — `HD-000042` as small muted text above the title; title as `<h1>`. Right side: "Edit" (→ `/tickets/:id/edit`) and "Delete" (destructive variant).
-2. **Back link** returns to the list carrying the previous search params from `location.state.from`, so a user does not lose their filters. If opened directly (no state), it goes to bare `/tickets`.
-3. **Summary grid** — status, priority, category, requester (name + mailto link), assignee (or "Unassigned"), created, updated, resolved/closed when set. Timestamps show relative time with the absolute value in `title` and in a `<time datetime>` attribute.
+2. **Back link** returns to the list carrying the previous search params from `location.state.from`, so a user does not lose their filters. The list rows attach it (`<Link state={{ from: search }}>` in `TicketTable` / `TicketCardList`); the detail URL itself stays clean, because a pasted link should not resurrect a stranger's filters. `location.state` is user-writable through `history.pushState`, so `backToListPath()` validates it and falls back to bare `/tickets` for anything that is not a string.
+3. **Summary grid** — priority, category (or "Uncategorised"), requester (name + mailto link), assignee (or "Unassigned"), created, updated, resolved/closed when set. Status is above it, on the `StatusSelect`. Timestamps show relative time with the absolute value in `title` and in a `<time datetime>` attribute.
 4. **Description** — plain text with `whitespace-pre-wrap` so the requester's line breaks survive. Rendered as a text node; never `dangerouslySetInnerHTML`.
 5. **Inline status change** — selecting a new status fires the PATCH immediately with an optimistic update; the select is disabled while in flight. On failure it rolls back and shows the error inline next to the control (an `INVALID_STATUS_TRANSITION` lists the allowed targets from `details.allowed`).
-6. **Comments** — oldest first. Each shows author, relative timestamp, body, and a delete button. The delete button is revealed on hover/focus **only under `@media (hover: hover)`**; on touch devices it is always visible, since a hover-gated control is simply unreachable there. The composer (author name + body) sits below the thread; submit is disabled while empty or pending. On success the form clears and the new comment gets focus. On failure the typed text stays.
+6. **Comments** — oldest first, in the server's order (never re-sorted client-side: the seed puts several comments in the same millisecond and only the `id` tiebreaker makes them stable). Each shows author, relative timestamp, body, and a delete button, which opens the same `ConfirmDialog`. The delete button is revealed on hover/focus **only under `@media (hover: hover)`**, via the `can-hover:` custom variant defined in `index.css`; on touch devices it is always visible, since a hover-gated control is simply unreachable there. **Do not write this as the arbitrary variant `[@media(hover:hover)]:`** — Tailwind v4 drops that form silently, leaving the class in the DOM with no rule behind it. The composer (author name + body) sits below the thread; submit is disabled while empty or pending. On success the form clears and the new comment gets focus. On failure the typed text stays.
 7. **Delete** — opens `ConfirmDialog` naming the ticket ("Delete HD-000042? This also deletes its 3 comments. This can't be undone."). On confirm: DELETE, invalidate the list, toast, navigate to `/tickets`. Cancel is the default-focused button.
 
 ## States
@@ -67,8 +69,8 @@ Query key: `queryKeys.tickets.detail(ticketId)`. Every mutation on this page inv
 
 | Breakpoint | Layout |
 | ---------- | ------ |
-| < `md` | Single column. Summary grid becomes a stacked definition list. Edit/Delete move into the header as icon buttons with labels in an overflow menu. Comment composer fields stack full-width |
-| ≥ `md` | Two columns: description + comments (main), summary fields (aside, `w-72`) |
+| < `md` | Single column, and the **summary comes first** (`order-1` on the aside): otherwise a phone user scrolls past the whole thread and composer to find the status they opened the ticket for. Summary becomes a two-column definition list. Edit/Delete stay as labelled buttons and wrap under the title — with two actions, an overflow menu adds a tap and hides the destructive one. Comment composer fields stack full-width |
+| ≥ `md` | Two columns: description + comments (main, `order-1`), summary fields (aside, `w-72`, `order-2`) |
 
 ## Accessibility
 

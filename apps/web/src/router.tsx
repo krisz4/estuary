@@ -1,7 +1,9 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { NotFoundPage } from "@/pages/not-found/NotFoundPage";
-import { StagePlaceholderPage } from "@/pages/StagePlaceholderPage";
+import { TicketCreatePage } from "@/pages/ticket-create/TicketCreatePage";
+import { TicketDetailPage } from "@/pages/ticket-detail/TicketDetailPage";
+import { TicketEditPage } from "@/pages/ticket-edit/TicketEditPage";
 import { TicketsListPage } from "@/pages/tickets-list/TicketsListPage";
 
 /**
@@ -25,38 +27,11 @@ export const router = createBrowserRouter([
 
       { path: "tickets", element: <TicketsListPage /> },
 
-      {
-        path: "tickets/new",
-        element: (
-          <StagePlaceholderPage
-            title="New ticket"
-            stage="Stage 12"
-            summary="The create form, sharing TicketForm with the edit page and validating through the contract schema."
-          />
-        ),
-      },
+      { path: "tickets/new", element: <TicketCreatePage /> },
 
-      {
-        path: "tickets/:ticketId",
-        element: (
-          <StagePlaceholderPage
-            title="Ticket detail"
-            stage="Stage 12"
-            summary="Detail view with the comment thread, status control, and delete confirmation."
-          />
-        ),
-      },
+      { path: "tickets/:ticketId", element: <TicketDetailPage /> },
 
-      {
-        path: "tickets/:ticketId/edit",
-        element: (
-          <StagePlaceholderPage
-            title="Edit ticket"
-            stage="Stage 12"
-            summary="The edit form — TicketForm generalised to a partial PATCH."
-          />
-        ),
-      },
+      { path: "tickets/:ticketId/edit", element: <TicketEditPage /> },
 
       { path: "*", element: <NotFoundPage /> },
     ],

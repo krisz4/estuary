@@ -18,7 +18,7 @@ Not a route of its own — the frame every other page renders inside.
 
 `/tickets/new` is declared **before** `/tickets/:ticketId`. React Router 7 ranks by specificity rather than declaration order, so it resolves correctly either way today — but the safe order is the written rule, and relying on a ranking algorithm to rescue a mis-ordered table is a bet on an implementation detail.
 
-As of stage 10 every route below `/tickets` renders `StagePlaceholderPage`, which names the stage that replaces it and echoes any matched `:ticketId`. That echo is what makes the route ordering visible rather than merely asserted. `NotFoundPage` and the shell itself are real. The placeholders are deleted in stages 11–12.
+Every route is real as of stage 12: `/tickets` ([Tickets_List.md](./Tickets_List.md)), `/tickets/new` ([Ticket_Create.md](./Ticket_Create.md)), `/tickets/:ticketId` ([Ticket_Detail.md](./Ticket_Detail.md)), `/tickets/:ticketId/edit` ([Ticket_Edit.md](./Ticket_Edit.md)), and `*` ([Not_Found.md](./Not_Found.md)). `StagePlaceholderPage`, which backed the three `/tickets/*` routes through stage 11, was deleted in stage 12 along with its route entries.
 
 ## Dependencies
 

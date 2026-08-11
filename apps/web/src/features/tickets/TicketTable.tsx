@@ -5,7 +5,7 @@ import {
   type TicketSummary,
 } from "@helpdesk/contracts";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatAbsolute, formatRelative, toDateTimeAttribute } from "@/lib/formatting";
@@ -71,104 +71,120 @@ export type TicketTableProps = {
   onSortChange: (sort: TicketSort) => void;
 };
 
-export const TicketTable = ({ tickets, sort, onSortChange }: TicketTableProps) => (
-  <div className="overflow-hidden rounded-lg border border-border">
-    <table className="w-full table-fixed border-collapse text-sm">
-      <caption className="sr-only">
-        Tickets, sorted by {sort.field} {DIRECTION_LABEL[sort.direction]}
-      </caption>
+export const TicketTable = ({ tickets, sort, onSortChange }: TicketTableProps) => {
+  /*
+    The search string this list is rendered under, carried into the detail page's
+    history state so its "Back to tickets" link returns to *this* filtered,
+    sorted, paged view rather than to a bare `/tickets`. State rather than a
+    query param on the detail URL: that URL is meant to be shareable, and a
+    pasted link should not resurrect a stranger's filters.
+  */
+  const { search } = useLocation();
 
-      <thead className="bg-muted/60">
-        <tr>
-          {COLUMNS.map((column) => {
-            const field = SORTABLE[column.key];
-            const isActive = field !== undefined && field === sort.field;
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <table className="w-full table-fixed border-collapse text-sm">
+        <caption className="sr-only">
+          Tickets, sorted by {sort.field} {DIRECTION_LABEL[sort.direction]}
+        </caption>
 
-            return (
-              <th
-                key={column.key}
-                scope="col"
-                className={cn(
-                  "px-3 py-2 text-left text-xs font-medium text-muted-foreground",
-                  column.className,
-                )}
-                aria-sort={isActive ? DIRECTION_LABEL[sort.direction] : undefined}
-              >
-                {field === undefined ? (
-                  column.label
-                ) : (
-                  <SortButton
-                    label={column.label}
-                    field={field}
-                    sort={sort}
-                    onSortChange={onSortChange}
-                  />
-                )}
-              </th>
-            );
-          })}
-        </tr>
-      </thead>
+        <thead className="bg-muted/60">
+          <tr>
+            {COLUMNS.map((column) => {
+              const field = SORTABLE[column.key];
+              const isActive = field !== undefined && field === sort.field;
 
-      <tbody>
-        {tickets.map((ticket) => (
-          <tr key={ticket.id} className="border-t border-border align-top hover:bg-muted/40">
-            <td className="px-3 py-3">
-              <Link
-                to={`/tickets/${ticket.id}`}
-                className="font-mono text-xs text-primary hover:underline"
-              >
-                {formatReference(ticket.id)}
-              </Link>
-            </td>
-
-            <td className="px-3 py-3">
-              <Link to={`/tickets/${ticket.id}`} className="text-foreground hover:underline">
-                <span className="line-clamp-2">{ticket.title}</span>
-              </Link>
-              {ticket.commentCount > 0 ? (
-                <span className="mt-0.5 block text-xs whitespace-nowrap text-muted-foreground">
-                  {ticket.commentCount} {ticket.commentCount === 1 ? "comment" : "comments"}
-                </span>
-              ) : null}
-            </td>
-
-            <td className="px-3 py-3">
-              <StatusBadge status={ticket.status} />
-            </td>
-
-            <td className="px-3 py-3">
-              <PriorityBadge priority={ticket.priority} />
-            </td>
-
-            <td className="px-3 py-3">
-              <span className="block truncate text-foreground" title={ticket.requesterEmail}>
-                {ticket.requesterName}
-              </span>
-            </td>
-
-            <td className="hidden px-3 py-3 lg:table-cell">
-              {ticket.assignee === null ? (
-                <span className="text-muted-foreground">Unassigned</span>
-              ) : (
-                <span className="block truncate">{ticket.assignee}</span>
-              )}
-            </td>
-
-            <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
-              <time
-                dateTime={toDateTimeAttribute(ticket.createdAt)}
-                title={formatAbsolute(ticket.createdAt)}
-              >
-                {formatRelative(ticket.createdAt)}
-              </time>
-            </td>
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  className={cn(
+                    "px-3 py-2 text-left text-xs font-medium text-muted-foreground",
+                    column.className,
+                  )}
+                  aria-sort={isActive ? DIRECTION_LABEL[sort.direction] : undefined}
+                >
+                  {field === undefined ? (
+                    column.label
+                  ) : (
+                    <SortButton
+                      label={column.label}
+                      field={field}
+                      sort={sort}
+                      onSortChange={onSortChange}
+                    />
+                  )}
+                </th>
+              );
+            })}
           </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+        </thead>
+
+        <tbody>
+          {tickets.map((ticket) => (
+            <tr key={ticket.id} className="border-t border-border align-top hover:bg-muted/40">
+              <td className="px-3 py-3">
+                <Link
+                  to={`/tickets/${ticket.id}`}
+                  state={{ from: search }}
+                  className="font-mono text-xs text-primary hover:underline"
+                >
+                  {formatReference(ticket.id)}
+                </Link>
+              </td>
+
+              <td className="px-3 py-3">
+                <Link
+                  to={`/tickets/${ticket.id}`}
+                  state={{ from: search }}
+                  className="text-foreground hover:underline"
+                >
+                  <span className="line-clamp-2">{ticket.title}</span>
+                </Link>
+                {ticket.commentCount > 0 ? (
+                  <span className="mt-0.5 block text-xs whitespace-nowrap text-muted-foreground">
+                    {ticket.commentCount} {ticket.commentCount === 1 ? "comment" : "comments"}
+                  </span>
+                ) : null}
+              </td>
+
+              <td className="px-3 py-3">
+                <StatusBadge status={ticket.status} />
+              </td>
+
+              <td className="px-3 py-3">
+                <PriorityBadge priority={ticket.priority} />
+              </td>
+
+              <td className="px-3 py-3">
+                <span className="block truncate text-foreground" title={ticket.requesterEmail}>
+                  {ticket.requesterName}
+                </span>
+              </td>
+
+              <td className="hidden px-3 py-3 lg:table-cell">
+                {ticket.assignee === null ? (
+                  <span className="text-muted-foreground">Unassigned</span>
+                ) : (
+                  <span className="block truncate">{ticket.assignee}</span>
+                )}
+              </td>
+
+              <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
+                <time
+                  dateTime={toDateTimeAttribute(ticket.createdAt)}
+                  title={formatAbsolute(ticket.createdAt)}
+                >
+                  {formatRelative(ticket.createdAt)}
+                </time>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 /**
  * A sortable header.

@@ -27,6 +27,7 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | 9 · Seed + OpenAPI | pass **with one step outstanding** — seed verified against a real running API on :4000: 63 tickets paging 20/20/20/3 across four pages with disjoint ids covering exactly 1–63, status filters summing to 63, `priority:desc` putting all 7 `urgent` first, `sort=status:asc` monotonic by lifecycle rank, inclusive `createdTo`, 19 unassigned (30.2%), 10 same-millisecond comment threads ordering by id, and a full CRUD round trip returning the total to 63. `/docs` serves 7 paths / 10 operations; `DOCS_ENABLED=false` 404s the whole subtree while the API stays up. 301 API + 190 contracts tests. **`db:reset` itself is unverified** — see D17 | 8 findings, all 8 fixed in-stage (2 medium: `DOCS_ENABLED=false` still built the spec at boot; the seed was never compiled despite DOCKER.md depending on it) | `Add the seed, OpenAPI generation, and the docs UI` |
 | 10 · Web shell + API client | pass — `pnpm dev` serves 5173 against 4000 with no CORS error and the browser renders **63** from the real seeded API; a cross-origin 422 arrives readable with `code`, `requestId`, and per-field `details` (the stage-4 cors-before-parser ordering holding from the client side); route ordering verified live (`/tickets/new` matches before `/tickets/:ticketId`). 569 tests (301 API, 190 contracts, 78 web). D2 closed — `react-app.json` proven to resolve `vite/client` for real, non-vacuously. **Dark mode re-verified through CDP against the running page in both themes, not from the source** — see the note below | 9 findings, all 9 fixed in-stage (1 high/medium: dark mode was broken for every toast) | `Add the web shell, API client, and UI primitives` |
 | 11 · Tickets list page | pass — full URL round trip verified in a real browser against the seeded API: page 3 → filter → sort → next page → reload → back → forward, each landing exactly where specified. `?utm_source=slack&status=open` renders correctly, is never forwarded to the API, and stays in the address bar. Seven keystrokes = **1** request. DOM (not CSS) verified at 360/768/1280 with `scrollWidth === viewport` at each, plus sheet, empty, no-match, past-end, error, and dark states. 630 tests (301 API, 190 contracts, 139 web) | 6 findings, all 6 fixed in-stage — **plus 3 defects found by looking at screenshots that every test passed through** | `Add the tickets list page` |
+| 12 · Detail → Create → Edit | pass — **full CRUD end to end in a real browser** against the seeded API: create HD-000064 (email lowercased on write, blank assignee/category → `null`) → comment (body cleared, author kept, `updatedAt` unmoved) → status open → in_progress → closed with timestamps appearing → **`closed → resolved` rejected**, value rolled back, allowed transitions rendered inline from `details.allowed` → edit (empty submit = zero API calls; PATCH carried only changed fields; timestamps cleared) → reload persisted → delete with confirm → back to a 63-row list, `/tickets/64` then rendering the not-found state. XSS check: a description containing `<img src=x onerror=…>` renders as text. 715 tests (301 API, 190 contracts, 224 web); build exit 0 | 6 findings, all 6 fixed post-review — plus 5 found and fixed in-stage, **one of which was the implementing agent catching its own vacuous probe** | `Add ticket detail, create, and edit` |
 
 ### A note on what these gates are actually worth
 
@@ -383,8 +384,48 @@ answer is "the same thing", the probe is measuring something else.**
   exactly at the breakpoint. Retuning for 1280 alone collapsed the Title column to ~24px.
 - **There is no page-level "New ticket" button** — `AppHeader` owns it.
 - **Page tests stub `fetch`, not the hooks.** Stage 13 should swap MSW in at that same boundary.
-- **`StagePlaceholderPage` still backs the three stage-12 routes.** Stage 12 deletes it; deleting it
-  in stage 11 would have sent `/tickets/new` (reachable from the empty-state CTA) to the 404.
+- ~~**`StagePlaceholderPage` still backs the three stage-12 routes.**~~ Deleted in stage 12, as planned.
+  Keeping it through stage 11 was deliberate: deleting it earlier would have sent `/tickets/new`
+  (reachable from the empty-state CTA) to the 404.
+
+### Constraints established in stage 12 (binding on 13–16)
+
+- **The edit form diffs against the snapshot it was initialised from, not the live query data.**
+  react-hook-form reads `defaultValues` once, so diffing against the current ticket lets a background
+  refetch (`staleTime: 30_000` + `refetchOnMount`) make an untouched field look changed — and the
+  PATCH then wipes a concurrent edit, which is the exact thing the diff exists to prevent.
+  `TicketEditForm` holds the baseline in a ref, mounted on the same render that produced
+  `defaultValues`. Do not "simplify" it back to the parent's `ticket`.
+- **Server-error focus moves to the first `[aria-invalid="true"]` in DOM order**, not through
+  `shouldFocus`. `status`/`priority`/`category` are unregistered Radix controls with no input ref, so
+  `shouldFocus` is a silent no-op for them; the previous code moved focus nowhere at all. Falls back
+  to the error summary, and deliberately does **not** move focus when nothing rendered (a 500).
+- **The two halves of that fix mask each other.** With `serverErrors.ts` reverted, both page-level
+  focus tests still pass, because the DOM-order effect is load-bearing. The `serverErrors` unit tests
+  are the only thing pinning the `shouldFocus` half — if someone "restores" `shouldFocus: isFirst`,
+  the page tests will not tell them. Same shape as stage 10's toast fixes.
+- **Selects pass `shouldValidate: true` on change.** Nothing else re-runs the resolver for an
+  unregistered control, so a server error under a select would never clear.
+- **`status` is absent from create-mode form values, not empty.** `.strict()` makes a present key a
+  client-side 422.
+- **`TICKET_FORM_FIELDS` is the ownership list for `splitValidationErrors`.** A new field must be
+  added there or its server message silently lands in the summary instead of under the input.
+- **Deleting a ticket uses `refetchType: "none"` on the detail key.** The mutation's `onSuccess` runs
+  while the detail page is still mounted, so a plain invalidation (or `removeQueries`) fires a
+  guaranteed-404 `GET` for the row just deleted. Only visible in a production-build measurement.
+- **Links into `/tickets/new` must carry `state={{ from: search }}`** — `listReturnState(location)` in
+  `PageHeader.tsx`. `AppHeader` reads its own location, since it is not inside the list page.
+- **`src/test/harness.tsx` is the test seam**: `stubFetch(handlers)` keyed `"METHOD /path-suffix"`,
+  exposing `requests`. **Stage 13 swaps MSW in there**, without touching components. `renderRoute`
+  uses `createMemoryRouter`, **not** `MemoryRouter` — the forms call `useBlocker`, which throws on a
+  non-data router.
+- **Tailwind v4 silently drops arbitrary variants it does not understand.** `[@media(hover:hover)]:`
+  produced no CSS at all and left the comment delete button permanently visible; the app uses a
+  `@custom-variant can-hover` instead. Third instance of this family (stage 10's `animate-in`, stage
+  10's `@layer` override) — **check `document.styleSheets`, not the class list.**
+- **Stage 15 can rely on**: `HD-0000NN` eyebrow text, `aria-label="Comment thread"`, per-comment
+  `aria-label="Delete comment by <name>"`, dialog names `Delete HD-0000NN?` and `Discard this ticket?`,
+  and the list query carried in `location.state.from`.
 
 ### What stages 6–8 need to know about the harness
 
@@ -424,6 +465,9 @@ justifies it — the project is a graded take-home on SQLite, not a system under
 | P8 | ~~The common view (`status` filter + `createdAt:desc`) plans as `SEARCH Ticket USING COVERING INDEX Ticket_statusRank_createdAt_idx` — covering, so no table row lookups~~ **Superseded by P23:** measured against a bare query in stage 3, not the query the list service actually issues | The composite index does pay off where it was designed to; the "covering" half was an artefact of the probe | Verified in stage 3, **corrected in stage 7** |
 | P9 | Predicted non-covered paths, **two of the three predictions were wrong.** Correct: `q` is a full scan (leading-wildcard `LIKE` cannot use a B-tree — `DATABASE.md` says so deliberately). Wrong: ~~`priority:desc` + the `{id:"desc"}` tiebreaker falls back to a sort because `Ticket_priorityRank_idx` is single-column~~ — see P22. Wrong: ~~`facets` is an index-only scan~~ — see P19 | Irrelevant at 63 seeded rows | **Kept as a record of the failure mode, not as guidance.** Both wrong rows were predictions from reading the schema; both were corrected only when stage 6 and 7 logged the SQL Prisma actually emits and ran `EXPLAIN QUERY PLAN` on it. Predict the plan if you like, but do not write it down as measured |
 | P22 | `priority:desc` does **not** fall back to a temp B-tree, contradicting P9. `Ticket_priorityRank_idx` is physically `(priorityRank, rowid)`, so a backwards walk already yields `priorityRank DESC, id DESC` and the tiebreaker rides along free: `SCAN Ticket USING INDEX Ticket_priorityRank_idx`, no `USE TEMP B-TREE` line | The tiebreaker direction is load-bearing and was nearly chosen by coin flip. `{ id: "asc" }` would have forced `USE TEMP B-TREE FOR LAST TERM OF ORDER BY` on every *descending* sort — including `createdAt:desc`, the default view | Keep `{ id: "desc" }`. Note the cost is symmetric, not free: measured, `ASC, id DESC` pairs *do* take the temp B-tree. `desc` is the right default because the default sort is descending, not because it is universally cheaper |
+| P40 | Stage 12 costs **+59.25 kB raw / +18.57 kB gzip** (588.81 → 648.06 raw, 181.98 → 200.55 gzip): react-hook-form, `@hookform/resolvers`, and the zod parse paths `zodResolver` makes reachable | **P34 predicted this exactly** — it said the zod floor was the steady-state price of client and server enforcing one schema, and that stage 12 would bring zod back deliberately. It did. This is the cost of forms validating against the same rules the server does, and it is the right trade | None. It is also the last major dependency the web app takes on |
+| P41 | Request counts against the **production** build: detail cold load **1**; add comment **2**; create submit → detail **2**; status change **2**; delete → list **3**; list cold **2**; list → detail client nav **1**; back to list within `staleTime` **0**. Cross-origin **preflights add one request to every write** | The write counts are one invalidation each, which is correct. The preflights are pure cross-origin overhead and **disappear when the app is served same-origin**, which is what the Docker compose setup does | Nothing to fix. Recorded because stage 14 will change these numbers for the better, and it should be able to show that |
+| P42 | A guaranteed-404 `GET` fired after every ticket delete, because the mutation's `onSuccess` invalidates while the detail page is still mounted | One wasted round trip **and** a 404 in the server log for a perfectly normal user action — the kind of thing that trains people to ignore logs | Fixed in stage 12 with `refetchType: "none"` on the detail key plus normal invalidation of the list and facets keys. **Only visible in a production build** — StrictMode noise hides it in dev |
 | P38 | The whole list screen costs **+24.6 kB raw / +6.9 kB gzip** over stage 10 (564.22 → 588.81 raw, 175.12 → 181.98 gzip) — filter bar, table, cards, pagination, badges, empty and error panels, and the URL-state hook | Cheap for the app's most complex screen, and it lands well inside any reasonable budget. The zod floor from P34 is still the single largest line item | None |
 | P39 | Request counts, measured against the **production** build (dev doubles them via StrictMode): initial load **2** (`facets` + list), next page **1**, back to page 1 within `staleTime` **0**, seven keystrokes in the search box **1** | The debounce and `keepPreviousData` both do what they claim. The facets call is what makes case-sensitive assignee matching safe, and it is cached for 5 minutes | None. **Measure request counts against a production build** — StrictMode's double-mount makes a dev measurement wrong by 2× |
 | P34 | **P5 re-measured at stage 10, and the ratio moved the way that matters.** Production bundle 564.22 kB raw / 175.12 kB gzip. The contracts import costs **17.88 kB gzip**, of which zod is **17.08 kB (95.5%)** and the schemas themselves are **0.80 kB** | P5 measured 30.4 kB gzip at ~82% zod. The absolute cost nearly halved *and* zod's share rose — which is tree-shaking working: the app imports four runtime symbols, so the schemas mostly vanish and what is left is almost purely the library. zod survives at all because `errors.ts` calls `z.enum(...)` at module scope and Rollup cannot prove a call pure | **No action, deliberately.** Dropping the last runtime import would remove zod entirely, but stage 12 wires `zodResolver` and brings it back on purpose. 17.9 kB gzip is the steady-state price of client and server enforcing the same schema — P5's "the lever is importing fewer schemas" is now spent |

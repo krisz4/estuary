@@ -13,6 +13,24 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ------------------------------------------------------------------ *
+ * `can-hover:` — @media (hover: hover)
+ *
+ * For controls that are *hidden until hovered*. Tailwind's own `hover:` and
+ * `group-hover:` already compile inside `@media (hover: hover)`, so the reveal
+ * half needs nothing; it is the **hide** half that must be guarded. Without it
+ * a touch device gets `opacity-0` with no hover to ever undo it, and the control
+ * is simply unreachable there (`docs/pages/Ticket_Detail.md` § 6).
+ *
+ * A custom variant rather than the arbitrary form `[@media(hover:hover)]:`.
+ * That form is silently dropped by Tailwind v4 — the class lands in the DOM and
+ * no rule is generated, so the button stays at `opacity: 1` and everything
+ * *looks* fine on a desktop while the intended behaviour never existed.
+ * Verified by reading `document.styleSheets` for the generated selector, not by
+ * reading the class list.
+ * ------------------------------------------------------------------ */
+@custom-variant can-hover (@media (hover: hover));
+
+/* ------------------------------------------------------------------ *
  * Tokens
  *
  * Every token below is defined in BOTH blocks. That is enforced, not a
