@@ -28,7 +28,9 @@ pnpm test:coverage
 
 `DATABASE_URL` is set in **`apps/api/vitest.setup.ts`, registered as a `setupFiles` entry** — not in a `beforeAll`. `lib/prisma.ts` instantiates the client at *import* time, and test modules are imported before any hook runs, so a `beforeAll` assignment lands too late and the suite quietly runs against the developer's real database.
 
-Each vitest worker gets its own file at `${os.tmpdir()}/helpdesk-test-${process.env.VITEST_WORKER_ID}.db`, migrated with `prisma migrate deploy` in `globalSetup` and removed afterwards. Per-worker rather than per-file, because vitest runs files in parallel across workers and a shared file would deadlock on SQLite's single writer. `beforeEach` truncates.
+Each vitest worker gets its own file at `${os.tmpdir()}/helpdesk-test-${process.env.VITEST_WORKER_ID}.db`, and every one of them is removed at teardown. Per-worker rather than per-file, because vitest runs files in parallel across workers and a shared file would deadlock on SQLite's single writer. `beforeEach` truncates.
+
+The schema comes from `prisma migrate deploy`, run **once** in `globalSetup` against a template file (`helpdesk-test-template.db`) that each worker then copies. `globalSetup` has no way to know how many workers vitest will spawn, and the CLI costs ~0.6 s per invocation against a ~1 ms file copy — so the migration runs once and fans out by copying.
 
 Non-negotiable: **tests never touch `apps/api/prisma/data/helpdesk.db`** and never use the seed. A developer losing local data to a test run is unacceptable, and a suite coupled to seed output breaks whenever the seed changes.
 

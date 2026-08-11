@@ -20,7 +20,9 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | 2 · `packages/contracts` | pass — 155 tests green, builds, and imports cleanly from both a real `node` ESM scratch file and a real `vite build` (no `node:*` in the browser bundle) | 5 findings, all 5 fixed in-stage | `Add packages/contracts` |
 | 3 · Prisma schema + first migration | pass — `db:migrate` applies to an empty file, `prisma generate` succeeds, a scratch script round-trips a ticket, repo-wide `typecheck`/`lint`/`build`/`test` clean | 5 findings, all 5 fixed in-stage | `Add Prisma schema, first migration, and env parsing` |
 | 4 · App skeleton, middleware, error envelope | pass — all five gate assertions green as supertest tests (health 200, unknown route `NOT_FOUND`, `MALFORMED_JSON`, `PAYLOAD_TOO_LARGE`, forced 500 with no stack in the body); `pnpm dev:api` boots and serves live | 7 findings, all 7 fixed in-stage | `Add app factory, middleware chain, and error envelope` |
+| 5 · Test harness | pass — dev DB sha256 **and** mtime unchanged across a full run; two write-heavy files proven to run in different workers without deadlock; the `beforeAll` variant demonstrated destroying a backed-up copy of the dev DB, so the `setupFiles` ordering is verified load-bearing rather than assumed | 5 findings, all 5 fixed in-stage | `Add the API test harness` |
 | 4 · App skeleton, middleware, error envelope | pass — 12 supertest assertions green (all five gate cases plus requestId and CORS); gate verified non-vacuous by breaking the parse-failure branch and the generic-500 message and watching 3 tests fail; repo-wide `typecheck`/`lint`/`build`/`test`/`format:check` clean; `pnpm dev:api` boots and serves `/health` | _pending_ | _pending_ |
+| 5 · Test harness | pass — 25 tests green (14 stage-4 + 11 harness); `apps/api/prisma/data/helpdesk.db` byte-identical and mtime-unchanged across a full run; two DB-writing files proven concurrent in different processes (pids 82090/82092, workers 0/2, separate temp files, same-millisecond timestamps); gate verified non-vacuous by moving the `DATABASE_URL` assignment into a `beforeAll`, which deleted two hand-planted rows from the dev database and wrote the test's own row into it (backup restored, checksum verified); repo-wide `typecheck`/`lint`/`build`/`test`/`format:check` clean | _pending_ | _pending_ |
 
 ## Deferred work
 
@@ -32,8 +34,8 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | D4 | pnpm pinned at `11.1.2` while `11.21.0` is available | Stage 1 | A version bump wants CI to agree with the pin; both should move together | Stage 16 |
 | ~~D6~~ | ~~`@helpdesk/api` has no `dev` script, so `pnpm dev:api` is a no-op~~ | Stage 3 | — | **Resolved in stage 4** — `dev: tsx watch --clear-screen=false src/server.ts`; verified booting and serving `/health` |
 | ~~D7~~ | ~~`@helpdesk/api` has no `test` script~~ | Stage 3 | — | **Partly resolved in stage 4.** A minimal `test` script exists (`vitest run`, no config file) so the stage 4 gate is executable. It is deliberately not the harness — see D9 |
-| D9 | `apps/api` has no `vitest.config.ts` / `setupFiles`, and its `test` script inlines a placeholder `DATABASE_URL` | Stage 4 | Stage 4's tests are HTTP-only: `createApp()` mounts no router, so `lib/prisma.ts` is never imported and no database is opened. `env.ts` still requires `DATABASE_URL` to be non-empty, hence the placeholder, which the script only applies when the variable is unset (`${DATABASE_URL:-…}`). Stage 5 replaces the whole expression with a plain `vitest run` once `setupFiles` assigns the per-worker URL | Stage 5 |
-| D10 | The two forced-500 tests print a full stack to stderr, so `pnpm test` output carries two large JSON log lines | Stage 4 | Silencing it means setting `LOG_LEVEL=error`-and-above suppression or stubbing the logger from a `setupFiles` entry — which is stage 5's file. The lines are correct behavior (a 500 **must** log its stack), just noisy | Stage 5 |
+| ~~D9~~ | ~~`apps/api` has no `vitest.config.ts` / `setupFiles`, and its `test` script inlines a placeholder `DATABASE_URL`~~ | Stage 4 | — | **Resolved in stage 5.** The script is a plain `vitest run`; `vitest.setup.ts` assigns the per-worker URL. `NODE_ENV=test` moved into `vitest.config.ts`'s `test.env` plus the setup file, so an exported `NODE_ENV=development` no longer unmounts the diagnostic routes — verified by running the suite with it exported |
+| ~~D10~~ | ~~The two forced-500 tests print a full stack to stderr~~ | Stage 4 | — | **Resolved in stage 5.** `vitest.setup.ts` filters `process.stderr.write`, dropping a line only when it parses as the logger's `"Unhandled error"` for a `/__test__/` path. Verified non-vacuous: an identically-shaped line for `/api/v1/tickets` and an unrelated `logger.error` both still print |
 | D8 | `db:seed` and the `prisma.seed` hook are absent, so `db:reset` migrates but does not re-seed | Stage 3 | `prisma/seed.ts` is stage 9's deliverable. `CLAUDE.md` and `DATABASE.md` both describe `db:reset` as re-seeding — that becomes true when the hook lands | Stage 9 |
 | D5 | Schemas carry no `.openapi()` metadata | Stage 2 | `@asteasolutions/zod-to-openapi` would be a second runtime dependency in a package whose hard constraint is "zod and nothing else". Its v9 peers `zod ^4`, so it can extend these schemas from `apps/api` without touching this package | Stage 9 |
 
@@ -105,8 +107,46 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 - **`errorHandler` detects `ZodError` structurally, not with `instanceof`.** The schemas that throw
   are compiled against the contracts package's `zod`; pnpm dedupes to one copy today, but if the
   ranges ever drift, `instanceof` fails and every 422 becomes a 500.
+- **Test databases are copied from a migrated template, not migrated per worker.** `TESTING.md` says
+  each worker's file is "migrated with `prisma migrate deploy` in `globalSetup`". `globalSetup` cannot
+  know how many workers vitest will spawn, and the CLI costs ~0.63 s per invocation, so it migrates
+  **one** template (`$TMPDIR/helpdesk-test-template.db`) and each worker copies it — 57 kB, sub-millisecond.
+  The schema still comes from `migrate deploy` in `globalSetup`; only the fan-out changed.
+- **`vitest.setup.ts` uses `await import()` for every application module.** A static
+  `import { prisma }` is hoisted above the `process.env.DATABASE_URL` assignment in the same file and
+  reintroduces exactly the bug the setup file exists to prevent. Stages 6–8 must not "tidy" it into a
+  static import.
+- **`beforeEach` truncates and resets `sqlite_sequence`, so ids start at 1 in every test.** A test may
+  therefore arrange a specific reference (`HD-000042`) by creating rows in order — but no test should
+  *assume* an id it did not create.
+- **Factories write through Prisma directly, never through a service.** Arranging a service test with
+  the same call it asserts on cannot fail when that call is wrong. `src/test/factories.ts` mirrors the
+  rank derivation (`TICKET_STATUSES.indexOf`) for the same reason; it is a test-side mirror, not a
+  second writer, and the `applyTicketRanks()` invariant is still asserted by sorting.
 - **`docs/features/Ticket_Numbering.md` still says `:ticketId` is parsed with `z.coerce.number()`.**
   It is not, deliberately (see the stage-2 constraint above). Stage 16 should correct the doc.
+
+### What stages 6–8 need to know about the harness
+
+- **Never make `vitest.setup.ts`'s `await import()` static.** A static import is hoisted above the
+  `DATABASE_URL` assignment in the same file, which reintroduces exactly the bug the stage exists to
+  prevent. A post-import guard now compares `lib/env.ts`'s resolved value against the worker's temp
+  path and refuses to run if they differ — the earlier guard compared the assignment to itself and
+  could never fire.
+- **Ids start at 1 in every test.** `sqlite_sequence` is reset alongside the truncation, so a test
+  needing `HD-000042` can arrange it by creating rows in order. Never assume an id you did not create.
+- **Factories write through Prisma directly, not through a service.** Arranging a service test with
+  the call it asserts on cannot fail. `factories.ts` mirrors the rank derivation, so it is a
+  test-side mirror rather than a second writer — keep asserting the `applyTicketRanks()` invariant
+  **by sorting**, per TESTING.md.
+- **`makeTicket` derives `resolvedAt`/`closedAt` from `status`**, so a `closed` fixture is not
+  silently missing its own invariants. Opting out is by key presence (`{ resolvedAt: null }`), which
+  now genuinely works — `??` made the documented opt-out a no-op.
+- **A genuine 500 from a real route still prints its stack.** The stderr filter matches only
+  `"Unhandled error"` plus a `/__test__/` path. A stage-8 test wanting a quiet expected 500 must go
+  through the diagnostic routes, or widen the filter deliberately.
+- **`pool: "forks"` is load-bearing.** Under `threads` all workers share one `process.env` and would
+  fight over one file.
 
 ## Performance ledger
 
@@ -127,7 +167,14 @@ justifies it — the project is a graded take-home on SQLite, not a system under
 | P11 | Install delta from stage 4: 457 MB → 478 MB, 336 → 423 packages. Express is ~1 MB of it; the rest is tsx/esbuild and vitest's vite tree | All dev-only | Stage 14's runtime image should install `--prod` |
 | P12 | Cold boot through `tsx`: 178 ms to import `app.ts`, 1.4 ms for `createApp()`, 1.0 ms to bind | Import is ~99% of boot, and `prisma.ts` is not yet on that path — expect a rise at stage 8 when the native engine loads | If the Docker healthcheck ever flaps, the answer is `start_period`, not code |
 | P13 | `GET /health` p50 0.28 ms / p99 1.77 ms over 200 sequential requests | The whole middleware chain costs under a millisecond, so any later latency is the database | Recorded as the zero-work baseline for stages 7–8 |
+| P14 | API suite: ~1.5 s warm / ~5.3 s cold, 25 tests across 3 files, 8 cores (vitest default `maxForks` = cores−1) | Baseline before stages 6–8 add hundreds of tests | Re-measure at stage 8 |
+| P15 | Migration cost is **0.63 s paid once**: `globalSetup` migrates one template and each worker copies a 57 kB file in under a millisecond | Per-worker `migrate deploy` would instead cost 0.6 s × workers | Do not "simplify" the template copy into a per-worker migrate |
+| P16 | `setup` is the largest phase (200–500 ms aggregate warm) because `isolate: true` re-runs the setup file per test *file*, constructing a `PrismaClient` each time (~70–160 ms/file). At the ~15 files stages 6–8 will add, expect 1–2 s | Suite wall time | Levers if it ever matters: `poolOptions.forks.isolate: false`, or a `globalThis`-cached client. Not worth it below ~5 s |
+| P17 | Truncation is effectively free — 3 raw statements in one transaction; the whole 25-test run spends 232 ms in `tests` *including* every truncation | — | None |
 | P7 | `test` declares `outputs: []`; coverage moved to a separate `test:coverage` task | `pnpm test` no longer warns "no output files found" on every run, and coverage output is still cached when asked for | Done in stage 2 |
 | P11 | Stage 4 install delta: **457 MB → 478 MB, 336 → 423 packages** for express + cors + tsx + vitest + supertest and their types. Express itself is ~1 MB; the delta is tsx/esbuild (~670 kB plus a platform binary) and vitest's vite tree (~2 MB per peer-resolved copy, four copies resolved across the workspace) | Dev-only weight. Both `tsx` and `vitest` are devDependencies, so stage 14's runtime image should install with `--prod` and carry only express, cors, zod, dotenv, and `@prisma/client` | Re-measure at stage 15 (Playwright browsers) |
 | P12 | Cold boot of the API process, measured through `tsx`: **178 ms** to import `app.ts` (transitively `env.ts` + dotenv + express + cors), **1.4 ms** to run `createApp()`, **1.0 ms** to bind the port | The import is ~99% of boot, and almost all of it is module loading, not work. `prisma.ts` is *not* on this path yet — stage 8 will add the client import and this number will rise sharply (P1 notes the engine is a native `.dylib`) | Nothing now. Re-measure after stage 8; if the Docker healthcheck ever flaps on a cold start, this is the number to look at, and the answer is `start_period`, not code |
 | P13 | `GET /health` latency over 200 sequential requests on a bound socket: **p50 0.28 ms, p99 1.77 ms** | The whole chain (requestId → json → cors → route) costs well under a millisecond, so any later latency is the database, not the middleware. `/health` deliberately touches no database, which is also why it is a fair baseline | Recorded as the "zero-work request" baseline for stages 7–8 |
+| P14 | Stage 5 suite, 25 tests over 3 files on 8 cores: **1.5 s wall warm, ~5.3 s cold**, of which `globalSetup`'s single `prisma migrate deploy` is **0.63 s** and the per-worker template copy is sub-millisecond (57 kB) | The fixed cost is Prisma, not the tests: `tests` is 130–240 ms of the run. Cold-vs-warm is the query engine `.dylib` and vite's transform cache, both amortised | Nothing. The template-copy design is what keeps migrate off the per-worker path — do not "simplify" it into a per-worker `migrate deploy`, which would add ~0.6 s × workers |
+| P15 | `setup` is the largest reported phase (200–500 ms aggregate warm, 12 s cold). With `isolate: true` (default) each **test file** re-runs `vitest.setup.ts` and therefore constructs its own `PrismaClient` | ~70–160 ms per file, paid once per file rather than once per worker. At the ~15 files stages 6–8 will add, that is 1–2 s of the run | Watch, do not act. If it dominates, the levers in order are: `poolOptions.forks.isolate: false` (risks cross-file module state), or a shared client behind `globalThis`. Neither is worth it below ~5 s |
+| P16 | Truncation is 3 raw statements in one transaction per test, on an empty-ish file | Sub-millisecond; the 25-test run spends 130 ms in `tests` *including* every truncation | None. Truncating beats re-copying the file per test by an order of magnitude |
