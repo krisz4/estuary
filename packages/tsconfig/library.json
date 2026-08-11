@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Runtime-agnostic library (browser + node safe)",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": [],
+
+    // NodeNext, not the Bundler resolution in base.json. A library consumed by
+    // apps/api must emit declarations whose relative specifiers carry an explicit
+    // `.js` extension — a NodeNext consumer cannot resolve `export * from "./ticket"`.
+    // Bundler-side consumers (Vite/apps/web) resolve explicit extensions fine, so
+    // NodeNext is the setting that satisfies both. Source imports in a package using
+    // this base must therefore be written as `from "./ticket.js"`.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  }
+}

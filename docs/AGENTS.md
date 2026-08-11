@@ -26,6 +26,7 @@ The product is small enough to hold in your head: **one resource (Ticket) with o
 | Schema, indexes, migrations, SQLite caveats | [engineering/DATABASE.md](./engineering/DATABASE.md) |
 | Layer boundaries, dependency direction | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) |
 | In what order is this being built, and what is done? | [engineering/IMPLEMENTATION_PLAN.md](./engineering/IMPLEMENTATION_PLAN.md) |
+| What did a stage defer, and what is the known perf debt? | [engineering/BUILD_LOG.md](./engineering/BUILD_LOG.md) |
 | What env var controls X? | [engineering/ENVIRONMENT_VARIABLES.md](./engineering/ENVIRONMENT_VARIABLES.md) |
 | How do I test this / what must a test cover? | [engineering/TESTING.md](./engineering/TESTING.md) |
 | Spacing, breakpoints, states, colors | [engineering/UI_DESIGN_GUIDELINES.md](./engineering/UI_DESIGN_GUIDELINES.md) |

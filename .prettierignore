@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+coverage
+.turbo
+pnpm-lock.yaml
+playwright-report
+test-results
+apps/api/openapi.json
+apps/api/prisma/migrations
+
+# Hand-authored prose: tables are aligned deliberately and Prettier rewraps them.
+docs/**/*.md
+*.md
+
