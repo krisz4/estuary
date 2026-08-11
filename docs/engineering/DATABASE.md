@@ -95,11 +95,13 @@ Do not "fix" this by adding `mode: "insensitive"` or by lowercasing at query tim
 | `priorityRank` | Priority filter + priority sort |
 | `(statusRank, createdAt)` | The common view: open tickets, newest first |
 | `requesterEmail` | Requester filter |
-| `category`, `assignee` | Their filters, and the `facets` distinct scan |
+| `category`, `assignee` | Their filters, and the `facets` `GROUP BY` (covering — see below) |
 | `id` (implicit PK) | Reference lookup, and the stable sort tiebreaker |
 | `(ticketId, id)` on Comment | Loading a thread in insertion order |
 
 `title` / `description` are unindexed — SQLite cannot use a B-tree for a leading-wildcard `LIKE` anyway.
+
+**Facets use `groupBy`, not `findMany` + `distinct`.** Prisma applies `distinct` **in the client**: it emits `SELECT id, assignee FROM Ticket WHERE assignee IS NOT NULL ORDER BY assignee` and dedupes in memory, so the endpoint would read one row per assigned ticket and could never be index-only (the `id` in the projection rules it out). `groupBy` emits a real `GROUP BY`, which plans as `SEARCH Ticket USING COVERING INDEX Ticket_assignee_idx`. Verified with `EXPLAIN QUERY PLAN` in stage 6.
 
 ## Derived columns
 
