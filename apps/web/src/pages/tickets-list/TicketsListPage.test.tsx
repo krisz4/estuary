@@ -3,18 +3,19 @@ import { type PaginatedTickets, type TicketSummary } from "@helpdesk/contracts";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { setViewportWidth } from "../../../vitest.setup";
 import { TicketsListPage } from "@/pages/tickets-list/TicketsListPage";
+import { mockApi } from "@/test/harness";
 
 /* ------------------------------------------------------------------ *
  * Harness
  *
- * `fetch` is stubbed, not the query hooks: a test that mocks `useTicketsQuery`
- * proves the page renders whatever it is handed and says nothing about the URL
- * → request → render path, which is the entire subject of this stage. (Stage 13
- * owns replacing this with MSW handlers, which is the same boundary with a
- * nicer API.)
+ * The network is mocked, not the query hooks: a test that mocks
+ * `useTicketsQuery` proves the page renders whatever it is handed and says
+ * nothing about the URL → request → render path, which is the entire subject of
+ * these tests. Stage 13 moved this file off its own private `fetch` stub and
+ * onto the shared MSW seam in `src/test/harness.tsx`.
  * ------------------------------------------------------------------ */
 
 const makeTicket = (id: number, overrides: Partial<TicketSummary> = {}): TicketSummary => ({
@@ -76,31 +77,27 @@ type FetchStub = {
   list?: (query: URLSearchParams) => { status?: number; body: unknown };
 };
 
-const stubFetch = ({ list }: FetchStub = {}) => {
+const stubApi = ({ list }: FetchStub = {}) => {
   listRequests = [];
   listGate = null;
 
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const url = new URL(String(input));
-
-    if (url.pathname.endsWith("/tickets/facets")) {
-      return new Response(JSON.stringify({ assignees: ["Alice Chen"], categories: ["hardware"] }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    listRequests.push(url.searchParams);
-    if (listGate !== null) await listGate.promise;
-    const result = list?.(url.searchParams) ?? { body: page([makeTicket(1)]) };
-    return new Response(JSON.stringify(result.body), {
-      status: result.status ?? 200,
-      headers: { "content-type": "application/json" },
-    });
+  // Key order is load-bearing: the harness matches by path *suffix* and takes
+  // the first hit, and `/api/v1/tickets/facets` ends with `/tickets/facets`
+  // before it ends with anything else. Declaring the list first would answer
+  // every facets request with a page of tickets. Same trap as the API's own
+  // route ordering (stage 8: facets before `:ticketId`).
+  const { requests } = mockApi({
+    "GET /tickets/facets": () => ({
+      body: { assignees: ["Alice Chen"], categories: ["hardware"] },
+    }),
+    "GET /tickets": async ({ url }) => {
+      listRequests.push(url.searchParams);
+      if (listGate !== null) await listGate.promise;
+      return list?.(url.searchParams) ?? { body: page([makeTicket(1)]) };
+    },
   });
 
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
+  return requests;
 };
 
 const renderPage = (entry = "/tickets") => {
@@ -130,17 +127,13 @@ beforeEach(() => {
   setViewportWidth(1280);
 });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
 /* ------------------------------------------------------------------ *
  * States
  * ------------------------------------------------------------------ */
 
 describe("TicketsListPage states", () => {
   it("shows a skeleton before the first response, not a blank page", async () => {
-    stubFetch();
+    stubApi();
     renderPage();
 
     expect(screen.getByRole("table", { name: /loading tickets/i })).toBeInTheDocument();
@@ -148,7 +141,7 @@ describe("TicketsListPage states", () => {
   });
 
   it("renders the rows and the count once loaded", async () => {
-    stubFetch({ list: () => ({ body: page([makeTicket(1), makeTicket(2)], { total: 2 }) }) });
+    stubApi({ list: () => ({ body: page([makeTicket(1), makeTicket(2)], { total: 2 }) }) });
     renderPage();
 
     expect(await screen.findByRole("link", { name: "HD-000001" })).toHaveAttribute(
@@ -159,7 +152,7 @@ describe("TicketsListPage states", () => {
   });
 
   it("shows an error panel with a working retry", async () => {
-    const fetchMock = stubFetch({
+    stubApi({
       list: () => ({
         status: 500,
         body: { error: { code: "INTERNAL_ERROR", message: "boom", requestId: "req-1" } },
@@ -168,14 +161,17 @@ describe("TicketsListPage states", () => {
     renderPage();
 
     expect(await screen.findByText(/something went wrong on the server/i)).toBeInTheDocument();
-    const callsBefore = fetchMock.mock.calls.length;
+    const listCallsBefore = listRequests.length;
 
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore));
+    // The claim is that Retry re-issues the *list* request. Counting every
+    // request the page made would also be satisfied by a facets refetch, which
+    // is not what the button says it does.
+    await waitFor(() => expect(listRequests.length).toBeGreaterThan(listCallsBefore));
   });
 
   it("offers 'create' when nothing exists", async () => {
-    stubFetch({ list: () => ({ body: page([]) }) });
+    stubApi({ list: () => ({ body: page([]) }) });
     renderPage();
 
     expect(await screen.findByText("No tickets yet")).toBeInTheDocument();
@@ -184,7 +180,7 @@ describe("TicketsListPage states", () => {
   });
 
   it("offers 'clear filters' when a filter matched nothing", async () => {
-    stubFetch({ list: () => ({ body: page([]) }) });
+    stubApi({ list: () => ({ body: page([]) }) });
     renderPage("/tickets?status=closed");
 
     expect(await screen.findByText("No tickets match these filters")).toBeInTheDocument();
@@ -193,7 +189,7 @@ describe("TicketsListPage states", () => {
   });
 
   it("offers 'back to page 1' past the end of a non-empty result", async () => {
-    stubFetch({
+    stubApi({
       list: () => ({ body: page([], { page: 9, total: 63, totalPages: 4, hasPrevPage: true }) }),
     });
     renderPage("/tickets?page=9");
@@ -203,7 +199,7 @@ describe("TicketsListPage states", () => {
   });
 
   it("dims and marks busy while refetching instead of blanking", async () => {
-    stubFetch({
+    stubApi({
       list: (query) => ({
         body: page([makeTicket(Number(query.get("page") ?? 1))], {
           page: Number(query.get("page") ?? 1),
@@ -242,7 +238,7 @@ describe("TicketsListPage states", () => {
 
 describe("TicketsListPage URL behaviour", () => {
   it("resets page to 1 when a filter changes", async () => {
-    stubFetch({
+    stubApi({
       list: (query) => ({
         body: page([makeTicket(1)], { page: Number(query.get("page") ?? 1), total: 63 }),
       }),
@@ -260,7 +256,7 @@ describe("TicketsListPage URL behaviour", () => {
   });
 
   it("keeps the filters when only the page changes", async () => {
-    stubFetch({
+    stubApi({
       list: (query) => ({
         body: page([makeTicket(1)], {
           page: Number(query.get("page") ?? 1),
@@ -281,7 +277,7 @@ describe("TicketsListPage URL behaviour", () => {
   });
 
   it("sorts through the URL when a column header is clicked", async () => {
-    stubFetch();
+    stubApi();
     const router = renderPage();
 
     await screen.findByRole("link", { name: "HD-000001" });
@@ -292,7 +288,7 @@ describe("TicketsListPage URL behaviour", () => {
   });
 
   it("never forwards an unknown parameter to the API", async () => {
-    stubFetch();
+    stubApi();
     renderPage("/tickets?utm_source=slack&status=open");
 
     await screen.findByRole("link", { name: "HD-000001" });
@@ -303,7 +299,7 @@ describe("TicketsListPage URL behaviour", () => {
   });
 
   it("does not rewrite the box when the user types a trailing space", async () => {
-    stubFetch();
+    stubApi();
     renderPage();
 
     await screen.findByRole("link", { name: "HD-000001" });
@@ -324,7 +320,7 @@ describe("TicketsListPage URL behaviour", () => {
   });
 
   it("keeps both filters when two chips are clicked in the same frame", async () => {
-    stubFetch();
+    stubApi();
     const router = renderPage();
 
     await screen.findByRole("link", { name: "HD-000001" });
@@ -343,7 +339,7 @@ describe("TicketsListPage URL behaviour", () => {
   });
 
   it("keeps both values when two chips in the *same* group are clicked in one frame", async () => {
-    stubFetch();
+    stubApi();
     const router = renderPage();
 
     await screen.findByRole("link", { name: "HD-000001" });
@@ -363,7 +359,7 @@ describe("TicketsListPage URL behaviour", () => {
   });
 
   it("debounces the search box, so seven keystrokes are one request", async () => {
-    stubFetch();
+    stubApi();
     renderPage();
 
     await screen.findByRole("link", { name: "HD-000001" });
@@ -387,7 +383,7 @@ describe("TicketsListPage URL behaviour", () => {
 
 describe("TicketsListPage responsive swap", () => {
   it("renders the table and no cards at 1280", async () => {
-    stubFetch();
+    stubApi();
     setViewportWidth(1280);
     renderPage();
 
@@ -397,7 +393,7 @@ describe("TicketsListPage responsive swap", () => {
   });
 
   it("renders the table at exactly 768, the md boundary", async () => {
-    stubFetch();
+    stubApi();
     setViewportWidth(768);
     renderPage();
 
@@ -406,7 +402,7 @@ describe("TicketsListPage responsive swap", () => {
   });
 
   it("renders cards and no table at 360", async () => {
-    stubFetch();
+    stubApi();
     setViewportWidth(360);
     renderPage();
 
@@ -420,7 +416,7 @@ describe("TicketsListPage responsive swap", () => {
   });
 
   it("puts the filters behind a sheet trigger below md and inline above it", async () => {
-    stubFetch();
+    stubApi();
     setViewportWidth(360);
     renderPage("/tickets?status=open&priority=urgent");
 

@@ -85,6 +85,26 @@ export class ApiClientError extends Error {
 export const isApiClientError = (value: unknown): value is ApiClientError =>
   value instanceof ApiClientError;
 
+/**
+ * Structural, **not** `instanceof DOMException`.
+ *
+ * `fetch` rejects with the `DOMException` from its *own* realm, and that is not
+ * always the one `instanceof` resolves against here: under jsdom the global is
+ * jsdom's while the rejection comes from undici's, so
+ * `cause instanceof DOMException` is `false` for a genuine abort — the guard it
+ * protects then falls through and turns a cancelled request into "can't reach
+ * the server", which is the exact failure the guard exists to prevent.
+ * `name === "AbortError"` is what the DOM spec actually guarantees, and it is
+ * true in every realm.
+ *
+ * Same reasoning as the API's `errorHandler`, which detects `ZodError`
+ * structurally for the same class of reason (`docs/engineering/BUILD_LOG.md`).
+ */
+const isAbortError = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  (cause as { name?: unknown }).name === "AbortError";
+
 const isValidationDetails = (value: unknown): value is ValidationErrorDetails =>
   typeof value === "object" &&
   value !== null &&
@@ -208,7 +228,7 @@ const request = async <TResponse>(
     // Query cancels in-flight requests on every key change, and swallowing the
     // AbortError into a NETWORK_ERROR would show "can't reach the server" on a
     // perfectly healthy fast-typing search box.
-    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    if (isAbortError(cause)) throw cause;
 
     throw new ApiClientError({
       code: "NETWORK_ERROR",

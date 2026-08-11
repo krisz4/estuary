@@ -54,8 +54,17 @@ export const FormErrorSummary = ({
             {messages.length === 1 ? "There is a problem" : `There are ${messages.length} problems`}
           </p>
           <ul className="list-inside list-disc">
-            {messages.map((message) => (
-              <li key={message}>{message}</li>
+            {/*
+              Index keys, deliberately. `splitValidationErrors` flattens every
+              unrecognised `details` key into one array, so two fields rejected
+              with the *same* message — `{ resolvedAt: ["Not accepted from a
+              client"], closedAt: ["Not accepted from a client"] }`, which the
+              update schema produces — collide on a message key. This list is
+              rendered from a fresh array on every submit and is never reordered
+              or filtered, which is exactly the case where the index is stable.
+            */}
+            {messages.map((message, index) => (
+              <li key={index}>{message}</li>
             ))}
           </ul>
         </div>

@@ -28,6 +28,7 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | 10 · Web shell + API client | pass — `pnpm dev` serves 5173 against 4000 with no CORS error and the browser renders **63** from the real seeded API; a cross-origin 422 arrives readable with `code`, `requestId`, and per-field `details` (the stage-4 cors-before-parser ordering holding from the client side); route ordering verified live (`/tickets/new` matches before `/tickets/:ticketId`). 569 tests (301 API, 190 contracts, 78 web). D2 closed — `react-app.json` proven to resolve `vite/client` for real, non-vacuously. **Dark mode re-verified through CDP against the running page in both themes, not from the source** — see the note below | 9 findings, all 9 fixed in-stage (1 high/medium: dark mode was broken for every toast) | `Add the web shell, API client, and UI primitives` |
 | 11 · Tickets list page | pass — full URL round trip verified in a real browser against the seeded API: page 3 → filter → sort → next page → reload → back → forward, each landing exactly where specified. `?utm_source=slack&status=open` renders correctly, is never forwarded to the API, and stays in the address bar. Seven keystrokes = **1** request. DOM (not CSS) verified at 360/768/1280 with `scrollWidth === viewport` at each, plus sheet, empty, no-match, past-end, error, and dark states. 630 tests (301 API, 190 contracts, 139 web) | 6 findings, all 6 fixed in-stage — **plus 3 defects found by looking at screenshots that every test passed through** | `Add the tickets list page` |
 | 12 · Detail → Create → Edit | pass — **full CRUD end to end in a real browser** against the seeded API: create HD-000064 (email lowercased on write, blank assignee/category → `null`) → comment (body cleared, author kept, `updatedAt` unmoved) → status open → in_progress → closed with timestamps appearing → **`closed → resolved` rejected**, value rolled back, allowed transitions rendered inline from `details.allowed` → edit (empty submit = zero API calls; PATCH carried only changed fields; timestamps cleared) → reload persisted → delete with confirm → back to a 63-row list, `/tickets/64` then rendering the not-found state. XSS check: a description containing `<img src=x onerror=…>` renders as text. 715 tests (301 API, 190 contracts, 224 web); build exit 0 | 6 findings, all 6 fixed post-review — plus 5 found and fixed in-stage, **one of which was the implementing agent catching its own vacuous probe** | `Add ticket detail, create, and edit` |
+| 13 · Web component tests | pass — MSW swapped in at the existing seam; 755 tests (301 API, 190 contracts, 264 web); `typecheck`/`lint`/`format:check` clean, build exit 0. **The stage's value was the audit, not the count**: 34 behaviour reverts run against the existing suite, finding three tests that did not discriminate, plus a real bug in `http.ts` that only a real network layer could expose | 5 findings, all 5 fixed post-review — two of them in the harness this stage built | `Add MSW and the web component test suite` |
 
 ### A note on what these gates are actually worth
 
@@ -101,6 +102,20 @@ ref advanced synchronously on write; the check is a test that dispatches two wri
 findings had the same root: the stage-9 `unwrapPreprocessedObject` reliance on zod internals, and the
 stage-10 assumption that an `@layer` rule could override Sonner's injected stylesheet.
 
+**6. `instanceof` across realms.** Three instances now, and the third was a live bug:
+
+- `errorHandler` detects `ZodError` structurally, because the throwing schemas are compiled against
+  the contracts package's `zod` and `instanceof` fails the day the ranges drift (stage 4, pre-empted).
+- Stage 10: an `@layer` rule cannot override a stylesheet injected unlayered by a library.
+- **Stage 13: `http.ts` detected cancelled requests with `cause instanceof DOMException`.** A genuine
+  abort rejects with the `DOMException` from *fetch's own realm*, so `instanceof` is `false`, the
+  guard falls through, and a cancelled request became "can't reach the server" — on a healthy
+  fast-typing search box, which is verbatim what the code comment said must not happen.
+
+The stage-13 case is the sharpest illustration of shape 1 in this build: the existing test threw a
+jsdom `DOMException` **from its own stub**, so the guard matched the object the test constructed.
+Nothing short of a real network layer could see it. Check `.name`, not the constructor.
+
 **4. A vacuous *probe* — the verification, not the test.** Checking the finding-4 fix (the pre-paint
 theme script) showed no difference between broken and fixed, because React's `applyTheme` effect
 re-applies the class on mount and hides the flash entirely. Only after blocking `main.tsx` at the
@@ -128,6 +143,7 @@ answer is "the same thing", the probe is measuring something else.**
 | D19 | `package.json#prisma` (the `prisma.seed` hook) is deprecated — Prisma warns it is removed in Prisma 7 in favour of `prisma.config.ts` | Stage 9 | Works on 6.19; migrating it is a config change that wants to move with the dependency bump | Stage 16, alongside D4's pnpm pin |
 | ~~D8~~ | ~~`db:seed` and the `prisma.seed` hook are absent~~ | Stage 3 | — | **Resolved in stage 9** — hook wired and proven to fire via `npx prisma db seed`; `db:reset` end-to-end still pending on D17 |
 | ~~D11~~ | ~~Route-level assertions in TESTING.md § Tickets are unproven~~ | Stage 6 | — | **Resolved in stage 8** — 201 + `Location`, `/tickets/abc` → 404 across 7 spellings, `{}` → 422 `AT_LEAST_ONE_FIELD` with no details, per-field 422 `details`, and the list-query 422s (`pageSize=101` rejected not clamped, `page=0`, unknown sort field, `assignee`+`assigneeIsNull`, unknown param) |
+| P43 | **D16 does not reproduce.** The API suite runs **1.86 s warm** at 301 tests / 13 files, against the 5.5–7.5 s recorded at stage 8. The web suite is 7.66 s at 264 tests; MSW cost ~0.1 s at constant test count | The stage-8 measurement was taken on a machine under load from the same session's parallel work. `setup` is still the dominant phase, but parallelism absorbs it | **Stage 16 must re-measure before spending `poolOptions.forks.isolate: false`.** The lever weakens the isolation stage 5 exists to provide, and the number that justified considering it appears to have been noise |
 | D16 | The API suite has crossed the ~5 s mark P15 named as the trigger for `poolOptions.forks.isolate: false` or a `globalThis`-cached `PrismaClient`: **241 tests / 10 files, ~5.5–7.5 s warm**, `setup` still the dominant fixed cost | Stage 8 | The lever weakens the per-file isolation that stage 5 exists to provide, and that is a deliberate trade rather than a side effect of a routes stage. Deferring it was the right call | Decide in stage 16, when the CI wall time is the thing being optimised and the whole suite exists to measure against |
 | D13 | The read-then-write race in `updateTicket`/`deleteTicket` is closed by `prisma.$transaction` but **has no test**. Two concurrent PATCHes racing a status guard cannot be scheduled deterministically from vitest; a timing-based test would be flaky in CI and would fail for the wrong reason | Stage 6 review #1 | SQLite's own behaviour (a deferred transaction that reads then writes aborts with `SQLITE_BUSY_SNAPSHOT` if the snapshot moved) is what provides the guarantee, and it is not ours to assert | Not planned. Revisit only if the API ever runs multi-process against one file — noted here so the gap is known rather than assumed covered |
 | D14 | The `q` raw path has a hard ceiling, not just a slope: `id IN (…)` spends one bind parameter per match against `SQLITE_MAX_VARIABLE_NUMBER` (32766 modern, 999 pre-3.32), so a broad wildcard `q` over a large table would **fail**, not merely crawl. It also gives up the ordering index | Stage 7 | Only wildcard-bearing searches take that path, and the plan defers real search to FTS5 explicitly. At 63 seeded rows neither cost is observable | Not planned before FTS5. Recorded so the ceiling is known rather than discovered |
@@ -415,10 +431,10 @@ answer is "the same thing", the probe is measuring something else.**
   guaranteed-404 `GET` for the row just deleted. Only visible in a production-build measurement.
 - **Links into `/tickets/new` must carry `state={{ from: search }}`** — `listReturnState(location)` in
   `PageHeader.tsx`. `AppHeader` reads its own location, since it is not inside the list page.
-- **`src/test/harness.tsx` is the test seam**: `stubFetch(handlers)` keyed `"METHOD /path-suffix"`,
-  exposing `requests`. **Stage 13 swaps MSW in there**, without touching components. `renderRoute`
-  uses `createMemoryRouter`, **not** `MemoryRouter` — the forms call `useBlocker`, which throws on a
-  non-data router.
+- **`src/test/harness.tsx` is the test seam** — now MSW-backed: `mockApi(handlers)` keyed
+  `"METHOD /path-suffix"`, exposing `requests`; handlers may be async; `renderRoute` returns the
+  `router`. It uses `createMemoryRouter`, **not** `MemoryRouter` — the forms call `useBlocker`, which
+  throws on a non-data router.
 - **Tailwind v4 silently drops arbitrary variants it does not understand.** `[@media(hover:hover)]:`
   produced no CSS at all and left the comment delete button permanently visible; the app uses a
   `@custom-variant can-hover` instead. Third instance of this family (stage 10's `animate-in`, stage
@@ -426,6 +442,27 @@ answer is "the same thing", the probe is measuring something else.**
 - **Stage 15 can rely on**: `HD-0000NN` eyebrow text, `aria-label="Comment thread"`, per-comment
   `aria-label="Delete comment by <name>"`, dialog names `Delete HD-0000NN?` and `Discard this ticket?`,
   and the list query carried in `location.state.from`.
+
+### Constraints established in stage 13 (binding on 14–16)
+
+- **`mockApi` faults on an unmatched *or* ambiguous handler key**, and the fault is asserted in
+  `afterEach` via `harnessFaults`. It does **not** throw from the resolver: a throw becomes a rejected
+  request, the app turns it into `NETWORK_ERROR`, and a test asserting an error state then passes for
+  the wrong reason. A mistyped key now fails at the point of the mistake — `mockApi: no handler for
+  GET /api/v1/tickets/42. Declared: [GET /tickets/4]` — instead of one assertion later.
+- **Suffix keys really can collide**, and the pair is `"POST /comments"` vs
+  `"POST /tickets/42/comments"` — both match `POST /api/v1/tickets/42/comments`, and both spellings
+  were already in use across the suite. (The *stated* collision, `/tickets` vs `/tickets/facets`, was
+  false: `"/api/v1/tickets/facets".endsWith("/tickets")` is `false`.) The ambiguity check is what makes
+  this safe, so it is enforced rather than documented — do not weaken it back into a comment.
+- **With MSW listening in `error` mode, no test can reach a real server even if one is running on
+  :4000.** That is the web-side equivalent of stage 5's dev-database protection, and it is worth the
+  same care: do not add a passthrough.
+- **Whether a navigation pushed or replaced is invisible from rendered output** — both spellings put
+  the same screen on screen. Test it with `initialEntries` + `router.navigate(-1)`, which is why
+  `renderRoute` returns the router.
+- **`msw` is listed `false` in `pnpm-workspace.yaml`'s `allowBuilds`.** Leaving it out makes install
+  exit non-zero with `ERR_PNPM_IGNORED_BUILDS`, same as `@scarf/scarf`. It is absent from `dist`.
 
 ### What stages 6–8 need to know about the harness
 

@@ -1,5 +1,13 @@
+import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, buildQueryString, isApiClientError, type ApiClientError } from "@/api/http";
+import {
+  API_BASE_URL,
+  api,
+  buildQueryString,
+  isApiClientError,
+  type ApiClientError,
+} from "@/api/http";
+import { server } from "@/test/server";
 
 /**
  * `http.ts` is the only place a server response becomes an app-level value, so
@@ -148,6 +156,12 @@ describe("api", () => {
     // TanStack Query cancels in-flight requests on every key change. Swallowing
     // the AbortError into a NETWORK_ERROR would show "can't reach the server"
     // on a healthy fast-typing search box.
+    //
+    // This constructs the rejection itself, which is why it could not see the
+    // realm bug the MSW test below found: the `DOMException` a stub throws is
+    // the one `instanceof DOMException` resolves against, so the old
+    // `instanceof` guard matched here and nowhere else. Kept as the cheap unit
+    // case; the wire-level one is the guard.
     mockFetch(async () => {
       throw new DOMException("The operation was aborted.", "AbortError");
     });
@@ -182,5 +196,86 @@ describe("api", () => {
     expect((getInit?.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
     expect((postInit?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(postInit?.body).toBe('{"title":"x"}');
+  });
+});
+
+/**
+ * The tests above assert on the `init` object `http.ts` hands to `fetch`. That
+ * is the argument, not the request — it proves the client *asked* for a header,
+ * not that one went out, and it cannot distinguish "built correctly" from "sent
+ * correctly" at all.
+ *
+ * MSW sees the request `fetch` actually produced, after its own normalisation,
+ * so these read the other side of the same boundary. Both are kept: the `init`
+ * assertions localise a fault to `http.ts`, and these say the wire agrees.
+ */
+describe("api — the request that actually goes out", () => {
+  const seen: Request[] = [];
+
+  const capture = (reply: () => Response = () => HttpResponse.json({})) => {
+    seen.length = 0;
+    server.use(
+      http.all(`${API_BASE_URL}/*`, ({ request }) => {
+        seen.push(request.clone());
+        return reply();
+      }),
+    );
+  };
+
+  it("puts the query string on the URL rather than only in the options", async () => {
+    capture();
+    await api.get("/tickets", { query: { status: ["open", "closed"], page: 2 } });
+
+    const url = new URL(seen[0]!.url);
+    expect(url.pathname).toBe(new URL(API_BASE_URL).pathname + "/tickets");
+    expect(url.searchParams.getAll("status")).toEqual(["open", "closed"]);
+    expect(url.searchParams.get("page")).toBe("2");
+  });
+
+  it("actually transmits the JSON body and its content-type on a POST", async () => {
+    capture();
+    await api.post("/tickets", { title: "Projector shows no signal" });
+
+    expect(seen[0]!.method).toBe("POST");
+    expect(seen[0]!.headers.get("content-type")).toBe("application/json");
+    await expect(seen[0]!.json()).resolves.toEqual({ title: "Projector shows no signal" });
+  });
+
+  it("sends no body and no content-type on a GET or a DELETE", async () => {
+    capture(() => new HttpResponse(null, { status: 204 }));
+    await api.get("/tickets");
+    await api.delete("/tickets/1");
+
+    for (const request of seen) {
+      expect(request.headers.get("content-type")).toBeNull();
+      expect(request.body).toBeNull();
+    }
+    expect(seen.map((request) => request.method)).toEqual(["GET", "DELETE"]);
+  });
+
+  it("asks for JSON on every request", async () => {
+    capture();
+    await api.get("/tickets");
+    expect(seen[0]!.headers.get("accept")).toBe("application/json");
+  });
+
+  it("aborts the in-flight request when the signal fires", async () => {
+    // TanStack Query cancels on every key change, and the abort has to reach
+    // the network rather than only being remembered by the caller.
+    const controller = new AbortController();
+    server.use(
+      http.get(`${API_BASE_URL}/tickets`, async () => {
+        controller.abort();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return HttpResponse.json({ data: [] });
+      }),
+    );
+
+    const error = (await api
+      .get("/tickets", { signal: controller.signal })
+      .catch((e: unknown) => e)) as Error;
+
+    expect(error.name).toBe("AbortError");
+    expect(isApiClientError(error)).toBe(false);
   });
 });

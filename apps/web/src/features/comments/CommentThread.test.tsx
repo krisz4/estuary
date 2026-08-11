@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/api/queryKeys";
 import { CommentThread } from "@/features/comments/CommentThread";
-import { makeComment, makeQueryClient, renderInProviders, stubFetch } from "@/test/harness";
+import { makeComment, makeQueryClient, renderInProviders, mockApi } from "@/test/harness";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
@@ -18,7 +18,7 @@ const comments = [
 
 describe("CommentThread", () => {
   it("keeps the server's order rather than re-sorting", () => {
-    stubFetch({});
+    mockApi({});
     renderInProviders(<CommentThread ticketId={42} comments={comments} />);
 
     const items = within(screen.getByRole("list", { name: "Comment thread" })).getAllByRole(
@@ -31,7 +31,7 @@ describe("CommentThread", () => {
   });
 
   it("renders markup in a body as text", () => {
-    stubFetch({});
+    mockApi({});
     const { container } = renderInProviders(
       <CommentThread ticketId={42} comments={[makeComment({ body: "<b>bold</b>" })]} />,
     );
@@ -41,13 +41,13 @@ describe("CommentThread", () => {
   });
 
   it("shows the empty line when there is nothing yet", () => {
-    stubFetch({});
+    mockApi({});
     renderInProviders(<CommentThread ticketId={42} comments={[]} />);
     expect(screen.getByText("No comments yet.")).toBeInTheDocument();
   });
 
   it("labels each delete button with its author", () => {
-    stubFetch({});
+    mockApi({});
     renderInProviders(<CommentThread ticketId={42} comments={comments} />);
 
     expect(
@@ -60,7 +60,7 @@ describe("CommentThread", () => {
 
   it("confirms, deletes, and invalidates only the detail key", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({
+    const { requests } = mockApi({
       "DELETE /comments/1": () => ({ status: 204 }),
     });
 
@@ -81,5 +81,40 @@ describe("CommentThread", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tickets", "detail", 42] });
     expect(queryKeys.tickets.detail(42)).toEqual(["tickets", "detail", 42]);
     expect(toast.success).toHaveBeenCalledWith("Comment deleted");
+  });
+
+  /**
+   * A failed delete leaves the thread on screen known to be wrong, and for the
+   * likeliest failure it is *guaranteed* wrong: `COMMENT_NOT_FOUND` means the
+   * comment was already removed in another tab. Toasting and stopping there
+   * leaves the stale row sitting in the list, and every retry reproduces the
+   * same 404 — the user has no way to make the screen agree with the server
+   * short of a manual reload.
+   */
+  it("refetches the thread when the delete fails, so a stale row cannot persist", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "DELETE /comments/1": () => ({
+        status: 404,
+        body: {
+          error: { code: "COMMENT_NOT_FOUND", message: "gone", requestId: "r1" },
+        },
+      }),
+    });
+
+    const queryClient = makeQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    renderInProviders(<CommentThread ticketId={42} comments={comments} />, { queryClient });
+
+    await user.click(screen.getByRole("button", { name: "Delete comment by Priya Nair" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete comment" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tickets.detail(42) });
+    expect(queryKeys.tickets.detail(42)).toEqual(["tickets", "detail", 42]);
+    // The dialog still closes — the action is over, it just did not succeed.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

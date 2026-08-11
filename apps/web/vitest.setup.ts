@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterAll, afterEach, beforeAll, expect } from "vitest";
+import { harnessFaults, server } from "./src/test/server";
 
 /**
  * Vitest runs with `globals: false`, so React Testing Library's automatic
@@ -9,6 +10,32 @@ import { afterEach } from "vitest";
  */
 afterEach(() => {
   cleanup();
+});
+
+/**
+ * MSW's lifecycle, once per test file (`isolate: true` re-runs this file for
+ * each one).
+ *
+ * `onUnhandledRequest: "error"` is the point of doing this here rather than
+ * inside the harness: a request nobody declared a handler for now fails the
+ * test that issued it, instead of falling through to whatever the environment
+ * would have done with it.
+ */
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "error" });
+});
+
+afterEach(() => {
+  server.resetHandlers();
+
+  // Read and cleared before asserting, so one faulty test does not cascade into
+  // every test after it.
+  const faults = harnessFaults.splice(0, harnessFaults.length);
+  expect(faults, "mockApi could not dispatch a request — see above").toEqual([]);
+});
+
+afterAll(() => {
+  server.close();
 });
 
 /**

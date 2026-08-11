@@ -1,8 +1,10 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { type Comment } from "@helpdesk/contracts";
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useDeleteCommentMutation } from "@/api/comments";
+import { queryKeys } from "@/api/queryKeys";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -34,6 +36,7 @@ export const CommentThread = ({ ticketId, comments }: CommentThreadProps) => {
   const [pendingDelete, setPendingDelete] = useState<Comment | null>(null);
   const [focusCommentId, setFocusCommentId] = useState<number | null>(null);
 
+  const queryClient = useQueryClient();
   const deleteMutation = useDeleteCommentMutation(ticketId);
 
   return (
@@ -83,6 +86,15 @@ export const CommentThread = ({ ticketId, comments }: CommentThreadProps) => {
               setPendingDelete(null);
               const copy = errorCopy(error);
               toast.error(copy.title, { description: copy.description });
+
+              // The thread on screen is now known to be wrong, and for the
+              // likeliest failure it is *guaranteed* wrong: COMMENT_NOT_FOUND
+              // means it was already deleted somewhere else, so the row the
+              // user just tried to remove is stale. Without this it stays
+              // there, and every retry reproduces the same 404 forever.
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.tickets.detail(ticketId),
+              });
             },
           });
         }}

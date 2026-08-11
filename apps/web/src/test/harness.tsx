@@ -1,17 +1,25 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type Comment, type Ticket } from "@helpdesk/contracts";
 import { render, type RenderResult } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { type ReactNode } from "react";
 import { RouterProvider, createMemoryRouter, type RouteObject } from "react-router-dom";
-import { vi } from "vitest";
+import { harnessFaults, server } from "@/test/server";
 
 /**
- * Shared test scaffolding for the stage-12 screens.
+ * Shared test scaffolding for the web screens.
  *
- * **`fetch` is stubbed, never the query hooks.** Mocking `useTicketQuery` would
- * prove a component renders whatever it is handed and say nothing about the
- * request → cache → render path, which is most of what these screens do. (Stage
- * 13 swaps MSW in at this same boundary; the components do not change.)
+ * **The network is mocked, never the query hooks.** Mocking `useTicketQuery`
+ * would prove a component renders whatever it is handed and say nothing about
+ * the request → cache → render path, which is most of what these screens do.
+ *
+ * Stage 13 moved that boundary from a hand-rolled `fetch` stub to MSW. The
+ * ergonomics are unchanged — handlers keyed `"METHOD /path-suffix"`, a
+ * `requests` array to assert on — but the request `http.ts` sees is now a real
+ * one: `fetch` runs its own argument normalisation, header handling, and body
+ * streaming, and the response comes back through `Response` rather than being
+ * one the test constructed by hand. A stub that returns whatever object the
+ * test wrote cannot disagree with `http.ts` about what a response *is*.
  *
  * `createMemoryRouter` rather than `MemoryRouter`: the forms use `useBlocker`,
  * which only exists on a data router. A non-data router makes the dirty guard
@@ -47,50 +55,96 @@ export const makeComment = (overrides: Partial<Comment> = {}): Comment => ({
   ...overrides,
 });
 
-export type StubbedRequest = { method: string; url: URL; body: unknown };
+export type MockRequest = { method: string; url: URL; body: unknown };
 
-export type RouteHandler = (request: StubbedRequest) => { status?: number; body?: unknown };
+export type MockReply = { status?: number; body?: unknown };
+
+export type RouteHandler = (request: MockRequest) => MockReply | Promise<MockReply>;
 
 /**
- * Installs a `fetch` stub and returns the list of requests it saw.
+ * Installs MSW handlers for the API and returns the list of requests they saw.
  *
  * Handlers are keyed by `"<METHOD> <path-suffix>"` and matched by suffix, so a
  * test writes `"GET /tickets/42"` without repeating the base URL.
+ *
+ * One MSW handler is registered — `http.all("*")` — and the suffix dispatch
+ * happens inside it, rather than translating each key into an MSW path pattern.
+ * That keeps suffix matching (a key must not have to know `VITE_API_BASE_URL`)
+ * and keeps *every* request the app makes flowing through one place, which is
+ * what makes `requests` a complete record rather than a record of the requests
+ * somebody remembered to declare.
+ *
+ * A handler may be async. `GET /tickets` awaiting a latch is how a test gets a
+ * window in which to observe the in-flight state.
+ *
+ * **An unmatched or ambiguous key fails the test**, via `harnessFaults` rather
+ * than a thrown resolver (see `server.ts` for why a throw is not enough). Both
+ * are test-authoring bugs and both used to be invisible:
+ *
+ * - *Unmatched.* Answering with a synthetic 404 made a mistyped key
+ *   (`"GET /tickets/4"`, a stray space, the wrong method) look like a
+ *   well-formed not-found response, so a test would reach its asserted state
+ *   for entirely the wrong reason — and it silently cancelled the
+ *   `onUnhandledRequest: "error"` guarantee `server.ts` documents, because the
+ *   catch-all means nothing is ever unhandled. A test that wants a 404 declares
+ *   one.
+ * - *Ambiguous.* Suffix matching genuinely can collide: `"POST /comments"` and
+ *   `"POST /tickets/42/comments"` both match `POST /api/v1/tickets/42/comments`,
+ *   and **both spellings are in use across this suite**. First-match-wins would
+ *   silently pick by object key order. (It does *not* collide for
+ *   `/tickets` vs `/tickets/facets` — `"/api/v1/tickets/facets"` does not end
+ *   with `"/tickets"` — so there is no route-ordering rule here, only this
+ *   check.)
  */
-export const stubFetch = (
-  handlers: Record<string, RouteHandler>,
-): { requests: StubbedRequest[] } => {
-  const requests: StubbedRequest[] = [];
+export const mockApi = (handlers: Record<string, RouteHandler>): { requests: MockRequest[] } => {
+  const requests: MockRequest[] = [];
 
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(String(input));
-    const method = (init?.method ?? "GET").toUpperCase();
-    const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
-    const request: StubbedRequest = { method, url, body };
-    requests.push(request);
+  server.use(
+    http.all("*", async ({ request }) => {
+      const url = new URL(request.url);
+      const method = request.method.toUpperCase();
+      const raw = await request.text();
+      const record: MockRequest = {
+        method,
+        url,
+        body: raw === "" ? undefined : JSON.parse(raw),
+      };
+      requests.push(record);
 
-    const key = Object.keys(handlers).find((candidate) => {
-      const [handlerMethod, path] = candidate.split(" ");
-      return handlerMethod === method && url.pathname.endsWith(path ?? "");
-    });
+      const matches = Object.keys(handlers).filter((candidate) => {
+        const [handlerMethod, path] = candidate.split(" ");
+        return handlerMethod === method && url.pathname.endsWith(path ?? "");
+      });
 
-    if (key === undefined) {
-      return new Response(
-        JSON.stringify({ error: { code: "NOT_FOUND", message: "no handler", requestId: "t" } }),
-        { status: 404, headers: { "content-type": "application/json" } },
-      );
-    }
+      const where = `${method} ${url.pathname}`;
+      if (matches.length !== 1) {
+        harnessFaults.push(
+          matches.length === 0
+            ? `mockApi: no handler for ${where}. Declared: [${Object.keys(handlers).join(", ")}]`
+            : `mockApi: ${where} matches ${matches.length} handlers [${matches.join(", ")}] — the suffixes are ambiguous, so which one answers is decided by key order`,
+        );
+        return HttpResponse.json(
+          { error: { code: "INTERNAL_ERROR", message: where, requestId: "harness" } },
+          { status: 500 },
+        );
+      }
 
-    const { status = 200, body: responseBody } = handlers[key]!(request);
-    if (status === 204) return new Response(null, { status: 204 });
+      const key = matches[0]!;
+      const { status = 200, body } = await handlers[key]!(record);
+      if (status === 204) return new HttpResponse(null, { status: 204 });
 
-    return new Response(JSON.stringify(responseBody), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
-  });
+      // `JSON.stringify` rather than `HttpResponse.json`, which types its body
+      // as `JsonBodyType` and — more importantly — answers an `undefined` body
+      // with an empty 200 that `http.ts` reads as "no content". A handler that
+      // forgot its body should surface as MALFORMED_RESPONSE, the same as a
+      // real server sending nothing, not silently resolve to `undefined`.
+      return new HttpResponse(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+  );
 
-  vi.stubGlobal("fetch", fetchMock);
   return { requests };
 };
 
@@ -109,18 +163,27 @@ export type RenderRouteOptions = {
   queryClient?: QueryClient;
 };
 
+/**
+ * The router is returned as well as the render result: `initialEntries` plus
+ * `router.navigate(-1)` is the only way to assert what **Back** does, and
+ * whether a navigation pushed or replaced is invisible from the rendered output
+ * alone — both spellings put the same screen on screen.
+ */
 export const renderRoute = ({
   routes,
   initialEntries = ["/"],
   queryClient = makeQueryClient(),
-}: RenderRouteOptions): RenderResult & { queryClient: QueryClient } => {
+}: RenderRouteOptions): RenderResult & {
+  queryClient: QueryClient;
+  router: ReturnType<typeof createMemoryRouter>;
+} => {
   const router = createMemoryRouter(routes, { initialEntries: initialEntries as never });
   const result = render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  return { ...result, queryClient };
+  return { ...result, queryClient, router };
 };
 
 /** Wraps `children` in the providers, on a single throwaway route. */

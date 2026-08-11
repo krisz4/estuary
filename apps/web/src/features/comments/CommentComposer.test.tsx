@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/api/queryKeys";
 import { CommentComposer } from "@/features/comments/CommentComposer";
-import { makeComment, makeQueryClient, renderInProviders, stubFetch } from "@/test/harness";
+import { makeComment, makeQueryClient, renderInProviders, mockApi } from "@/test/harness";
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn() }),
@@ -22,7 +22,7 @@ const fill = async (user: ReturnType<typeof userEvent.setup>) => {
 describe("CommentComposer", () => {
   it("clears the body on success and keeps the author name", async () => {
     const user = userEvent.setup();
-    stubFetch({ "POST /comments": () => ({ status: 201, body: makeComment() }) });
+    mockApi({ "POST /comments": () => ({ status: 201, body: makeComment() }) });
 
     renderInProviders(<CommentComposer ticketId={42} />);
     await fill(user);
@@ -41,7 +41,7 @@ describe("CommentComposer", () => {
    */
   it("keeps the typed body when the submit fails", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "POST /comments": () => ({
         status: 500,
         body: { error: { code: "INTERNAL_ERROR", message: "boom", requestId: "r1" } },
@@ -60,7 +60,7 @@ describe("CommentComposer", () => {
 
   it("maps a server VALIDATION_ERROR onto the field it names", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "POST /comments": () => ({
         status: 422,
         body: {
@@ -94,7 +94,7 @@ describe("CommentComposer", () => {
    */
   it("puts a detail key that is not a field into the summary instead of losing it", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "POST /comments": () => ({
         status: 422,
         body: {
@@ -119,7 +119,7 @@ describe("CommentComposer", () => {
 
   it("invalidates the ticket detail key — and only that key — on success", async () => {
     const user = userEvent.setup();
-    stubFetch({ "POST /comments": () => ({ status: 201, body: makeComment() }) });
+    mockApi({ "POST /comments": () => ({ status: 201, body: makeComment() }) });
 
     const queryClient = makeQueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -140,7 +140,7 @@ describe("CommentComposer", () => {
 
   it("disables submit until the body has content", async () => {
     const user = userEvent.setup();
-    stubFetch({});
+    mockApi({});
 
     renderInProviders(<CommentComposer ticketId={42} />);
     expect(screen.getByRole("button", { name: /add comment/i })).toBeDisabled();

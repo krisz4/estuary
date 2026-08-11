@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/api/queryKeys";
 import { TicketDetailPage } from "@/pages/ticket-detail/TicketDetailPage";
-import { makeComment, makeQueryClient, makeTicket, renderRoute, stubFetch } from "@/test/harness";
+import { makeComment, makeQueryClient, makeTicket, renderRoute, mockApi } from "@/test/harness";
 
 const toast = vi.hoisted(() => ({
   success: vi.fn(),
@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe("TicketDetailPage — states", () => {
   it("renders the ticket, its comments, and the reference", async () => {
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({
         body: makeTicket({ comments: [makeComment({ body: "Lamp swapped." })], commentCount: 1 }),
       }),
@@ -46,7 +46,7 @@ describe("TicketDetailPage — states", () => {
   });
 
   it("shows the resource not-found state for a 404, not a toast", async () => {
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({
         status: 404,
         body: {
@@ -62,7 +62,7 @@ describe("TicketDetailPage — states", () => {
   });
 
   it("shows a retryable error panel for a 500", async () => {
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({
         status: 500,
         body: { error: { code: "INTERNAL_ERROR", message: "boom", requestId: "r9" } },
@@ -77,7 +77,7 @@ describe("TicketDetailPage — states", () => {
   });
 
   it("rejects a non-numeric id without issuing a request", async () => {
-    const { requests } = stubFetch({});
+    const { requests } = mockApi({});
     renderRoute({ routes, initialEntries: ["/tickets/0x2a"] });
 
     expect(
@@ -89,7 +89,7 @@ describe("TicketDetailPage — states", () => {
 
 describe("TicketDetailPage — description escaping", () => {
   it("renders markup in the description as a text node", async () => {
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({
         body: makeTicket({ description: "before <img src=x onerror=alert(1)> after" }),
       }),
@@ -109,7 +109,7 @@ describe("TicketDetailPage — description escaping", () => {
 describe("TicketDetailPage — status change", () => {
   it("PATCHes the new status and invalidates the whole tickets tree", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({
+    const { requests } = mockApi({
       "GET /tickets/42": () => ({ body: makeTicket() }),
       "PATCH /tickets/42": () => ({ body: makeTicket({ status: "in_progress" }) }),
     });
@@ -136,7 +136,7 @@ describe("TicketDetailPage — status change", () => {
 
   it("shows the 409's allowed targets inline and rolls the value back", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({ body: makeTicket({ status: "closed" }) }),
       "PATCH /tickets/42": () => ({
         status: 409,
@@ -173,7 +173,7 @@ describe("TicketDetailPage — status change", () => {
 describe("TicketDetailPage — delete", () => {
   it("confirms first, then deletes, toasts, and leaves for the list", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({
+    const { requests } = mockApi({
       "GET /tickets/42": () => ({
         body: makeTicket({ comments: [makeComment()], commentCount: 1 }),
       }),
@@ -207,7 +207,7 @@ describe("TicketDetailPage — delete", () => {
 
   it("sends nothing when the confirm is cancelled", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({ "GET /tickets/42": () => ({ body: makeTicket() }) });
+    const { requests } = mockApi({ "GET /tickets/42": () => ({ body: makeTicket() }) });
 
     renderDetail();
     await screen.findByRole("heading", { level: 1 });

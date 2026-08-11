@@ -67,9 +67,17 @@ const TicketEditView = ({ ticketId }: { ticketId: number }) => {
 
   useDocumentTitle(ticket === undefined ? undefined : `Edit ${ticket.reference}`);
 
+  /**
+   * `replace`, for the same reason `save()` below uses it: this page's history
+   * entry is a form the user has finished with. Pushing over it makes Back land
+   * *inside the edit form again* — from `/tickets/42` → Edit → Cancel the stack
+   * would read `[list, detail, edit, detail]`, so one Back press reopens the
+   * form they just abandoned, and a second returns to the detail page they were
+   * already on. Cancel and save leave by the same door.
+   */
   const backToTicket = () => {
     allowNavigation();
-    void navigate(`/tickets/${ticketId}`, { state: location.state });
+    void navigate(`/tickets/${ticketId}`, { replace: true, state: location.state });
   };
 
   if (isPending) {

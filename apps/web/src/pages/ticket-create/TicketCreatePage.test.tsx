@@ -1,10 +1,10 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Outlet, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { TicketCreatePage } from "@/pages/ticket-create/TicketCreatePage";
-import { makeQueryClient, makeTicket, renderRoute, stubFetch } from "@/test/harness";
+import { makeQueryClient, makeTicket, renderRoute, mockApi } from "@/test/harness";
 
 /** Renders the current URL, so a navigation assertion can name it exactly. */
 const LocationProbe = () => {
@@ -40,7 +40,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("TicketCreatePage", () => {
   it("POSTs the contract shape and lands on the new ticket", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({
+    const { requests } = mockApi({
       "POST /tickets": () => ({
         status: 201,
         body: makeTicket({ id: 64, reference: "HD-000064" }),
@@ -68,7 +68,7 @@ describe("TicketCreatePage", () => {
 
   it("invalidates the whole tickets tree so the list picks the new row up", async () => {
     const user = userEvent.setup();
-    stubFetch({ "POST /tickets": () => ({ status: 201, body: makeTicket({ id: 64 }) }) });
+    mockApi({ "POST /tickets": () => ({ status: 201, body: makeTicket({ id: 64 }) }) });
 
     const queryClient = makeQueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -84,7 +84,7 @@ describe("TicketCreatePage", () => {
 
   it("keeps every typed value when the server rejects the payload", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "POST /tickets": () => ({
         status: 422,
         body: {
@@ -120,7 +120,7 @@ describe("TicketCreatePage", () => {
    */
   it("focuses the topmost invalid control after a 422, including a select", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "POST /tickets": () => ({
         status: 422,
         body: {
@@ -154,7 +154,7 @@ describe("TicketCreatePage", () => {
    */
   it("focuses the error summary when the rejection names no rendered field", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "POST /tickets": () => ({
         status: 422,
         body: {
@@ -181,7 +181,7 @@ describe("TicketCreatePage", () => {
 
   it("toasts for a failure that has no field to land on", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "POST /tickets": () => ({
         status: 500,
         body: { error: { code: "INTERNAL_ERROR", message: "boom", requestId: "r1" } },
@@ -205,7 +205,7 @@ describe("TicketCreatePage", () => {
 
   it("leaves immediately when Cancel is pressed on an untouched form", async () => {
     const user = userEvent.setup();
-    stubFetch({});
+    mockApi({});
 
     renderCreate();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -222,7 +222,7 @@ describe("TicketCreatePage", () => {
    */
   it("cancels back to the filtered list it was opened from", async () => {
     const user = userEvent.setup();
-    stubFetch({});
+    mockApi({});
 
     renderRoute({
       routes: [
@@ -257,9 +257,34 @@ describe("TicketCreatePage", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/tickets?status=open&page=2");
   });
 
+  /**
+   * The same rule as the success path, which the page's docstring already
+   * argues for: an abandoned form is as spent as a submitted one. Pushing
+   * `/tickets` over `/tickets/new` leaves the blank form one Back press away.
+   */
+  it("replaces the form's history entry on Cancel, so Back does not reopen it", async () => {
+    const user = userEvent.setup();
+    mockApi({});
+
+    const { router } = renderRoute({
+      routes,
+      initialEntries: ["/tickets", "/tickets/new"],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByText("Tickets list")).toBeInTheDocument());
+
+    await act(async () => {
+      await router.navigate(-1);
+    });
+
+    expect(router.state.location.pathname).toBe("/tickets");
+    expect(screen.queryByRole("button", { name: "Create ticket" })).not.toBeInTheDocument();
+  });
+
   it("confirms before discarding a dirty form", async () => {
     const user = userEvent.setup();
-    stubFetch({});
+    mockApi({});
 
     renderCreate();
     await user.type(screen.getByLabelText(/^title/i), "Half a thought");

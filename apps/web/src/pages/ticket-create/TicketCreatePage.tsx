@@ -34,9 +34,16 @@ export const TicketCreatePage = () => {
   const { blocker, allowNavigation } = useUnsavedChangesGuard(isDirty);
   const mutation = useCreateTicketMutation();
 
+  /**
+   * `replace`, for the same reason the success path uses it (see above). The
+   * docstring named the hazard only for submission, but an abandoned form is
+   * the same entry: pushing `/tickets` over `/tickets/new` leaves the create
+   * form one Back press away, so cancelling out of it and pressing Back reopens
+   * a blank form the user has already declined to fill in.
+   */
   const leave = () => {
     allowNavigation();
-    void navigate(backToListPath(location.state));
+    void navigate(backToListPath(location.state), { replace: true });
   };
 
   return (

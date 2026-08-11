@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/api/queryKeys";
 import { diffTicketPatch, TicketEditPage, toFormValues } from "@/pages/ticket-edit/TicketEditPage";
-import { makeQueryClient, makeTicket, renderRoute, stubFetch } from "@/test/harness";
+import { makeQueryClient, makeTicket, renderRoute, mockApi } from "@/test/harness";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
@@ -81,7 +81,7 @@ describe("toFormValues", () => {
 
 describe("TicketEditPage", () => {
   it("prefills from the loaded ticket", async () => {
-    stubFetch({ "GET /tickets/42": () => ({ body: makeTicket() }) });
+    mockApi({ "GET /tickets/42": () => ({ body: makeTicket() }) });
     renderEdit();
 
     await waitFor(() =>
@@ -92,7 +92,7 @@ describe("TicketEditPage", () => {
 
   it("PATCHes only the fields that changed", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({
+    const { requests } = mockApi({
       "GET /tickets/42": () => ({ body: makeTicket() }),
       "PATCH /tickets/42": () => ({ body: makeTicket({ title: "Projector is dead" }) }),
     });
@@ -125,7 +125,7 @@ describe("TicketEditPage", () => {
   it("does not PATCH a field the user never touched after a concurrent change lands", async () => {
     const user = userEvent.setup();
     const queryClient = makeQueryClient();
-    const { requests } = stubFetch({
+    const { requests } = mockApi({
       "GET /tickets/42": () => ({ body: makeTicket({ assignee: null }) }),
       "PATCH /tickets/42": () => ({ body: makeTicket({ title: "Projector is dead" }) }),
     });
@@ -158,7 +158,7 @@ describe("TicketEditPage", () => {
 
   it("clears an assignee to null rather than an empty string", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({
+    const { requests } = mockApi({
       "GET /tickets/42": () => ({ body: makeTicket() }),
       "PATCH /tickets/42": () => ({ body: makeTicket({ assignee: null }) }),
     });
@@ -175,7 +175,7 @@ describe("TicketEditPage", () => {
 
   it("short-circuits an unchanged save without calling the API", async () => {
     const user = userEvent.setup();
-    const { requests } = stubFetch({ "GET /tickets/42": () => ({ body: makeTicket() }) });
+    const { requests } = mockApi({ "GET /tickets/42": () => ({ body: makeTicket() }) });
 
     renderEdit();
     await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
@@ -188,7 +188,7 @@ describe("TicketEditPage", () => {
 
   it("puts a 409 on the status field and keeps the other edits", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({ body: makeTicket({ status: "closed" }) }),
       "PATCH /tickets/42": () => ({
         status: 409,
@@ -228,7 +228,7 @@ describe("TicketEditPage", () => {
    */
   it("clears the 409 message when the user picks a different status", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({ body: makeTicket({ status: "closed" }) }),
       "PATCH /tickets/42": () => ({
         status: 409,
@@ -276,7 +276,7 @@ describe("TicketEditPage", () => {
    */
   it("moves focus to the status control after a 409", async () => {
     const user = userEvent.setup();
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({ body: makeTicket({ status: "closed" }) }),
       "PATCH /tickets/42": () => ({
         status: 409,
@@ -301,8 +301,39 @@ describe("TicketEditPage", () => {
     await waitFor(() => expect(screen.getByRole("combobox", { name: /^status/i })).toHaveFocus());
   });
 
+  /**
+   * Cancel must **replace**, not push. Pushing leaves the form in the stack, so
+   * from `/tickets/42` → Edit → Cancel the history reads
+   * `[list, detail, edit, detail]` and one Back press drops the user back inside
+   * the form they just abandoned — with a second press needed to reach the
+   * detail page they were already looking at.
+   *
+   * Only the router can see this: both spellings put the detail page on screen,
+   * so no assertion about the rendered output can tell them apart.
+   */
+  it("replaces the form's history entry on Cancel, so Back does not reopen it", async () => {
+    const user = userEvent.setup();
+    mockApi({ "GET /tickets/42": () => ({ body: makeTicket() }) });
+
+    const { router } = renderRoute({
+      routes,
+      initialEntries: ["/tickets", "/tickets/42", "/tickets/42/edit"],
+    });
+    await screen.findByDisplayValue("Projector shows no signal");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByText("Detail page")).toBeInTheDocument());
+
+    await act(async () => {
+      await router.navigate(-1);
+    });
+
+    expect(router.state.location.pathname).toBe("/tickets/42");
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  });
+
   it("shows the not-found state for a ticket deleted elsewhere", async () => {
-    stubFetch({
+    mockApi({
       "GET /tickets/42": () => ({
         status: 404,
         body: { error: { code: "TICKET_NOT_FOUND", message: "gone", requestId: "r1" } },

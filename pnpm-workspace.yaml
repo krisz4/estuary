@@ -14,4 +14,10 @@ allowBuilds:
   # ERR_PNPM_IGNORED_BUILDS.
   "@scarf/scarf": false
   esbuild: true
+  # Declined on purpose. msw's postinstall exists solely to copy
+  # `mockServiceWorker.js` into a browser app's public directory; the web tests
+  # use `msw/node`, which patches the runtime's own fetch and never loads that
+  # worker. Leaving it unlisted makes `pnpm install` exit non-zero with
+  # ERR_PNPM_IGNORED_BUILDS, so it is listed and refused rather than omitted.
+  msw: false
   prisma: true

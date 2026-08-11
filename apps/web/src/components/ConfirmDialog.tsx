@@ -21,10 +21,16 @@ import {
  *
  * - **Cancel takes focus, not Confirm.** Radix focuses the first tabbable
  *   element in the content by default, which for a destructive dialog would put
- *   a `Return` keypress one keystroke away from an irreversible delete. `Cancel`
- *   is first in the DOM and carries `autoFocus`, so both the tab order and the
- *   initial focus land on the safe action. `DialogFooter` reverses the *visual*
- *   order below `sm` so Confirm still sits nearest the thumb.
+ *   a `Return` keypress one keystroke away from an irreversible delete.
+ *   **`Cancel` being first in the DOM is what does the work** — that is what
+ *   Radix's default lands on, and what the tab order follows. `DialogFooter`
+ *   reverses the *visual* order below `sm` so Confirm still sits nearest the
+ *   thumb, which is exactly why the markup order must not be "tidied" to match.
+ *   `autoFocus` is a redundant second guard for the day that order changes: it
+ *   is measurably not load-bearing today (drop it and every test still passes)
+ *   and it cannot be tested in isolation, because React applies it by calling
+ *   `.focus()` rather than by emitting an attribute. `ConfirmDialog.test.tsx`
+ *   pins the DOM order directly instead.
  * - **The dialog stays open while the mutation is in flight** and shows the
  *   spinner on its own button. Closing on click and toasting later hides a
  *   failure behind a screen the user has already left.

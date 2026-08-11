@@ -197,6 +197,45 @@ describe("useTicketListParams", () => {
     expect(h.current.search).not.toContain("assigneeIsNull");
   });
 
+  /**
+   * The direction above cannot fail, and that is worth saying out loud: three
+   * layers enforce this exclusion — the parser, `serializeTicketListParams`, and
+   * `setFilters` — and **`assignee` wins in all three**. Setting `assignee` over
+   * a live `assigneeIsNull` therefore comes out right even with `setFilters`'s
+   * guard deleted, because serialize's `else if` already drops the loser.
+   * (Verified: with the guard removed, that test still passes.)
+   *
+   * This is the direction where `assignee` losing is the *point*. Without the
+   * guard, `merged` carries both, serialize keeps `assignee`, and picking
+   * "Unassigned" while a name filter is active leaves the URL on
+   * `?assignee=Alice+Chen` — the control visibly does nothing when clicked.
+   */
+  it("switches to unassigned over a live assignee filter, the direction serialize cannot rescue", () => {
+    const h = renderParams("/tickets?assignee=Alice%20Chen");
+
+    act(() => h.current.api.setFilters({ assigneeIsNull: true }));
+
+    expect(h.current.api.params.assigneeIsNull).toBe(true);
+    expect(h.current.api.params.assignee).toBeUndefined();
+    expect(h.current.search).toContain("assigneeIsNull=true");
+    expect(h.current.search).not.toContain("assignee=Alice");
+  });
+
+  /**
+   * `serializeTicketListParams` carrying unknown keys is unit-tested as a pure
+   * function. Nothing pinned that the **hook** hands it the previous params at
+   * all — drop the second argument at the call site and the pure test stays
+   * green while every shared link loses its campaign tag on the first click.
+   */
+  it("keeps an unknown parameter in the URL across a real write", () => {
+    const h = renderParams("/tickets?utm_source=slack&status=open");
+
+    act(() => h.current.api.setFilters({ priority: ["urgent"] }));
+
+    expect(h.current.search).toContain("utm_source=slack");
+    expect(h.current.api.params.priority).toEqual(["urgent"]);
+  });
+
   it("keeps both changes when two writes are issued before either commits", () => {
     const h = renderParams("/tickets");
 
