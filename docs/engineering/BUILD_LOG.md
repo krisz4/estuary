@@ -19,6 +19,8 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | 1 · Monorepo shell | pass — `pnpm install`, `typecheck`, `lint` clean; gates verified non-vacuous with throwaway probes | 10 findings, 8 fixed in-stage, 2 deferred (D1, D2) | `Scaffold monorepo shell` |
 | 2 · `packages/contracts` | pass — 155 tests green, builds, and imports cleanly from both a real `node` ESM scratch file and a real `vite build` (no `node:*` in the browser bundle) | 5 findings, all 5 fixed in-stage | `Add packages/contracts` |
 | 3 · Prisma schema + first migration | pass — `db:migrate` applies to an empty file, `prisma generate` succeeds, a scratch script round-trips a ticket, repo-wide `typecheck`/`lint`/`build`/`test` clean | 5 findings, all 5 fixed in-stage | `Add Prisma schema, first migration, and env parsing` |
+| 4 · App skeleton, middleware, error envelope | pass — all five gate assertions green as supertest tests (health 200, unknown route `NOT_FOUND`, `MALFORMED_JSON`, `PAYLOAD_TOO_LARGE`, forced 500 with no stack in the body); `pnpm dev:api` boots and serves live | 7 findings, all 7 fixed in-stage | `Add app factory, middleware chain, and error envelope` |
+| 4 · App skeleton, middleware, error envelope | pass — 12 supertest assertions green (all five gate cases plus requestId and CORS); gate verified non-vacuous by breaking the parse-failure branch and the generic-500 message and watching 3 tests fail; repo-wide `typecheck`/`lint`/`build`/`test`/`format:check` clean; `pnpm dev:api` boots and serves `/health` | _pending_ | _pending_ |
 
 ## Deferred work
 
@@ -28,8 +30,10 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | D2 | `packages/tsconfig/react-app.json` is unexercised — `types: ["vite/client"]` needs Vite present | Stage 1 review | No React app exists yet; option-set correctness was verified with `tsc`, resolution cannot be | Stage 10 |
 | ~~D3~~ | ~~`pnpm test` is a turbo passthrough with no package implementing `test`~~ | Stage 1 | — | **Resolved in stage 2** — vitest is in the graph; `test:coverage` wired too |
 | D4 | pnpm pinned at `11.1.2` while `11.21.0` is available | Stage 1 | A version bump wants CI to agree with the pin; both should move together | Stage 16 |
-| D6 | `@helpdesk/api` has no `dev` script, so `pnpm dev:api` is a no-op | Stage 3 | `src/server.ts` is stage 4's deliverable; a script pointing at a nonexistent entrypoint is worse than an absent one | Stage 4 |
-| D7 | `@helpdesk/api` has no `test` script | Stage 3 | The vitest config and setup files are stage 5's deliverable | Stage 5 |
+| ~~D6~~ | ~~`@helpdesk/api` has no `dev` script, so `pnpm dev:api` is a no-op~~ | Stage 3 | — | **Resolved in stage 4** — `dev: tsx watch --clear-screen=false src/server.ts`; verified booting and serving `/health` |
+| ~~D7~~ | ~~`@helpdesk/api` has no `test` script~~ | Stage 3 | — | **Partly resolved in stage 4.** A minimal `test` script exists (`vitest run`, no config file) so the stage 4 gate is executable. It is deliberately not the harness — see D9 |
+| D9 | `apps/api` has no `vitest.config.ts` / `setupFiles`, and its `test` script inlines a placeholder `DATABASE_URL` | Stage 4 | Stage 4's tests are HTTP-only: `createApp()` mounts no router, so `lib/prisma.ts` is never imported and no database is opened. `env.ts` still requires `DATABASE_URL` to be non-empty, hence the placeholder, which the script only applies when the variable is unset (`${DATABASE_URL:-…}`). Stage 5 replaces the whole expression with a plain `vitest run` once `setupFiles` assigns the per-worker URL | Stage 5 |
+| D10 | The two forced-500 tests print a full stack to stderr, so `pnpm test` output carries two large JSON log lines | Stage 4 | Silencing it means setting `LOG_LEVEL=error`-and-above suppression or stubbing the logger from a `setupFiles` entry — which is stage 5's file. The lines are correct behavior (a 500 **must** log its stack), just noisy | Stage 5 |
 | D8 | `db:seed` and the `prisma.seed` hook are absent, so `db:reset` migrates but does not re-seed | Stage 3 | `prisma/seed.ts` is stage 9's deliverable. `CLAUDE.md` and `DATABASE.md` both describe `db:reset` as re-seeding — that becomes true when the hook lands | Stage 9 |
 | D5 | Schemas carry no `.openapi()` metadata | Stage 2 | `@asteasolutions/zod-to-openapi` would be a second runtime dependency in a package whose hard constraint is "zod and nothing else". Its v9 peers `zod ^4`, so it can extend these schemas from `apps/api` without touching this package | Stage 9 |
 
@@ -60,10 +64,49 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
   under pnpm 11; the setting is `allowBuilds` in `pnpm-workspace.yaml`. Left unmigrated, install
   fails with `ERR_PNPM_IGNORED_BUILDS` for the Prisma packages — meaning no engine binaries and a
   client that cannot connect.
+- **`errorHandler` is the only writer of an error body, and it duck-types Prisma.** The `P2025`
+  backstop checks `typeof err.code === "string" && typeof err.clientVersion === "string"` rather than
+  `instanceof PrismaClientKnownRequestError`, so `middleware/` does not import the generated client —
+  the layer table in `ARCHITECTURE.md` allows middleware only contracts and `lib/errors`. Stages 6–8
+  must keep throwing specific errors from services; the backstop is not a route to a 404.
+
+- **`app.ts` is a factory taking no arguments, and stage 8 mounts `/api/v1` at the marked line.**
+  Everything before that line (`requestId` → json → cors) and after it (`notFound` → `errorHandler`)
+  is fixed by the ordering rule; a router mounted outside that window loses either its request id or
+  its error envelope.
+
+- **The forced-500 gate is served by `GET /__test__/boom` and `/__test__/boom-async`, mounted only
+  under `NODE_ENV=test`.** Documented in `Error_Handling.md`. Do not promote them to always-on and do
+  not delete them — they are the only non-invasive way to assert that a 500 leaks no stack.
+
+- **`serialize.ts` types its input structurally (`TicketRow`, `CommentRow`), not from
+  `@prisma/client`.** Prisma's own row types satisfy the interfaces, so services pass rows straight
+  in. It casts `status`/`priority`/`category` to their contract enums rather than re-parsing: a
+  `.parse()` on a read path would turn a data problem into a 422 on a `GET`. That is safe **only**
+  while every write path goes through the zod enums — stage 6 owns keeping it true.
+
 - **`DATABASE_URL` has no default, and `lib/env.ts` loads `.env` with `override: false`.** Both
   matter for stage 5: a default would let a missing `setupFiles` entry truncate the dev database
   instead of failing, and an overriding loader would replace a worker's temp-file URL with the
   developer's `.env`.
+
+- **Stage 8 must write a local `asyncHandler()`.** `docs/features/Error_Handling.md` calls for it and
+  gives a reason that survives scrutiny — "Express 5 forwards rejected promises, but the wrapper keeps
+  the behavior explicit and survives a downgrade". It is a one-line local helper, **not**
+  `express-async-handler`; do not add that package. A stage-4 test proves unaided propagation works,
+  so the wrapper is belt-and-braces, not load-bearing.
+- **`cors` is mounted before `express.json()`**, contradicting what `ARCHITECTURE.md` and the plan
+  originally said. Both were corrected in stage 4. `apps/api/src/app.test.ts` pins it with a test that
+  fails when the order is swapped back — verified by actually swapping it.
+- **`/__test__/boom` and `/__test__/boom-async` are mounted only under `NODE_ENV=test`.** They are how
+  the forced-500 path is proven without monkey-patching a real route. Confirmed absent in dev.
+- **`serializeTicketSummary` requires `_count`**, with no default. A default would turn a forgotten
+  `_count: { select: { comments: true } }` into every ticket in the list reporting 0 comments.
+- **`errorHandler` detects `ZodError` structurally, not with `instanceof`.** The schemas that throw
+  are compiled against the contracts package's `zod`; pnpm dedupes to one copy today, but if the
+  ranges ever drift, `instanceof` fails and every 422 becomes a 500.
+- **`docs/features/Ticket_Numbering.md` still says `:ticketId` is parsed with `z.coerce.number()`.**
+  It is not, deliberately (see the stage-2 constraint above). Stage 16 should correct the doc.
 
 ## Performance ledger
 
@@ -81,4 +124,10 @@ justifies it — the project is a graded take-home on SQLite, not a system under
 | P8 | Index coverage vs the stage 7 query surface: the common view (`status` filter + `createdAt:desc`) plans as `SEARCH Ticket USING COVERING INDEX Ticket_statusRank_createdAt_idx` — covering, so no table row lookups | The composite index pays off exactly where it was designed to | Verified with `EXPLAIN QUERY PLAN` in stage 3 |
 | P9 | Three known non-covered paths: `q` is a full scan (leading-wildcard `LIKE` cannot use a B-tree — `DATABASE.md` says so deliberately); `priority:desc` + the `{id:"desc"}` tiebreaker falls back to a sort because `Ticket_priorityRank_idx` is single-column; `facets` is an index-only scan | Irrelevant at 63 seeded rows | Stage 7 should expect these rather than treat them as bugs. If `q` ever matters, the answer is FTS5 — explicitly deferred by the plan. If priority sorting ever matters, it is a `(priorityRank, id)` composite, not a new query |
 | P10 | **Turbo build caching was silently broken and is now fixed.** `incremental: true` writes its tsbuildinfo to `node_modules/.cache/tsc/`, which was not a declared `build` output. tsc decides whether to emit by comparing against that file, so a restored `dist` that disagreed with a surviving tsbuildinfo caused tsc to emit nothing — and the mismatch got re-cached | Severe: `packages/contracts/dist/index.js` was **absent entirely** while `pnpm build` reported success. It would have broken the runtime bundle, not just types | Fixed in stage 3 by caching the pair together: `outputs: ["dist/**", "node_modules/.cache/tsc/**"]` |
+| P11 | Install delta from stage 4: 457 MB → 478 MB, 336 → 423 packages. Express is ~1 MB of it; the rest is tsx/esbuild and vitest's vite tree | All dev-only | Stage 14's runtime image should install `--prod` |
+| P12 | Cold boot through `tsx`: 178 ms to import `app.ts`, 1.4 ms for `createApp()`, 1.0 ms to bind | Import is ~99% of boot, and `prisma.ts` is not yet on that path — expect a rise at stage 8 when the native engine loads | If the Docker healthcheck ever flaps, the answer is `start_period`, not code |
+| P13 | `GET /health` p50 0.28 ms / p99 1.77 ms over 200 sequential requests | The whole middleware chain costs under a millisecond, so any later latency is the database | Recorded as the zero-work baseline for stages 7–8 |
 | P7 | `test` declares `outputs: []`; coverage moved to a separate `test:coverage` task | `pnpm test` no longer warns "no output files found" on every run, and coverage output is still cached when asked for | Done in stage 2 |
+| P11 | Stage 4 install delta: **457 MB → 478 MB, 336 → 423 packages** for express + cors + tsx + vitest + supertest and their types. Express itself is ~1 MB; the delta is tsx/esbuild (~670 kB plus a platform binary) and vitest's vite tree (~2 MB per peer-resolved copy, four copies resolved across the workspace) | Dev-only weight. Both `tsx` and `vitest` are devDependencies, so stage 14's runtime image should install with `--prod` and carry only express, cors, zod, dotenv, and `@prisma/client` | Re-measure at stage 15 (Playwright browsers) |
+| P12 | Cold boot of the API process, measured through `tsx`: **178 ms** to import `app.ts` (transitively `env.ts` + dotenv + express + cors), **1.4 ms** to run `createApp()`, **1.0 ms** to bind the port | The import is ~99% of boot, and almost all of it is module loading, not work. `prisma.ts` is *not* on this path yet — stage 8 will add the client import and this number will rise sharply (P1 notes the engine is a native `.dylib`) | Nothing now. Re-measure after stage 8; if the Docker healthcheck ever flaps on a cold start, this is the number to look at, and the answer is `start_period`, not code |
+| P13 | `GET /health` latency over 200 sequential requests on a bound socket: **p50 0.28 ms, p99 1.77 ms** | The whole chain (requestId → json → cors → route) costs well under a millisecond, so any later latency is the database, not the middleware. `/health` deliberately touches no database, which is also why it is a fair baseline | Recorded as the "zero-work request" baseline for stages 7–8 |

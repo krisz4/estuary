@@ -65,8 +65,8 @@ The rule that matters: **routes do not touch Prisma, services do not touch HTTP.
 ```
 request
   → requestId          attach x-request-id (incoming or generated)
-  → json body parser   1MB limit
   → cors               ALLOWED_ORIGINS
+  → json body parser   1MB limit
   → router             zod-parse params/query/body  ─┐ throws ZodError
   → service            business rules + Prisma       ─┤ throws ApiError
   → serialize          Date → ISO, add `reference`   ─┘
@@ -74,6 +74,14 @@ request
   → notFound (unmatched path or verb → 404)           │
   → errorHandler ◄──────────────────────────────────── (single exit for all failures)
 ```
+
+**`cors` precedes the body parser, and the order is load-bearing.** When `express.json()` rejects a
+body it calls `next(err)`, which skips every remaining non-error middleware — so with `cors` mounted
+after it, `MALFORMED_JSON` and `PAYLOAD_TOO_LARGE` are sent with no `Access-Control-Allow-Origin`
+header. A browser turns those into opaque network errors: the web client never sees the code, and
+cannot read `x-request-id` off the response to quote back. A ticket description over `BODY_LIMIT` is
+the realistic way a user reaches it. This diagram specified the opposite order until stage 4
+demonstrated the consequence; `apps/api/src/app.test.ts` now pins it.
 
 Detail: [../features/Error_Handling.md](../features/Error_Handling.md).
 

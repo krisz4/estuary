@@ -54,6 +54,10 @@ Every request gets a `requestId` (incoming `x-request-id` if present, else a uui
 
 `async` route handlers are wrapped in `asyncHandler()` — Express 5 forwards rejected promises, but the wrapper keeps the behavior explicit and survives a downgrade.
 
+### Proving the 500 path
+
+`app.ts` mounts two diagnostic routes, `GET /__test__/boom` (synchronous `throw`) and `GET /__test__/boom-async` (rejected promise), **only when `NODE_ENV=test`**. They are the sole way to exercise the guarantee that matters most here — that an unhandled error returns a generic 500 and leaks no stack trace — without monkey-patching a real route, which would test the patch rather than the chain. Both variants exist because a sync throw and a rejected promise reach the handler by different routes through Express 5. They are absent from a development or production process; a request to either returns the ordinary `NOT_FOUND` 404.
+
 ## Client
 
 `http.ts` parses every non-2xx response into an `ApiClientError { code, message, details, requestId, status }`. Components branch on `code`, never on message text.

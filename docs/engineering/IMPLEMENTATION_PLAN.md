@@ -79,7 +79,12 @@ Schema exactly as [DATABASE.md](./DATABASE.md) specifies — both rank columns a
 | **Depends on** | 3 |
 | **Gate** | supertest: `/health` → 200; unknown route → 404 `NOT_FOUND` in the envelope; malformed JSON → 400 `MALFORMED_JSON`; oversized body → 413 `PAYLOAD_TOO_LARGE`; a forced throw → 500 `INTERNAL_ERROR` with no stack trace |
 
-Order in the chain: `requestId` → json parser (`BODY_LIMIT`) → cors (`ALLOWED_ORIGINS`) → routers → `notFound` → `errorHandler`.
+Order in the chain: `requestId` → cors (`ALLOWED_ORIGINS`) → json parser (`BODY_LIMIT`) → routers → `notFound` → `errorHandler`.
+
+`cors` must precede the parser. A parser failure calls `next(err)`, which skips the rest of the
+non-error chain, so mounting `cors` after it sends `MALFORMED_JSON` and `PAYLOAD_TOO_LARGE` without
+CORS headers — the browser then reports them as opaque network errors and the web client never sees
+the code. This line said the reverse until stage 4 proved it wrong.
 
 Handle the two body-parser failures **now**. They arrive as `entity.parse.failed` and `entity.too.large` on the error object rather than as anything route-shaped, and retrofitting them once routes exist means re-testing every endpoint. `GET /health` sits at the root, outside `/api/v1`, because Docker healthchecks it.
 
