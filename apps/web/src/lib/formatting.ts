@@ -109,10 +109,42 @@ export const formatAbsolute = (iso: string): string => {
   return date === null ? "—" : ABSOLUTE_FORMAT.format(date);
 };
 
-/** Date without a time, for filter chips and date pickers. */
+/**
+ * Date without a time, **in the viewer's timezone**, for an instant that has one
+ * — a `createdAt`, a `resolvedAt`.
+ *
+ * Not for a `YYYY-MM-DD` filter bound: that string has no instant behind it, and
+ * this function would resolve it to UTC midnight and then render it in local
+ * time. Use `formatDateOnly` for those.
+ */
 export const formatDate = (iso: string): string => {
   const date = parse(iso);
   return date === null ? "—" : DATE_ONLY_FORMAT.format(date);
+};
+
+/**
+ * A date-only string (`2026-08-01`) rendered as the day it names, everywhere.
+ *
+ * `new Date("2026-08-01")` is UTC midnight by spec, so formatting it with the
+ * viewer's timezone renders `Jul 31, 2026` anywhere west of Greenwich — a filter
+ * bound labelled "Created from (UTC) = 2026-08-01" whose chip reads the day
+ * before. `createdFrom` / `createdTo` are UTC calendar days by contract
+ * (`docs/features/Ticket_Query_Filter_Sort_Page.md` § Date bounds), so the
+ * formatter is pinned to UTC rather than the reader's clock.
+ *
+ * The pinning is on the formatter, not on the parse: a `timeZone` passed here
+ * cannot be undone by an ambient `TZ`, whereas re-deriving local Y/M/D from the
+ * instant would be one more place to get the offset backwards.
+ */
+const UTC_DATE_ONLY_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeZone: "UTC",
+});
+
+export const formatDateOnly = (date: string): string => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "—";
+  const parsed = parse(`${date}T00:00:00.000Z`);
+  return parsed === null ? "—" : UTC_DATE_ONLY_FORMAT.format(parsed);
 };
 
 /**

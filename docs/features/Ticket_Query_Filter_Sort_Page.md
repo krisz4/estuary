@@ -159,7 +159,12 @@ The list state **is** the URL. `useTicketListParams()` reads `useSearchParams()`
 - The TanStack Query key derives from the parsed params, so caching and refetching follow the URL for free.
 - Changing any filter resets `page` to 1. Changing `page` never touches filters. (Forgetting the reset lands users on an empty page 5 of a 1-page result — the most common bug in this screen.)
 
-**The client picks known keys before parsing; it does not reuse the server's `.strict()` schema on the raw params.** A shared link carrying `?utm_source=slack` would otherwise fail the whole parse and silently reset every filter. Unknown keys are ignored client-side and never forwarded; the server stays strict about what it receives.
+**The client picks known keys before parsing; it does not reuse the server's `.strict()` schema on the raw params.** A shared link carrying `?utm_source=slack` would otherwise fail the whole parse and silently reset every filter. Unknown keys are ignored client-side and never forwarded; the server stays strict about what it receives. They are, however, **preserved in the URL** when the helper rewrites it, so a campaign tag survives the recipient clicking "next page".
+
+Two combinations the server rejects are resolved client-side rather than sent and 422'd, and the two are resolved in **different places**, because only one of them is reachable by clicking:
+
+- **`assignee` together with `assigneeIsNull`** — unrepresentable in the UI, since the two are one control. Resolved at parse time (the more specific `assignee` wins), which only ever fires for a hand-edited URL.
+- **An inverted `createdFrom`/`createdTo` range** — *is* reachable: `min`/`max` on `<input type="date">` mark a value invalid but a typed one still commits, so setting "to" and then typing a later "from" produces it. The filter therefore **clamps**: moving one bound past the other moves that other bound with it, so the range stays valid and the user can see what happened. Dropping the far bound at parse time instead emptied a field and its chip with no explanation while the discarded value sat on in the address bar. The parse-time drop remains as the backstop for a hand-typed URL, where there is no interaction whose intent could be honoured.
 
 Individual invalid values (`?page=abc`) fall back to that field's default rather than rendering an error page.
 

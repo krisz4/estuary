@@ -1,8 +1,8 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { NotFoundPage } from "@/pages/not-found/NotFoundPage";
-import { ShellPreviewPage } from "@/pages/shell-preview/ShellPreviewPage";
 import { StagePlaceholderPage } from "@/pages/StagePlaceholderPage";
+import { TicketsListPage } from "@/pages/tickets-list/TicketsListPage";
 
 /**
  * The route table. Documented per screen in `docs/pages/`.
@@ -23,7 +23,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/tickets" replace /> },
 
-      { path: "tickets", element: <ShellPreviewPage /> },
+      { path: "tickets", element: <TicketsListPage /> },
 
       {
         path: "tickets/new",

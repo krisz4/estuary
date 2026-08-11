@@ -26,6 +26,7 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | 8 · Routes | pass — 244 API + 190 contracts tests; **every code in `API_ERROR_CONTRACT.md` has a named producer**, enforced by a `PRODUCERS` table asserted to equal `API_ERROR_CODES` exactly; layer rule asserted mechanically (no Prisma under `routes/`, no `req`/`res` under `services/`, `express-async-handler` absent), with a guard against the file list being empty; D11 closed; dev DB sha256 unchanged; gate re-run independently of the implementing agent. Non-vacuous by five breaks — facets/`:ticketId` order swapped (3 tests), comment parent guard dropped (1, with `P2003` → 500 confirmed in the log), comment DELETE's `ticketId` scope removed (2), `hasAtLeastOneField` removed (2), `Location` dropped (1) | 4 findings, all 4 fixed in-stage | `Add the ticket and comment routes` |
 | 9 · Seed + OpenAPI | pass **with one step outstanding** — seed verified against a real running API on :4000: 63 tickets paging 20/20/20/3 across four pages with disjoint ids covering exactly 1–63, status filters summing to 63, `priority:desc` putting all 7 `urgent` first, `sort=status:asc` monotonic by lifecycle rank, inclusive `createdTo`, 19 unassigned (30.2%), 10 same-millisecond comment threads ordering by id, and a full CRUD round trip returning the total to 63. `/docs` serves 7 paths / 10 operations; `DOCS_ENABLED=false` 404s the whole subtree while the API stays up. 301 API + 190 contracts tests. **`db:reset` itself is unverified** — see D17 | 8 findings, all 8 fixed in-stage (2 medium: `DOCS_ENABLED=false` still built the spec at boot; the seed was never compiled despite DOCKER.md depending on it) | `Add the seed, OpenAPI generation, and the docs UI` |
 | 10 · Web shell + API client | pass — `pnpm dev` serves 5173 against 4000 with no CORS error and the browser renders **63** from the real seeded API; a cross-origin 422 arrives readable with `code`, `requestId`, and per-field `details` (the stage-4 cors-before-parser ordering holding from the client side); route ordering verified live (`/tickets/new` matches before `/tickets/:ticketId`). 569 tests (301 API, 190 contracts, 78 web). D2 closed — `react-app.json` proven to resolve `vite/client` for real, non-vacuously. **Dark mode re-verified through CDP against the running page in both themes, not from the source** — see the note below | 9 findings, all 9 fixed in-stage (1 high/medium: dark mode was broken for every toast) | `Add the web shell, API client, and UI primitives` |
+| 11 · Tickets list page | pass — full URL round trip verified in a real browser against the seeded API: page 3 → filter → sort → next page → reload → back → forward, each landing exactly where specified. `?utm_source=slack&status=open` renders correctly, is never forwarded to the API, and stays in the address bar. Seven keystrokes = **1** request. DOM (not CSS) verified at 360/768/1280 with `scrollWidth === viewport` at each, plus sheet, empty, no-match, past-end, error, and dark states. 630 tests (301 API, 190 contracts, 139 web) | 6 findings, all 6 fixed in-stage — **plus 3 defects found by looking at screenshots that every test passed through** | `Add the tickets list page` |
 
 ### A note on what these gates are actually worth
 
@@ -89,6 +90,16 @@ Two corollaries found the same stage:
   the manual check exercised Sonner's palette, not ours. Make sure the thing you can click is the
   thing you are testing.
 
+**5. A comment asserting a guarantee the dependency does not provide.** (Stage 11.)
+`useTicketListParams` documented that `setSearchParams`'s functional updater reads the URL at commit
+time, protecting two rapid filter changes from clobbering each other. In `react-router@7.18.2` the
+updater receives the `searchParams` captured **in the render that created the callback** — the
+protection never existed. It reads as verified reasoning, and nothing tests a comment. The fix is a
+ref advanced synchronously on write; the check is a test that dispatches two writes in one frame.
+**When a comment claims a library guarantees something, read the library's source.** Two earlier
+findings had the same root: the stage-9 `unwrapPreprocessedObject` reliance on zod internals, and the
+stage-10 assumption that an `@layer` rule could override Sonner's injected stylesheet.
+
 **4. A vacuous *probe* — the verification, not the test.** Checking the finding-4 fix (the pre-paint
 theme script) showed no difference between broken and fixed, because React's `applyTheme` effect
 re-applies the class on mount and hides the flash entirely. Only after blocking `main.tsx` at the
@@ -111,6 +122,7 @@ answer is "the same thing", the probe is measuring something else.**
 | ~~D10~~ | ~~The two forced-500 tests print a full stack to stderr~~ | Stage 4 | — | **Resolved in stage 5.** `vitest.setup.ts` filters `process.stderr.write`, dropping a line only when it parses as the logger's `"Unhandled error"` for a `/__test__/` path. Verified non-vacuous: an identically-shaped line for `/api/v1/tickets` and an unrelated `logger.error` both still print |
 | D17 | **`pnpm --filter @helpdesk/api db:reset` has never been run.** Prisma 6.19's CLI detects an AI agent and refuses `migrate reset` without `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION` | Stage 9 | That guard exists to require a *human*, and an orchestrator instruction is not human consent — so neither the implementing agent nor the coordinator set it. The equivalent was run instead (`db:deploy` + `db:seed`), and `npx prisma db seed` was proven to invoke the hook `db:reset` uses, so the only untested step is Prisma's own drop-and-replay | **Needs one human run.** Asked of the user in stage 9; still open |
 | D18 | An **unreproduced test failure**: `tickets.route.test.ts:245` ("applies a partial update…") failed once on `expect(res.status).toBe(200)` during a full repo run, and did not reproduce in 31 subsequent runs — including 8 under four saturating CPU hogs and 3 cold-cache sequences | Stage 9 | Not reproducible, and not attributable to stage 9: it did not reproduce on the pre-change tree either. The only plausible mechanism is two vitest forks briefly sharing a `VITEST_WORKER_ID` and therefore one SQLite file, which would be a pre-existing harness property (D16 territory) rather than seed-specific | Watch. If it recurs, it is a harness-isolation bug and the worker-id assignment is where to look. Recorded now so a second sighting is a pattern rather than a first sighting |
+| D21 | **The production preview on :4173 cannot reach the API** — `ALLOWED_ORIGINS` defaults to `http://localhost:5173` only, so `vite preview` gets a CORS failure | Stage 11 | Not a stage-11 defect: dev on 5173 works, and widening the default mid-stage would have been an unreviewed change to the API's CORS policy for a convenience the stage did not need | **Stage 14 and 15 both need it.** The container serves the built app from a different origin again, and Playwright's `webServer` will run the preview build. Decide the origin list once, in stage 14, and make stage 15 use it |
 | D20 | The stage-9 seed's lifecycle math can place a timestamp seconds in the **future** when a ticket's drawn age is under ~75 s (`resolvedAt`) or ~5 min (comments, because `Math.max(…, 2*60_000)` floors the span above the ticket's own age) | Stage 10 review | **Unreachable with the shipped data**: `PRNG_SEED = 24_073` over a 90-day window never draws an age that small, and the seed tests bound the realised distribution. Changing a committed, deterministic, correct-for-its-data seed to fix an unreachable case is churn with a real risk of moving every id | Not planned. Fix only if the PRNG seed or the 90-day window changes — **that is the trigger**, and whoever changes either should read this row first |
 | D19 | `package.json#prisma` (the `prisma.seed` hook) is deprecated — Prisma warns it is removed in Prisma 7 in favour of `prisma.config.ts` | Stage 9 | Works on 6.19; migrating it is a config change that wants to move with the dependency bump | Stage 16, alongside D4's pnpm pin |
 | ~~D8~~ | ~~`db:seed` and the `prisma.seed` hook are absent~~ | Stage 3 | — | **Resolved in stage 9** — hook wired and proven to fire via `npx prisma db seed`; `db:reset` end-to-end still pending on D17 |
@@ -344,6 +356,36 @@ answer is "the same thing", the probe is measuring something else.**
   `??` passes through, sending every request to the Vite origin. Stage 14 sets this in a container, so
   a blank value is a realistic misconfiguration.
 
+### Constraints established in stage 11 (binding on 12–16)
+
+- **`useTicketListParams` picks known keys and preserves unknown ones on write.**
+  `TICKET_LIST_PARAM_KEYS` is the ownership list. Bounds come from contract constants, but the
+  per-field validators are hand-written **on purpose** — do not "simplify" them into
+  `ticketListQuerySchema`, whose `.strict()` is what would reset every filter on a shared link.
+- **Do not trust `setSearchParams`'s functional updater.** It closes over render-time
+  `searchParams` (see shape 5 above). The hook keeps a `baseRef` advanced synchronously on write;
+  `setFilters` takes a functional patch and `ChipGroup` reports *which value toggled*, not a whole
+  array. Both halves are needed — with only the hook fixed, a stale `ChipGroup` still passes any test
+  whose two writes touch different fields.
+- **Assignee is one control.** `assignee` + `assigneeIsNull` are mutually exclusive on the wire and
+  both the parser and `setFilters` enforce it, so the 422 is unrepresentable. Stage 12's forms keep
+  that shape.
+- **Date-only strings use `formatDateOnly()` (pinned to UTC), never `formatDate()`.** `new Date("2026-08-01")`
+  parses as UTC midnight and formats in local time, so a chip west of UTC renders the previous day.
+  `formatDate` keeps instant semantics. **Timezone-sensitive tests must set `TZ` and assert the
+  timezone actually applied** before asserting anything else — a test run in UTC cannot see this class
+  of bug at all.
+- **`MD_BREAKPOINT_QUERY` renders one tree, not two.** `vitest.setup.ts` implements
+  `(min-width:Npx)` against `window.innerWidth` and exports `setViewportWidth`; a constant-`false`
+  stub would let a responsive test pass at the wrong width. Its resize handler is registered once over
+  a registry — `useMediaQuery` calls `matchMedia()` on every render, so a per-call listener leaks.
+- **Table column widths are tuned at 768px**, because `table-fixed` starves the flexible column
+  exactly at the breakpoint. Retuning for 1280 alone collapsed the Title column to ~24px.
+- **There is no page-level "New ticket" button** — `AppHeader` owns it.
+- **Page tests stub `fetch`, not the hooks.** Stage 13 should swap MSW in at that same boundary.
+- **`StagePlaceholderPage` still backs the three stage-12 routes.** Stage 12 deletes it; deleting it
+  in stage 11 would have sent `/tickets/new` (reachable from the empty-state CTA) to the 404.
+
 ### What stages 6–8 need to know about the harness
 
 - **Never make `vitest.setup.ts`'s `await import()` static.** A static import is hoisted above the
@@ -382,6 +424,8 @@ justifies it — the project is a graded take-home on SQLite, not a system under
 | P8 | ~~The common view (`status` filter + `createdAt:desc`) plans as `SEARCH Ticket USING COVERING INDEX Ticket_statusRank_createdAt_idx` — covering, so no table row lookups~~ **Superseded by P23:** measured against a bare query in stage 3, not the query the list service actually issues | The composite index does pay off where it was designed to; the "covering" half was an artefact of the probe | Verified in stage 3, **corrected in stage 7** |
 | P9 | Predicted non-covered paths, **two of the three predictions were wrong.** Correct: `q` is a full scan (leading-wildcard `LIKE` cannot use a B-tree — `DATABASE.md` says so deliberately). Wrong: ~~`priority:desc` + the `{id:"desc"}` tiebreaker falls back to a sort because `Ticket_priorityRank_idx` is single-column~~ — see P22. Wrong: ~~`facets` is an index-only scan~~ — see P19 | Irrelevant at 63 seeded rows | **Kept as a record of the failure mode, not as guidance.** Both wrong rows were predictions from reading the schema; both were corrected only when stage 6 and 7 logged the SQL Prisma actually emits and ran `EXPLAIN QUERY PLAN` on it. Predict the plan if you like, but do not write it down as measured |
 | P22 | `priority:desc` does **not** fall back to a temp B-tree, contradicting P9. `Ticket_priorityRank_idx` is physically `(priorityRank, rowid)`, so a backwards walk already yields `priorityRank DESC, id DESC` and the tiebreaker rides along free: `SCAN Ticket USING INDEX Ticket_priorityRank_idx`, no `USE TEMP B-TREE` line | The tiebreaker direction is load-bearing and was nearly chosen by coin flip. `{ id: "asc" }` would have forced `USE TEMP B-TREE FOR LAST TERM OF ORDER BY` on every *descending* sort — including `createdAt:desc`, the default view | Keep `{ id: "desc" }`. Note the cost is symmetric, not free: measured, `ASC, id DESC` pairs *do* take the temp B-tree. `desc` is the right default because the default sort is descending, not because it is universally cheaper |
+| P38 | The whole list screen costs **+24.6 kB raw / +6.9 kB gzip** over stage 10 (564.22 → 588.81 raw, 175.12 → 181.98 gzip) — filter bar, table, cards, pagination, badges, empty and error panels, and the URL-state hook | Cheap for the app's most complex screen, and it lands well inside any reasonable budget. The zod floor from P34 is still the single largest line item | None |
+| P39 | Request counts, measured against the **production** build (dev doubles them via StrictMode): initial load **2** (`facets` + list), next page **1**, back to page 1 within `staleTime` **0**, seven keystrokes in the search box **1** | The debounce and `keepPreviousData` both do what they claim. The facets call is what makes case-sensitive assignee matching safe, and it is cached for 5 minutes | None. **Measure request counts against a production build** — StrictMode's double-mount makes a dev measurement wrong by 2× |
 | P34 | **P5 re-measured at stage 10, and the ratio moved the way that matters.** Production bundle 564.22 kB raw / 175.12 kB gzip. The contracts import costs **17.88 kB gzip**, of which zod is **17.08 kB (95.5%)** and the schemas themselves are **0.80 kB** | P5 measured 30.4 kB gzip at ~82% zod. The absolute cost nearly halved *and* zod's share rose — which is tree-shaking working: the app imports four runtime symbols, so the schemas mostly vanish and what is left is almost purely the library. zod survives at all because `errors.ts` calls `z.enum(...)` at module scope and Rollup cannot prove a call pure | **No action, deliberately.** Dropping the last runtime import would remove zod entirely, but stage 12 wires `zodResolver` and brings it back on purpose. 17.9 kB gzip is the steady-state price of client and server enforcing the same schema — P5's "the lever is importing fewer schemas" is now spent |
 | P35 | Install footprint: 496 MB / 433 packages → **625 MB / 590 packages** (+129 MB, +157) | Nearly all devDependencies; the runtime additions are React, Radix, TanStack Query, Sonner, and lucide | Does not reach any image: stage 14's web container ships a static `dist`, not `node_modules`. The API image is unaffected — P31's ~11.5 MB of Swagger is still the only runtime weight worth a decision |
 | P36 | Web build 354–501 ms alone, 1.42–1.46 s through turbo with `^build` of contracts. Vite dev ready in **188–258 ms**. Three real dialog animations cost +0.9 kB raw / +0.19 kB gzip | Fast enough that stage 16's CI will be dominated by the API suite and Playwright, not the web build | None |
