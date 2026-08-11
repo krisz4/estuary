@@ -24,10 +24,11 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | 6 · Ticket service — CRUD, status lifecycle, ranks | pass — 110 tests over 5 files; every ticket + lifecycle case in TESTING.md covered at the service level; dev DB sha256 `f59f2d43…518554` and mtime unchanged across every run; repo-wide `typecheck`/`lint`/`test`/`format:check` clean. Verified non-vacuous by five deliberate breaks: bypassing `applyTicketRanks` (4 tests fired), making the same-status PATCH write (1), narrowing the reopen clear to `closed` only (4), dropping the `[...allowed]` copy in `invalidStatusTransition` (1), and dereferencing `ALLOWED_TRANSITIONS[from]` unguarded (2) | 5 findings, all 5 fixed in-stage | `Add the ticket service, status lifecycle, and rank derivation` |
 | 7 · List query service | pass — 155 API tests over 6 files (45 in `ticket-query.test.ts`); every "List query" bullet in TESTING.md covered; all four named traps proven to fire a named test when injected; dev DB sha256 unchanged; repo-wide `typecheck`/`lint`/`test`/`format:check` clean, verified independently of the implementing agent. Escape behaviour proven non-vacuous **in both directions** — the three escape tests fire when the fast path swallows everything, and survive when the raw path swallows everything, so they test the escape rather than the branch | 4 findings, all 4 fixed in-stage (one a real bug: `?q=%` returned the whole table) | `Add the list query service, pagination, and LIKE escaping` |
 | 8 · Routes | pass — 244 API + 190 contracts tests; **every code in `API_ERROR_CONTRACT.md` has a named producer**, enforced by a `PRODUCERS` table asserted to equal `API_ERROR_CODES` exactly; layer rule asserted mechanically (no Prisma under `routes/`, no `req`/`res` under `services/`, `express-async-handler` absent), with a guard against the file list being empty; D11 closed; dev DB sha256 unchanged; gate re-run independently of the implementing agent. Non-vacuous by five breaks — facets/`:ticketId` order swapped (3 tests), comment parent guard dropped (1, with `P2003` → 500 confirmed in the log), comment DELETE's `ticketId` scope removed (2), `hasAtLeastOneField` removed (2), `Location` dropped (1) | 4 findings, all 4 fixed in-stage | `Add the ticket and comment routes` |
+| 9 · Seed + OpenAPI | pass **with one step outstanding** — seed verified against a real running API on :4000: 63 tickets paging 20/20/20/3 across four pages with disjoint ids covering exactly 1–63, status filters summing to 63, `priority:desc` putting all 7 `urgent` first, `sort=status:asc` monotonic by lifecycle rank, inclusive `createdTo`, 19 unassigned (30.2%), 10 same-millisecond comment threads ordering by id, and a full CRUD round trip returning the total to 63. `/docs` serves 7 paths / 10 operations; `DOCS_ENABLED=false` 404s the whole subtree while the API stays up. 301 API + 190 contracts tests. **`db:reset` itself is unverified** — see D17 | 8 findings, all 8 fixed in-stage (2 medium: `DOCS_ENABLED=false` still built the spec at boot; the seed was never compiled despite DOCKER.md depending on it) | `Add the seed, OpenAPI generation, and the docs UI` |
 
 ### A note on what these gates are actually worth
 
-Three separate stages have now produced a test that could not fail:
+Every stage from 6 onward has produced at least one test that could not fail:
 
 - Stage 6: a rank-ordering test whose fixtures happened to sort correctly by insertion order anyway.
 - Stage 6 review: `expect(error.details).not.toBe(ALLOWED_TRANSITIONS.closed)` — an object compared
@@ -35,10 +36,28 @@ Three separate stages have now produced a test that could not fail:
 - Stage 8: an `it.each` of non-numeric ids that passes under `z.coerce.number()`, because `0x2a`
   coerces to 42 and *that ticket does not exist in those cases*, so the request 404s for the wrong
   reason. The one real guard is an alias test that creates 42 tickets first.
+- Stage 8 review: an "agreement" test that compared two of the **three** parsers, which is how
+  `/tickets/0000000000000000042` came to serve ticket 42 while `?q=0000000000000000042` matched
+  nothing — in code and a doc written the same stage, by the author of the test meant to prevent it.
+- Stage 9: a query-parameter test that compared the documented names against
+  `unwrapPreprocessedObject(ticketListQuerySchema)` — **the same call the production code makes**.
+  Breaking the unwrap degraded both sides to `[]` together and nothing fired.
 
-None were caught by reading. All three were caught by **breaking the implementation and watching
-which tests fired** — and in each case the count was lower than expected, which is the signal. Keep
-doing it, and treat "fewer tests fired than I expected" as a finding rather than a relief.
+None were caught by reading. All were caught by **breaking the implementation and watching which
+tests fired** — and in each case the count was lower than expected, which is the signal. Keep doing
+it, and treat "fewer tests fired than I expected" as a finding rather than a relief.
+
+Two recurring shapes, worth naming because they are predictable:
+
+1. **The test and the code share a helper.** Then both sides degrade together and the assertion
+   cannot fail. Compare against an independent literal, even when that means writing the list twice.
+2. **The test covers a subset of the invariant it claims.** "These two parsers agree" is not "the
+   parsers agree" when there are three. Enumerate what the claim quantifies over.
+
+A single-purpose guard firing exactly one test is *not* an instance of this — stage 9's registry
+guard and mount guard each fire once because only one assertion can observe the hole they cover.
+Distinguish "one test fired because the coverage is thin" from "one test fired because there is one
+test for a thing nothing else can see", and record which, so neither gets "simplified" later.
 
 ## Deferred work
 
@@ -52,14 +71,17 @@ doing it, and treat "fewer tests fired than I expected" as a finding rather than
 | ~~D7~~ | ~~`@helpdesk/api` has no `test` script~~ | Stage 3 | — | **Partly resolved in stage 4.** A minimal `test` script exists (`vitest run`, no config file) so the stage 4 gate is executable. It is deliberately not the harness — see D9 |
 | ~~D9~~ | ~~`apps/api` has no `vitest.config.ts` / `setupFiles`, and its `test` script inlines a placeholder `DATABASE_URL`~~ | Stage 4 | — | **Resolved in stage 5.** The script is a plain `vitest run`; `vitest.setup.ts` assigns the per-worker URL. `NODE_ENV=test` moved into `vitest.config.ts`'s `test.env` plus the setup file, so an exported `NODE_ENV=development` no longer unmounts the diagnostic routes — verified by running the suite with it exported |
 | ~~D10~~ | ~~The two forced-500 tests print a full stack to stderr~~ | Stage 4 | — | **Resolved in stage 5.** `vitest.setup.ts` filters `process.stderr.write`, dropping a line only when it parses as the logger's `"Unhandled error"` for a `/__test__/` path. Verified non-vacuous: an identically-shaped line for `/api/v1/tickets` and an unrelated `logger.error` both still print |
-| D8 | `db:seed` and the `prisma.seed` hook are absent, so `db:reset` migrates but does not re-seed | Stage 3 | `prisma/seed.ts` is stage 9's deliverable. `CLAUDE.md` and `DATABASE.md` both describe `db:reset` as re-seeding — that becomes true when the hook lands | Stage 9 |
+| D17 | **`pnpm --filter @helpdesk/api db:reset` has never been run.** Prisma 6.19's CLI detects an AI agent and refuses `migrate reset` without `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION` | Stage 9 | That guard exists to require a *human*, and an orchestrator instruction is not human consent — so neither the implementing agent nor the coordinator set it. The equivalent was run instead (`db:deploy` + `db:seed`), and `npx prisma db seed` was proven to invoke the hook `db:reset` uses, so the only untested step is Prisma's own drop-and-replay | **Needs one human run.** Asked of the user in stage 9; still open |
+| D18 | An **unreproduced test failure**: `tickets.route.test.ts:245` ("applies a partial update…") failed once on `expect(res.status).toBe(200)` during a full repo run, and did not reproduce in 31 subsequent runs — including 8 under four saturating CPU hogs and 3 cold-cache sequences | Stage 9 | Not reproducible, and not attributable to stage 9: it did not reproduce on the pre-change tree either. The only plausible mechanism is two vitest forks briefly sharing a `VITEST_WORKER_ID` and therefore one SQLite file, which would be a pre-existing harness property (D16 territory) rather than seed-specific | Watch. If it recurs, it is a harness-isolation bug and the worker-id assignment is where to look. Recorded now so a second sighting is a pattern rather than a first sighting |
+| D19 | `package.json#prisma` (the `prisma.seed` hook) is deprecated — Prisma warns it is removed in Prisma 7 in favour of `prisma.config.ts` | Stage 9 | Works on 6.19; migrating it is a config change that wants to move with the dependency bump | Stage 16, alongside D4's pnpm pin |
+| ~~D8~~ | ~~`db:seed` and the `prisma.seed` hook are absent~~ | Stage 3 | — | **Resolved in stage 9** — hook wired and proven to fire via `npx prisma db seed`; `db:reset` end-to-end still pending on D17 |
 | ~~D11~~ | ~~Route-level assertions in TESTING.md § Tickets are unproven~~ | Stage 6 | — | **Resolved in stage 8** — 201 + `Location`, `/tickets/abc` → 404 across 7 spellings, `{}` → 422 `AT_LEAST_ONE_FIELD` with no details, per-field 422 `details`, and the list-query 422s (`pageSize=101` rejected not clamped, `page=0`, unknown sort field, `assignee`+`assigneeIsNull`, unknown param) |
 | D16 | The API suite has crossed the ~5 s mark P15 named as the trigger for `poolOptions.forks.isolate: false` or a `globalThis`-cached `PrismaClient`: **241 tests / 10 files, ~5.5–7.5 s warm**, `setup` still the dominant fixed cost | Stage 8 | The lever weakens the per-file isolation that stage 5 exists to provide, and that is a deliberate trade rather than a side effect of a routes stage. Deferring it was the right call | Decide in stage 16, when the CI wall time is the thing being optimised and the whole suite exists to measure against |
 | D13 | The read-then-write race in `updateTicket`/`deleteTicket` is closed by `prisma.$transaction` but **has no test**. Two concurrent PATCHes racing a status guard cannot be scheduled deterministically from vitest; a timing-based test would be flaky in CI and would fail for the wrong reason | Stage 6 review #1 | SQLite's own behaviour (a deferred transaction that reads then writes aborts with `SQLITE_BUSY_SNAPSHOT` if the snapshot moved) is what provides the guarantee, and it is not ours to assert | Not planned. Revisit only if the API ever runs multi-process against one file — noted here so the gap is known rather than assumed covered |
 | D14 | The `q` raw path has a hard ceiling, not just a slope: `id IN (…)` spends one bind parameter per match against `SQLITE_MAX_VARIABLE_NUMBER` (32766 modern, 999 pre-3.32), so a broad wildcard `q` over a large table would **fail**, not merely crawl. It also gives up the ordering index | Stage 7 | Only wildcard-bearing searches take that path, and the plan defers real search to FTS5 explicitly. At 63 seeded rows neither cost is observable | Not planned before FTS5. Recorded so the ceiling is known rather than discovered |
 | D15 | `commentCount` compiles to a `LEFT JOIN` on a **materialized** `SELECT ticketId, COUNT(*) … GROUP BY ticketId` over the *whole* `Comment` table, plus a runtime `AUTOMATIC COVERING INDEX` — `O(all comments)` per list page rather than `O(pageSize)` | Stage 7 | Invisible at seed scale, and the lever is a query change, not a schema change | Not planned. If it ever matters, the fix is a second `groupBy` scoped to the 20 ids on the page |
 | ~~D12~~ | ~~`assigneeIsNull=true` asserted through a proxy~~ | Stage 6 | — | **Resolved in stage 7** — exercised through the real query param, both directions |
-| D5 | Schemas carry no `.openapi()` metadata | Stage 2 | `@asteasolutions/zod-to-openapi` would be a second runtime dependency in a package whose hard constraint is "zod and nothing else". Its v9 peers `zod ^4`, so it can extend these schemas from `apps/api` without touching this package | Stage 9 |
+| ~~D5~~ | ~~Schemas carry no `.openapi()` metadata~~ | Stage 2 | — | **Resolved in stage 9** — and resolved the way D5 predicted: `@asteasolutions/zod-to-openapi` extends the contract schemas **from `apps/api`**, so `packages/contracts` keeps its "zod and nothing else" constraint and was not touched. Metadata is `.meta()` applied at the API boundary; `docs/AGENTS.md` now tells agents explicitly *not* to put OpenAPI metadata on a contract schema |
 
 ### Constraints established for later stages
 
@@ -225,6 +247,34 @@ doing it, and treat "fewer tests fired than I expected" as a finding rather than
   assertion that its keys equal `API_ERROR_CODES` exactly. Adding a code to the contract with no way
   to produce it fails the run. Stage 9 must add a producer if it adds a code.
 
+### Constraints established in stage 9 (binding on 10–16)
+
+- **`app.ts` exports `ROUTER_MOUNTS` (`{path, router}[]`) and `DOCS_PATH`.** Express 5 gives no way to
+  recover a mounted router's prefix from `app.router.stack`, so route enumeration goes through that
+  list. **Add new routers there, not with a bare `app.use`** — a test now asserts that exactly one
+  router (`/docs`) is mounted outside it.
+- **`routes/*.openapi.ts` is required per router.** `openapi.contract.test.ts` fails both on a route
+  with no spec entry and on a documented path with no route.
+- **`openapi.json` is committed and must be regenerated with any contract change.** The contract test
+  compares it against a fresh build and names the fix in its failure message. CI (stage 16) should run
+  `openapi:gen` and fail on a dirty tree.
+- **OpenAPI metadata is `.meta()` applied from `apps/api`, never `.openapi()` on a contract schema.**
+  `packages/contracts` keeps "zod and nothing else". `docs/AGENTS.md` says so explicitly now, because
+  the old wording would have led an agent to `zodSchema.openapi is not a function`.
+- **Registration happens inside `getOpenApiDocument()`, not at module scope.** Importing the docs
+  router used to execute all three spec modules at boot, and one of them reads zod internals and
+  throws by design — so a zod patch bump could have killed process startup on a deployment with docs
+  switched *off*. Do not convert the registration calls back into import side effects.
+- **The seed lives at `apps/api/src/seed/`, not `prisma/`.** `tsconfig.build.json` has
+  `rootDir: "src"`, so a seed under `prisma/` is never compiled — while `DOCKER.md` requires the
+  runtime image to run it as compiled JS with no `tsx` present. Verified: `node dist/seed/index.js`
+  seeds 63/180 under plain node. `prisma/` holds schema and migrations only.
+- **`db:reset` has no `--force`.** Its only caller is a human at a terminal; containers and CI use
+  `db:deploy` + the guarded seed. `migrate reset` drops and recreates **before** `ALLOW_SEED` is ever
+  consulted, so the prompt is the only confirmation protecting the dev database.
+- **Seed ids are stable at 1–63**, oldest ticket `HD-000001`. Stage 15 may rely on 63 rows existing but
+  must not edit or delete a seeded ticket, and must not assume an id maps to a particular title.
+
 ### What stages 6–8 need to know about the harness
 
 - **Never make `vitest.setup.ts`'s `await import()` static.** A static import is hoisted above the
@@ -263,6 +313,10 @@ justifies it — the project is a graded take-home on SQLite, not a system under
 | P8 | ~~The common view (`status` filter + `createdAt:desc`) plans as `SEARCH Ticket USING COVERING INDEX Ticket_statusRank_createdAt_idx` — covering, so no table row lookups~~ **Superseded by P23:** measured against a bare query in stage 3, not the query the list service actually issues | The composite index does pay off where it was designed to; the "covering" half was an artefact of the probe | Verified in stage 3, **corrected in stage 7** |
 | P9 | Predicted non-covered paths, **two of the three predictions were wrong.** Correct: `q` is a full scan (leading-wildcard `LIKE` cannot use a B-tree — `DATABASE.md` says so deliberately). Wrong: ~~`priority:desc` + the `{id:"desc"}` tiebreaker falls back to a sort because `Ticket_priorityRank_idx` is single-column~~ — see P22. Wrong: ~~`facets` is an index-only scan~~ — see P19 | Irrelevant at 63 seeded rows | **Kept as a record of the failure mode, not as guidance.** Both wrong rows were predictions from reading the schema; both were corrected only when stage 6 and 7 logged the SQL Prisma actually emits and ran `EXPLAIN QUERY PLAN` on it. Predict the plan if you like, but do not write it down as measured |
 | P22 | `priority:desc` does **not** fall back to a temp B-tree, contradicting P9. `Ticket_priorityRank_idx` is physically `(priorityRank, rowid)`, so a backwards walk already yields `priorityRank DESC, id DESC` and the tiebreaker rides along free: `SCAN Ticket USING INDEX Ticket_priorityRank_idx`, no `USE TEMP B-TREE` line | The tiebreaker direction is load-bearing and was nearly chosen by coin flip. `{ id: "asc" }` would have forced `USE TEMP B-TREE FOR LAST TERM OF ORDER BY` on every *descending* sort — including `createdAt:desc`, the default view | Keep `{ id: "desc" }`. Note the cost is symmetric, not free: measured, `ASC, id DESC` pairs *do* take the temp B-tree. `desc` is the right default because the default sort is descending, not because it is universally cheaper |
+| P30 | Seed cost: **62–67 ms of database work** for 63 tickets + 180 comments in one transaction (29 ms on a warm run, 145 ms via compiled JS on a cold file), 1.69 s wall including `tsx` boot. `db:deploy` with no pending migrations is 2.17 s | The seed is not a cost worth optimising; the migration CLI around it is 30× larger and unavoidable | None |
+| P31 | Install delta from stage 9: **478 MB → 496 MB, 423 → 433 packages.** `swagger-ui-dist` is **11 MB** of the 18; `@asteasolutions/zod-to-openapi` 336 kB, `swagger-ui-express` 32 kB. **Both the generator and `swagger-ui-express` are runtime dependencies**, unlike every prior delta | Stage 14's `--prod` image carries ~11.5 MB it would not otherwise need. P11 assumed the runtime image would be express + zod + dotenv + `@prisma/client`; that is no longer true | Stage 14 decides. Levers, in order: drop `/docs` from the production image while keeping the committed `openapi.json` (the spec is the artefact, the UI is a convenience), or serve the UI from a CDN (loses offline use). Do not reach for either before the image is actually measured |
+| P32 | Route latency against **63 real seeded rows** (200 interleaved samples, p50/p95 ms): `/health` 0.34/0.59 · list default 1.63/2.49 · status + `createdAt:desc` 1.83/2.70 · `priority:desc` 1.61/2.45 · `q=printer` 1.78/2.51 · `pageSize=100` 2.53/3.65 · `page=4` 1.28/2.21 · `/tickets/42` 0.98/1.56 · `/tickets/facets` 0.82/1.33 | Uniformly **30–50% faster than P28's** fixture-based numbers, and `/health` again reproduces P13's baseline — so P28's service series was perturbed by its own interleaved sampling rather than stage 7 having regressed. Realistic data is *cheaper* than the fixtures, because the fixtures were adversarial | This is the number to quote for the API. Re-measure only if the seed size changes |
+| P33 | **P29 is not reproducible against realistic data, and that is the escaping working.** A wildcard `q` now matches literally: `q=%e%` returns **0 rows**, `q=%` returns 1 (the one ticket whose description contains "100%"). There is no way to make the raw path match all 63 | P29's 16.75 ms p95 was an artefact of fixtures that contained bare metacharacters — exactly the inputs that used to mean "match everything" before stage 7 fixed the escaping. The D14 ceiling still stands in theory and is now unreachable in practice | Nothing. Recorded because a measurement that disappears when the bug it depended on is fixed is worth saying out loud |
 | P27 | **P12's prediction confirmed in direction, wrong in magnitude.** Cold boot through `tsx` with `prisma.ts` and the route graph on the import path: min **369 ms** vs **188 ms** for stage 4's module set — roughly 2×, +180 ms at the floor. Split: ~76–84 ms is `lib/prisma.ts`, ~70–85 ms the routes/services graph | P12 expected a *sharp* rise from the native engine loading at import. It does not: the query-engine `.dylib` loads **lazily on the first query**, and that first query costs only 1.3–2.3 ms. The import cost is JavaScript, not the engine | Still nothing to do. If a Docker healthcheck flaps, `start_period` — as P12 said. Machine was noisy (188→772 ms spread); the minima are the signal |
 | P28 | **The HTTP layer costs a flat ~1 ms**, independent of query cost: `GET /tickets` default view 2.34 ms p50 at the route vs 1.44 ms at the service; status filter 3.30 vs 2.20; `q=printer` 3.96 vs 2.87; wildcard `q` 4.43 vs 3.10. Also `GET /tickets/:id` 1.65, `/tickets/facets` 1.33, `POST /tickets` 3.39 | Flat overhead means routing and validation are not on the critical path — the database is, exactly as P13 predicted. Service numbers here run 1.5–2× above P24's, but `/health` reproduced P13's baseline at 0.26 ms, which says the interleaved-`fetch` harness perturbs the service series rather than stage 7 having regressed | Measured with service and HTTP samples **interleaved**, so machine drift lands on both series. Copy that method rather than comparing across sessions |
 | P29 | Wildcard `q` is the worst number on the board: **p95 16.75 ms** at the route, against 5–7 ms for every other list shape | Consistent with D14's recorded cause — the raw path's `id IN (…)` gives up the ordering index and takes `USE TEMP B-TREE FOR ORDER BY`. At 63 rows. It is the only query whose p95 is an order of magnitude off its p50 | Nothing before FTS5. Recorded because it is the first measurement where the D14 tradeoff is visible rather than theoretical |

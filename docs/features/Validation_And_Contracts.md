@@ -26,7 +26,7 @@ The API and the web app must agree on every shape. Two hand-written copies of "w
 1. **Server validation** — `schema.parse(req.body)` at the route edge.
 2. **Server + client types** — `type Ticket = z.infer<typeof ticketSchema>`.
 3. **Client form validation** — the same schema drives the react-hook-form resolver, so the inline field errors match what the server would say.
-4. **OpenAPI** — schemas carry `.openapi()` metadata and are registered into the generated spec. See [API_Documentation.md](./API_Documentation.md).
+4. **OpenAPI** — the generated spec is built from these schemas. The metadata is applied **from `apps/api`**, never here: `apps/api/src/lib/openapi.ts` clones each schema with zod 4's native `.meta({ id, description })`. Nothing in this package imports `@asteasolutions/zod-to-openapi`, and `.openapi()` does not exist on these schemas — calling it fails with `zodSchema.openapi is not a function`. See [API_Documentation.md](./API_Documentation.md).
 
 Change a rule once, and all four move together.
 

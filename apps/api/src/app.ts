@@ -1,11 +1,12 @@
 import cors from "cors";
-import express, { type Express, type Request, type Response } from "express";
+import express, { type Express, type Request, type Response, type Router } from "express";
 
 import { env } from "./lib/env.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFound } from "./middleware/notFound.js";
 import { requestId } from "./middleware/requestId.js";
 import { commentsRouter } from "./routes/comments.route.js";
+import { createDocsRouter } from "./routes/docs.route.js";
 import { ticketsRouter } from "./routes/tickets.route.js";
 
 /**
@@ -14,6 +15,32 @@ import { ticketsRouter } from "./routes/tickets.route.js";
  * does.
  */
 export const API_V1 = "/api/v1";
+
+/** Where Swagger UI lives when `DOCS_ENABLED` is true. */
+export const DOCS_PATH = "/docs";
+
+/**
+ * The resource routers and the paths they are mounted at, as **data**.
+ *
+ * `createApp()` walks this list, which means the mount prefixes exist exactly
+ * once — and it means the set of routes the application actually serves can be
+ * enumerated by something other than the application. `routes/openapi.contract.test.ts`
+ * does exactly that, comparing the mounted routes against the documented paths,
+ * so a route added without a spec entry fails the run.
+ *
+ * Express 5 does not expose a mounted router's prefix (`layer.path` is
+ * `undefined` and the match is a compiled function), so introspecting `app`
+ * after the fact cannot recover these strings. Declaring them once, here, is the
+ * alternative to a second hand-maintained copy in the test.
+ *
+ * Order between the two does not matter — `ticketsRouter` declares nothing that
+ * matches a three-segment path — but comments are listed first so the more
+ * specific mount reads first.
+ */
+export const ROUTER_MOUNTS: readonly { path: string; router: Router }[] = [
+  { path: `${API_V1}/tickets/:ticketId/comments`, router: commentsRouter },
+  { path: `${API_V1}/tickets`, router: ticketsRouter },
+];
 
 /**
  * Express application **factory**. It does not call `listen()` — `server.ts`
@@ -95,12 +122,19 @@ export function createApp(): Express {
    *
    * The comment router is mounted at its own absolute path rather than nested
    * inside `ticketsRouter`, so the two files stay independent of each other and
-   * the full URL of every endpoint is readable here. Order between the two does
-   * not matter — `ticketsRouter` declares nothing that matches a three-segment
-   * path — but comments are listed first so the more specific mount reads first.
+   * the full URL of every endpoint is readable from `ROUTER_MOUNTS` above.
    */
-  app.use(`${API_V1}/tickets/:ticketId/comments`, commentsRouter);
-  app.use(`${API_V1}/tickets`, ticketsRouter);
+  for (const mount of ROUTER_MOUNTS) {
+    app.use(mount.path, mount.router);
+  }
+
+  /**
+   * Swagger UI. Outside `/api/v1` because it documents the API rather than being
+   * part of it, and behind `DOCS_ENABLED` so it can be turned off without a code
+   * change — the flag is the whole of the switch, and when it is false the
+   * document is never generated and `/docs` is an ordinary 404 `NOT_FOUND`.
+   */
+  if (env.DOCS_ENABLED) app.use(DOCS_PATH, createDocsRouter());
 
   if (env.NODE_ENV === "test") mountDiagnosticRoutes(app);
 

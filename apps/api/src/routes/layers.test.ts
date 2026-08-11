@@ -41,9 +41,15 @@ const serviceFiles = sourceFiles("services");
 describe("routes/ contains no Prisma", () => {
   it("finds route files to check at all", () => {
     // Without this the two assertions below pass vacuously the day the
-    // directory is renamed.
+    // directory is renamed. The `*.openapi.ts` modules live here on purpose
+    // (`docs/features/API_Documentation.md` places schema registration beside
+    // its router) and are held to the same no-Prisma rule.
     expect(routeFiles.map((file) => file.name).sort()).toEqual([
+      "routes/comments.openapi.ts",
       "routes/comments.route.ts",
+      "routes/docs.route.ts",
+      "routes/system.openapi.ts",
+      "routes/tickets.openapi.ts",
       "routes/tickets.route.ts",
     ]);
   });
@@ -104,7 +110,27 @@ describe("stage-8 route rules", () => {
     expect(Object.keys(manifest.dependencies ?? {})).not.toContain("express-async-handler");
     expect(Object.keys(manifest.devDependencies ?? {})).not.toContain("express-async-handler");
 
-    for (const { text } of routeFiles) {
+    /**
+     * Only the resource routers have async handlers to wrap: the `*.openapi.ts`
+     * modules register schemas and `docs.route.ts` mounts static middleware, and
+     * neither awaits anything.
+     *
+     * **`docs.route.ts` is filtered out before the floor assertion, not skipped
+     * inside the loop.** Counting it and then `continue`-ing past it made the
+     * floor pass with a single file left to check — renaming `comments.route.ts`
+     * would have kept the length at 2 while the rule was asserted against
+     * `tickets.route.ts` alone. Same class as the vacuous tests in the build
+     * log's "what these gates are actually worth" note.
+     */
+    const resourceRouters = routeFiles.filter(
+      (file) => file.name.endsWith(".route.ts") && file.name !== "routes/docs.route.ts",
+    );
+    expect(resourceRouters.map((file) => file.name).sort()).toEqual([
+      "routes/comments.route.ts",
+      "routes/tickets.route.ts",
+    ]);
+
+    for (const { text } of resourceRouters) {
       expect(text).toMatch(/from\s+["']\.\.\/lib\/asyncHandler\.js["']/);
     }
   });

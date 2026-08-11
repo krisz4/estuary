@@ -11,10 +11,10 @@ Keep this file in sync with `apps/api/env.example` and `apps/web/env.example`. A
 | `HOST` | no | `0.0.0.0` | `src/server.ts` | The code default suits the container, which is where `0.0.0.0` is actually required. `env.example` ships `127.0.0.1` instead: the app has no authentication by design, so binding every interface on a laptop publishes full ticket CRUD to the LAN |
 | `NODE_ENV` | no | `development` | app-wide | `production` disables verbose errors. It does **not** control seeding — see `ALLOW_SEED` |
 | `ALLOWED_ORIGINS` | no | `http://localhost:5173,http://127.0.0.1:5173` | cors middleware | Comma-separated. **Both spellings of loopback are listed on purpose:** `localhost` and `127.0.0.1` are different origins to a browser, and Playwright drives one while the dev server prints the other. Listing only one makes every E2E request fail preflight |
-| `ALLOW_SEED` | no | unset | `prisma/seed.ts` | `true` permits seeding even under `NODE_ENV=production`. The guard is this variable, not `NODE_ENV`, so the Docker image can ship demo data while still running a production build |
+| `ALLOW_SEED` | no | `false` | `src/seed/index.ts` | `true` permits seeding even under `NODE_ENV=production`; outside production no flag is needed. The switch is this variable and not `NODE_ENV`, so the Docker image can ship demo data while still running a production build — keying the refusal on `NODE_ENV` alone would make the container unable to seed at all, and the workaround would be lying about `NODE_ENV`, which turns off verbose errors as a side effect. Seeding **deletes every ticket and comment first** |
 | `SEED_ON_START` | no | `false` | container entrypoint | Seeds after `migrate deploy`, but only when the ticket table is empty |
 | `LOG_LEVEL` | no | `info` | logger | `debug` \| `info` \| `warn` \| `error` |
-| `DOCS_ENABLED` | no | `true` | `/docs` route | Set `false` to hide Swagger UI |
+| `DOCS_ENABLED` | no | `true` | `src/app.ts` | Set `false` to hide Swagger UI. When false the `/docs` router is never mounted and the OpenAPI document is never generated, so `/docs` and `/docs/openapi.json` are ordinary 404 `NOT_FOUND` responses |
 | `BODY_LIMIT` | no | `1mb` | json parser | Over-limit bodies become `PAYLOAD_TOO_LARGE` |
 
 ## `apps/web`
@@ -31,7 +31,7 @@ Vite only exposes variables prefixed `VITE_` to client code. Anything else is si
 | -------- | ------ | ------- |
 | `DATABASE_URL` | `apps/api/vitest.setup.ts` (a `setupFiles` entry, which runs **before** test modules import `lib/prisma.ts`) | Points each vitest worker at its own temp file; never the dev DB |
 | `PLAYWRIGHT_BASE_URL` | `playwright.config.ts` | `http://localhost:5173` — the same spelling the dev server and `ALLOWED_ORIGINS` use |
-| `ALLOW_SEED` | `playwright.config.ts` globalSetup | Lets the E2E database be seeded |
+| `ALLOW_SEED` | `playwright.config.ts` globalSetup | Not strictly required — the E2E run is not `NODE_ENV=production` — but set explicitly so the intent to wipe and re-seed that database is visible in the config rather than implied |
 
 ## Rules
 

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Helpdesk REST API — Express 5 + Prisma (SQLite)",
+  "description": "Helpdesk REST API \u2014 Express 5 + Prisma (SQLite)",
   "type": "module",
   "scripts": {
     "postinstall": "prisma generate",
@@ -18,14 +18,21 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "db:reset": "prisma migrate reset"
+    "db:seed": "tsx src/seed/index.ts",
+    "db:reset": "prisma migrate reset",
+    "openapi:gen": "tsx scripts/generate-openapi.ts"
+  },
+  "prisma": {
+    "seed": "tsx src/seed/index.ts"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@helpdesk/contracts": "workspace:*",
     "@prisma/client": "^6.19.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "swagger-ui-express": "^5.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -34,6 +41,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.0",
     "@types/supertest": "^7.2.1",
+    "@types/swagger-ui-express": "^4.1.8",
     "prisma": "^6.19.1",
     "supertest": "^7.2.2",
     "tsx": "^4.23.12",

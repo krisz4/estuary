@@ -8,5 +8,10 @@ packages:
 allowBuilds:
   "@prisma/client": true
   "@prisma/engines": true
+  # Telemetry that ships transitively with `swagger-ui-dist`. Declined on
+  # purpose: it is an analytics ping, nothing depends on it having run, and
+  # leaving it unlisted makes `pnpm install` exit non-zero with
+  # ERR_PNPM_IGNORED_BUILDS.
+  "@scarf/scarf": false
   esbuild: true
   prisma: true

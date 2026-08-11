@@ -72,20 +72,22 @@ That distinction is the whole point: the container runs `NODE_ENV=production` (i
 So:
 
 - The entrypoint runs `prisma migrate deploy`, then runs the seed **only if `SEED_ON_START=true` and the ticket table is empty**. Restarting the stack never wipes data you added.
-- `pnpm db:seed` refuses unless `ALLOW_SEED=true` or `NODE_ENV !== "production"`, so it cannot be pointed at a real database by accident.
+- `pnpm --filter @helpdesk/api db:seed` refuses unless `ALLOW_SEED=true` or `NODE_ENV !== "production"`, so it cannot be pointed at a real database by accident.
+- Nothing in the container calls `db:reset`. That script prompts, has no `--force`, and exists for a human at a terminal — the container path is `migrate deploy` plus the guarded seed.
 
 Reseed from scratch:
 
 ```bash
 docker compose down -v && docker compose up          # cleanest
-docker compose exec -e ALLOW_SEED=true api node dist/prisma/seed.js   # in place, wipes tickets
+docker compose exec -e ALLOW_SEED=true api node dist/seed/index.js    # in place, wipes tickets
 ```
 
 ## Image notes
 
 - Base `node:20-alpine`. Prisma needs `openssl` on Alpine — install it in the runtime stage or the client fails to initialize with an unhelpful engine error.
 - `pnpm` via `corepack enable`.
-- Runtime stage copies `dist/` (including the **compiled** `dist/prisma/seed.js`), production `node_modules`, `prisma/` (schema + migrations), and `package.json`.
+- Runtime stage copies `dist/` (including the **compiled** `dist/seed/index.js`), production `node_modules`, `prisma/` (schema + migrations), and `package.json`.
+- The seed source lives at `apps/api/src/seed/`, not `apps/api/prisma/`, precisely so it lands in `dist/`: `tsconfig.build.json` has `rootDir: "src"` and will not compile a file outside it. `prisma/` holds the schema and migrations only.
 - **`prisma` (the CLI) must be a production dependency**, not a devDependency. The entrypoint runs `prisma migrate deploy`; a runtime image with only `@prisma/client` fails to start on a clean volume. The seed is compiled during the build stage for the same reason — `tsx` is not present at runtime.
 - Runs as a non-root user; the `/data` volume mount is chowned to it, otherwise SQLite cannot create the `-wal` file and every write fails with `SQLITE_READONLY`.
 - Web image is nginx serving static output — no Node at runtime.

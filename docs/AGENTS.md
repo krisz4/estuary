@@ -113,7 +113,7 @@ The client validates for UX (inline field errors, disabled submit); the server v
 
 - Update the matching `pages/` or `features/` doc if behavior, routes, or params changed.
 - New env var → `engineering/ENVIRONMENT_VARIABLES.md` + the relevant `env.example`.
-- New endpoint or changed payload → the zod contract carries the OpenAPI metadata, so regenerate with `pnpm --filter @helpdesk/api openapi:gen` and commit `openapi.json`.
+- New endpoint or changed payload → register the path in the matching `apps/api/src/routes/*.openapi.ts` (a route with no entry fails `openapi.contract.test.ts`), then regenerate with `pnpm --filter @helpdesk/api openapi:gen` and commit `openapi.json`. **Do not add OpenAPI metadata to a contract schema** — it is applied from `apps/api` with zod's `.meta()`, because `packages/contracts` may depend on nothing but zod.
 - New error code → add it to `engineering/API_ERROR_CONTRACT.md`'s table.
 
 ## Out of scope for `docs/`

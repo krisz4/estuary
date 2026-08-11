@@ -133,6 +133,7 @@ Every create and update path calls it, including the seed. A `prisma.ticket.upda
 pnpm --filter @helpdesk/api db:migrate --name descriptive_snake_case   # create + apply
 pnpm --filter @helpdesk/api db:deploy                                  # apply only (Docker, CI)
 pnpm --filter @helpdesk/api db:studio                                  # browse
+pnpm --filter @helpdesk/api db:seed                                    # wipe and re-seed 63 tickets
 pnpm --filter @helpdesk/api db:reset                                   # drop, migrate, seed (destructive)
 ```
 
@@ -142,6 +143,7 @@ Rules:
 2. Containers and CI run `db:deploy`, never `db push`.
 3. `db push` is for throwaway local experiments only.
 4. Migration SQL is reviewed, not just generated — SQLite rebuilds the whole table for many `ALTER`s, and Prisma's generated SQL shows it.
+5. `db:reset` **prompts before it drops anything, and that prompt is deliberate.** Its only caller is a human at a terminal: containers and CI run `db:deploy` plus the guarded seed (rule 2, and [../operations/DOCKER.md](../operations/DOCKER.md)), so nothing automated ever needs `--force`. The prompt is also the *only* confirmation on this path — `migrate reset` drops and recreates the database before the seed runs, so `ALLOW_SEED` does not cover it. After migrating it runs `src/seed/index.ts` through the `prisma.seed` hook in `apps/api/package.json`. Prisma's CLI additionally refuses this command when it detects it was invoked by an AI agent, and asks for explicit human consent; that guard is Prisma's, not ours.
 
 ## The database file
 
