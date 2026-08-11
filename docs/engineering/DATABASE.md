@@ -101,6 +101,19 @@ Do not "fix" this by adding `mode: "insensitive"` or by lowercasing at query tim
 
 `title` / `description` are unindexed — SQLite cannot use a B-tree for a leading-wildcard `LIKE` anyway.
 
+**`status` and `priority` are unindexed, deliberately.** The list query filters on `statusRank` / `priorityRank` **and** on the text column: the rank term is what an index can serve, the text term is what keeps the answer correct if a rank ever drifts from the string it describes. SQLite uses the index for the rank term and applies the text term as a residual predicate, so the correctness term is free. See [../features/Ticket_Query_Filter_Sort_Page.md](../features/Ticket_Query_Filter_Sort_Page.md#filtering).
+
+Three plans measured in stage 7 against the real SQL Prisma emits (63 rows, no `ANALYZE`), because the shape of the emitted query is not what reading the Prisma call suggests:
+
+| Query | Plan |
+| ----- | ---- |
+| `status` filter + `createdAt:desc` | `SEARCH Ticket USING INDEX Ticket_statusRank_createdAt_idx (statusRank=?)` — a **search, not covering**: `include: { _count }` projects every column, so each matched index entry still costs a table row lookup. The `count` half of the pair *is* covering |
+| `priority:desc` | `SCAN Ticket USING INDEX Ticket_priorityRank_idx`, and **no temp B-tree** — the index is physically `(priorityRank, rowid)`, so a backwards walk already satisfies `priorityRank DESC, id DESC` |
+| `q` search, plain term | One statement: `SCAN Ticket USING INDEX Ticket_createdAt_idx`, evaluating both `LIKE`s per row. The scan is expected — a leading-wildcard `LIKE` has no index to use — but the ordering still comes from the index |
+| `q` search, term with `%` / `_` / `!` | Two statements. The raw `LIKE … ESCAPE` prefilter is `SCAN Ticket`. The page it feeds is `SEARCH Ticket USING INTEGER PRIMARY KEY (rowid=?)` **plus `USE TEMP B-TREE FOR ORDER BY`** — an `id IN (…)` list gives up the `createdAt` index for ordering. Which is why only a term that needs escaping takes this path |
+
+The list query's `commentCount` is the one cost that is not visible in the Prisma call: `_count` compiles to a `LEFT JOIN` on a **materialized** `SELECT ticketId, COUNT(*) … GROUP BY ticketId` over the whole `Comment` table, plus a runtime `AUTOMATIC COVERING INDEX` on it. It is `O(all comments)` per list page rather than `O(pageSize)`. Irrelevant at seed scale; the lever, if it ever matters, is a second `groupBy` scoped to the 20 ids on the page rather than a schema change.
+
 **Facets use `groupBy`, not `findMany` + `distinct`.** Prisma applies `distinct` **in the client**: it emits `SELECT id, assignee FROM Ticket WHERE assignee IS NOT NULL ORDER BY assignee` and dedupes in memory, so the endpoint would read one row per assigned ticket and could never be index-only (the `id` in the projection rules it out). `groupBy` emits a real `GROUP BY`, which plans as `SEARCH Ticket USING COVERING INDEX Ticket_assignee_idx`. Verified with `EXPLAIN QUERY PLAN` in stage 6.
 
 ## Derived columns

@@ -52,6 +52,10 @@ SQLite cannot express that ordering on a text column, so both are backed by inte
 
 **Stable ordering:** `{ id: "desc" }` is appended as a tiebreaker so paging never repeats or drops a row whose sort key is not unique. It is omitted when `id` is already the sort field, since a second clause on the same column is dead weight.
 
+The tiebreaker's direction is `desc`, and the cost of that choice is **not** symmetric with the sort it tiebreaks. A SQLite index on `(col)` is physically `(col, rowid)`, so `ORDER BY col DESC, id DESC` is a straight backwards walk with no sort step — but `ORDER BY col ASC, id DESC` reports `USE TEMP B-TREE FOR LAST TERM OF ORDER BY`, and so does the `createdAt ASC` pairing. Measured in stage 7 with `EXPLAIN QUERY PLAN`.
+
+So `desc` is free on descending sorts and costs a temp B-tree on ascending ones — chosen because the default view (`createdAt:desc`) and the two most-used sorts are descending, not because the direction is cost-free.
+
 ### Filtering
 
 | Param | Type | Matches |
@@ -60,12 +64,16 @@ SQLite cannot express that ordering on a text column, so both are backed by inte
 | `priority` | repeatable enum | OR within the param |
 | `category` | repeatable enum | OR within the param |
 | `assignee` | string | **Exact, case-sensitive.** Send a value from `GET /tickets/facets` |
-| `assigneeIsNull` | boolean | `true` returns only unassigned tickets. Mutually exclusive with `assignee` (sending both → `VALIDATION_ERROR`) |
+| `assigneeIsNull` | boolean | `true` returns only unassigned tickets, `false` only assigned ones. Mutually exclusive with `assignee` (sending both → `VALIDATION_ERROR`) |
 | `requesterEmail` | email | Exact; lowercased before compare, matching how it is stored |
 | `q` | string, 1–120 | Free text — see below |
 | `createdFrom` / `createdTo` | `YYYY-MM-DD` | Inclusive day bounds, UTC — see below |
 
 Different params AND together; repeated values within one param OR together. `?status=open&status=resolved&priority=urgent` = "(open OR resolved) AND urgent".
+
+`assigneeIsNull` filters in **both** directions. `false` is not "no filter" — it is "assigned to someone". A boolean that only means something when it is `true` is a trap for the next caller who sends the other value explicitly.
+
+**`status` and `priority` are matched against their rank columns, not their text columns.** `statusRank IN (0)` rather than `status IN ('open')`. The two are in bijection — `applyTicketRanks()` is the only writer of either — and the rank columns are the indexed ones: `status` and `priority` themselves carry no index, so filtering on them would leave `Ticket_statusRank_createdAt_idx` unused on the single most common view in the app. See [../engineering/DATABASE.md](../engineering/DATABASE.md#indexes).
 
 **Why `assigneeIsNull` and not `assignee=none`:** a sentinel value collides with a real person. Someone named "None" is unlikely; someone typing `none` into a free-text assignee field is not. A separate boolean has no collision surface.
 
@@ -90,6 +98,23 @@ where = {
 ```
 
 Hoisting those `OR` branches to the top level is the classic implementation bug here: search would then widen the result set past the active filters instead of narrowing it.
+
+**`%` and `_` in `q` are literal characters, not wildcards.** Prisma's `contains` compiles to `LIKE ?` with **no `ESCAPE` clause**, and with no escape clause SQLite has no escape character at all — so unescaped input is live pattern syntax (`?q=%` returns every ticket, `?q=50%` matches "500 errors"), and pre-escaping the string before handing it to `contains` does not help either, because `!%` is then two literal characters that match nothing. Prisma will not add an escape option ([prisma#19506](https://github.com/prisma/prisma/issues/19506)).
+
+So a `q` carrying `%`, `_`, or `!` is resolved with a parameterized raw query carrying its own escape character:
+
+```sql
+SELECT id FROM "Ticket"
+WHERE title LIKE ?1 ESCAPE '!' OR description LIKE ?1 ESCAPE '!'
+```
+
+and feeds the resulting id set into the nested `OR` group above, alongside the reference branch. It runs inside the same transaction as the page and the count.
+
+**That raw path is the exception, not the rule.** A term containing none of `%`, `_`, or `!` is escaped by a no-op, so `contains` and the escaped raw `LIKE` are provably the same query — same columns, same case-insensitive-ASCII `LIKE`, same rows, same order. Such a term keeps the `contains` spelling and with it the ordering index, no id list, and no bind-parameter ceiling. `?q=printer` should not pay for a problem it does not have. (`!` is in that character class because it *is* the escape character: a term containing it is one whose escaped form differs from itself.)
+
+Measured at 63 rows, both matching every row: fast path **1.39 ms** p50, raw path **1.85 ms**.
+
+On the raw path the id set is **unbounded**, and that is a ceiling rather than a slope: the ids come back as one `WHERE id IN (?,?,…)` with a bind parameter each, against SQLite's `SQLITE_MAX_VARIABLE_NUMBER` of 32766 (999 on pre-3.32 builds). It also costs the ordering index — an `id IN (…)` page plans as `SEARCH … USING INTEGER PRIMARY KEY` plus `USE TEMP B-TREE FOR ORDER BY`. Both are fine at this scale and are another reason `q` at real volume wants FTS5. Truncating with a `LIMIT` would be worse than the scan: it silently drops matches and makes `meta.total` wrong.
 
 #### Date bounds
 
@@ -118,7 +143,7 @@ Timezone is UTC throughout; the UI labels the control accordingly rather than pr
 }
 ```
 
-`total` comes from a `prisma.$transaction([findMany, count])` so the count matches the page under concurrent writes. `totalPages` is `Math.max(1, ceil(total / pageSize))` — never `0`, which keeps the pager from rendering "Page 1 of 0". `hasNextPage` is `page < totalPages`, so it is correctly `false` on an over-the-end page.
+`total` comes from the same transaction as the page itself, so the count matches the rows it describes under concurrent writes. It is Prisma's **interactive** transaction rather than the `$transaction([findMany, count])` array form, because the `q` prefilter below has to run inside the same snapshot and the array form cannot feed one query's result into the next. `totalPages` is `Math.max(1, ceil(total / pageSize))` — never `0`, which keeps the pager from rendering "Page 1 of 0". `hasNextPage` is `page < totalPages`, so it is correctly `false` on an over-the-end page.
 
 ## URL binding on the web
 
