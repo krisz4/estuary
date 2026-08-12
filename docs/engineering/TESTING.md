@@ -12,7 +12,7 @@ Bonus item 4 of the brief: "write realistic tests". Realistic means tests that w
 | Component | vitest + RTL + MSW | `apps/web/src/**/*.test.tsx` | Mocked HTTP |
 | E2E | Playwright | `e2e/*.spec.ts` | Both apps, real DB |
 
-Weight sits on **API integration** — five endpoints where filtering, sorting, paging, validation, and cascade all live. That is where the bugs are.
+Weight sits on **API integration** — eight endpoints where filtering, sorting, paging, validation, and cascade all live. That is where the bugs are.
 
 ## Commands
 

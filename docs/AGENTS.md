@@ -31,6 +31,7 @@ The product is small enough to hold in your head: **one resource (Ticket) with o
 | How do I test this / what must a test cover? | [engineering/TESTING.md](./engineering/TESTING.md) |
 | Spacing, breakpoints, states, colors | [engineering/UI_DESIGN_GUIDELINES.md](./engineering/UI_DESIGN_GUIDELINES.md) |
 | How do I run it in Docker? | [operations/DOCKER.md](./operations/DOCKER.md) |
+| What runs in CI, and what will it fail on? | [operations/CI.md](./operations/CI.md) |
 | What does the seed generate? | [features/Seed_Data.md](./features/Seed_Data.md) |
 
 ## Conventions

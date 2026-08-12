@@ -9,15 +9,16 @@ helpdesk/
 ├── apps/
 │   ├── api/                  @helpdesk/api    — Node 20 + Express 5 + Prisma (SQLite)
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma
+│   │   │   ├── schema.prisma          schema + migrations only — the seed lives under src/
 │   │   │   ├── migrations/
-│   │   │   ├── seed.ts
 │   │   │   └── data/helpdesk.db      (gitignored)
 │   │   ├── src/
 │   │   │   ├── routes/       HTTP layer — validate, call service, respond
 │   │   │   ├── services/     Business logic + all Prisma access
 │   │   │   ├── middleware/   requestId, errorHandler, notFound
-│   │   │   ├── lib/          prisma, errors, openapi, serialize, logger
+│   │   │   ├── lib/          prisma, env, errors, params, pagination, openapi, serialize, logger
+│   │   │   ├── seed/         Seed script + fixture pools (under src/, not prisma/)
+│   │   │   ├── openapi.ts    Composes the registry from routes/*.openapi.ts
 │   │   │   ├── app.ts        Express app factory (no listen — tests import this)
 │   │   │   └── server.ts     Binds the port
 │   │   └── openapi.json      Generated, committed
@@ -46,6 +47,8 @@ apps/web ─┘
 ```
 
 `apps/api` and `apps/web` never import each other. `packages/contracts` imports nothing but zod.
+
+The seed sits at `src/seed/` rather than `prisma/` because `tsconfig.build.json` sets `rootDir: "src"` and the runtime image runs the *compiled* seed — `tsx` is not installed there. A file outside `rootDir` cannot be compiled into `dist/` at all. See [../features/Seed_Data.md](../features/Seed_Data.md).
 
 The contracts package is bundled into browser code, so it must stay runtime-agnostic: no Express, no Prisma, no React, no `node:*`. A stray `node:crypto` import surfaces as a Vite build error that points at a transitive file and wastes an hour.
 
@@ -111,7 +114,7 @@ Mutations invalidate through `queryKeys`, never inline key arrays.
 | **Monorepo with a shared contracts package** | Only way to guarantee the API and UI agree on shapes without codegen ceremony                                             | Slightly more setup than two folders                                                                     |
 | **SQLite + Prisma**                          | SQLite means a reviewer runs `docker compose up` with no external service. Prisma gives real migrations and typed queries | Single-writer concurrency, no native enums, no `mode: "insensitive"`                                     |
 | **Integer PK doubling as the ticket number** | Prisma's SQLite connector only allows `autoincrement()` on the `@id` field, so cuid-plus-counter does not compile — and with no auth there is nothing enumeration could expose | Sequential ids are visible in URLs; revisit if auth is ever added ([Ticket_Numbering.md](../features/Ticket_Numbering.md)) |
-| **Express over Fastify/Nest**                | Reviewers read Express without a manual; Nest's structure would dwarf a five-endpoint API                                 | Manual async error plumbing (one wrapper)                                                                |
+| **Express over Fastify/Nest**                | Reviewers read Express without a manual; Nest's structure would dwarf an eight-endpoint API                                 | Manual async error plumbing (one wrapper)                                                                |
 | **Vite SPA over Next.js**                    | No SSR need, no auth, no SEO surface. Keeps the API as the only backend                                                   | No server rendering                                                                                      |
 | **Offset paging**                            | UI needs jump-to-page and a total; dataset is tiny                                                                        | Would not scale past ~100k rows                                                                          |
 | **Integer rank columns for status/priority** | SQLite cannot order a text column by severity                                                                             | Must be recomputed on every write — see [../features/Ticket_Priority.md](../features/Ticket_Priority.md) |

@@ -9,7 +9,7 @@ Documentation for the helpdesk ticketing system. AI agents start at [AGENTS.md](
 | [pages/](./pages/README.md) | Agents + engineers | One doc per UI screen: route, components, API calls, states |
 | [features/](./features/README.md) | Agents + engineers | One doc per domain behavior: rules, data model, endpoints |
 | [engineering/](#engineering) | Engineers | Architecture, database, error contract, env vars, testing, UI guidelines |
-| [operations/](#operations) | Engineers | Docker and running the stack |
+| [operations/](#operations) | Engineers | Docker, CI, and running the stack |
 
 ## Engineering
 
@@ -29,6 +29,7 @@ Documentation for the helpdesk ticketing system. AI agents start at [AGENTS.md](
 | Doc | Description |
 | --- | ----------- |
 | [DOCKER.md](./operations/DOCKER.md) | Dockerfiles, compose, volumes, production build |
+| [CI.md](./operations/CI.md) | GitHub Actions workflow: gate order, the checks that exist only in CI |
 
 ## Product brief
 

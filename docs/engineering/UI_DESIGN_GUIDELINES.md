@@ -4,7 +4,7 @@ The brief asks for "decent" and "responsive on a mobile phone". That is the bar:
 
 ## Stack
 
-Tailwind CSS + a small set of local primitives in `src/components/ui/` (Button, Input, Textarea, Select, Badge, Dialog, Skeleton), Radix for dialog/select behavior, Sonner for toasts, `lucide-react` for icons.
+Tailwind CSS + a small set of local primitives in `src/components/ui/` (Button, Input, Textarea, Select, Badge, Dialog, Skeleton, and `Field` — the render prop that owns every form control's label / `aria-invalid` / `aria-describedby` wiring), Radix for dialog/select behavior, Sonner for toasts, `lucide-react` for icons.
 
 No component library theme to fight, and no bespoke design system to maintain.
 

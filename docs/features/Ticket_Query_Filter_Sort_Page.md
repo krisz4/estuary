@@ -30,7 +30,7 @@ An **empty-string value is treated as absent**, not as a malformed value: `?page
 
 | Param | Type | Default | Rules |
 | ----- | ---- | ------- | ----- |
-| `page` | int | `1` | ≥ 1. A page beyond the end returns `data: []` with correct `meta`, **not** a 404 |
+| `page` | int | `1` | 1–1,000,000 (`MAX_PAGE`). A page beyond the end returns `data: []` with correct `meta`, **not** a 404 — but only inside that bound. The ceiling is chosen so `(MAX_PAGE - 1) * MAX_PAGE_SIZE` stays inside Int32, the width of Prisma's `skip` in the query engine: without it `?page=99999999999` overflows and 500s instead of returning the documented empty page |
 | `pageSize` | int | `20` | 1–100. Values above 100 are rejected, not clamped — clamping hides a client bug |
 
 Offset paging (`skip`/`take`), not cursor paging: the UI needs jump-to-page and a total count, and the dataset is small.
@@ -178,7 +178,9 @@ Indexes backing these queries are listed in [../engineering/DATABASE.md](../engi
 
 | Code | Status | When |
 | ---- | ------ | ---- |
-| `VALIDATION_ERROR` | 422 | Bad page/pageSize, unknown sort field, unknown param, malformed date, or `assignee` together with `assigneeIsNull` |
+| `VALIDATION_ERROR` | 422 | Bad page/pageSize, unknown sort field, unknown param, malformed date, `assignee` together with `assigneeIsNull`, or `createdFrom` after `createdTo` |
+
+The last one is worth stating explicitly: the **server rejects** an inverted date range (`createdTo must be on or after createdFrom`, reported on `createdTo`). The client never sends one — it clamps instead, as described above — so this 422 is reachable only by a hand-edited URL or a non-browser caller.
 
 ## Related pages
 

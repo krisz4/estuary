@@ -65,6 +65,15 @@ Every code above is reachable, and there is a test that produces each one. Two c
 
 `apps/web/src/api/http.ts` turns any non-2xx into `ApiClientError { code, message, details, requestId, status }`. UI copy is keyed off `code` in `src/lib/errorMessages.ts`; an unrecognized code falls back to the generic message rather than rendering the raw server text.
 
+The client adds **two codes of its own**, exported as `CLIENT_ERROR_CODES` from `http.ts`. They are deliberately *not* in `API_ERROR_CODES` — no server response ever carries them, and widening the API union would let a handler throw one:
+
+| Code | `status` | When |
+| ---- | -------- | ---- |
+| `NETWORK_ERROR` | `0` | The `fetch` itself failed — API down, DNS, connection refused, a blocked preflight. There is no response to read a code off |
+| `MALFORMED_RESPONSE` | the real status | A 2xx whose body did not parse, or an error response that was not the envelope |
+
+Both are `retryable` in `errorMessages.ts`, and `NETWORK_ERROR` is half of the query retry predicate in `api/queryClient.ts` (`code === "NETWORK_ERROR" || status >= 500`). `errorCopy()` therefore keys off all eleven codes: the nine above plus these two.
+
 ## Related
 
 - [../features/Error_Handling.md](../features/Error_Handling.md)

@@ -45,7 +45,7 @@ The list query's parameters are read off `ticketListQuerySchema` itself — it i
 
 ## What the spec covers
 
-- All five ticket endpoints, both comment endpoints, `GET /health`, and the catch-all — 7 paths, 10 operations, 6 named components.
+- All six ticket endpoints, both comment endpoints, `GET /health`, and the catch-all — 7 paths, 10 operations, 6 named components.
 - Paths are written in **full** (`/api/v1/tickets`) with the server at the origin root, rather than relative to a `/api/v1` server entry: `GET /health` sits outside the version prefix and a `/api/v1` server URL could not describe it.
 - Every list query parameter with type, default, bounds, and enum values.
 - The pagination envelope and the error envelope as named components (`PaginatedTickets`, `ErrorResponse`).

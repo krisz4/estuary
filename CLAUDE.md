@@ -102,7 +102,7 @@ Migration workflow:
 | [docs/pages/](docs/pages/README.md) | Per-screen route, components, APIs, states |
 | [docs/features/](docs/features/README.md) | Domain behavior, data rules, API contracts |
 | `docs/engineering/` | Architecture, DB, error contract, env vars, testing, UI guidelines |
-| `docs/operations/` | Docker, running and deploying |
+| `docs/operations/` | Docker, CI, running and deploying |
 
 `docs/pages/` and `docs/features/` use YAML frontmatter (`type`, `title`, `description`, `resource`, `tags`, `status`). Start from the folder README, then open the matching file. `status: plan` means design-only — confirm in code before implementing.
 

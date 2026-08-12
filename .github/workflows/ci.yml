@@ -1,0 +1,179 @@
+# Continuous integration — stage 16.
+#
+# Gate order is `typecheck` → `lint` → `test` → `test:e2e`, the order stated in
+# docs/engineering/TESTING.md § Conventions, plus four checks that only make
+# sense in CI (below). Documented in docs/operations/CI.md.
+#
+# ## Three properties of this file that are load-bearing
+#
+# **Node 24, not 20.** The root `engines` says `>=20.11.0` and it is honest about
+# the *application*, but CI cannot run on 20: the repo pins `pnpm@11.1.2` via
+# `packageManager`, pnpm 11 imports `node:sqlite`, and that builtin does not
+# exist before Node 22.5 — every install on Node 20 dies with
+# `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` before resolving a package. 24 is the
+# active LTS and is what the Docker images use (docs/operations/DOCKER.md).
+#
+# **pnpm's version is never written here.** `pnpm/action-setup` reads
+# `packageManager` from the root `package.json`, so CI cannot drift from the pin.
+# That coupling is why D4's pnpm bump was deferred to this stage — it is now one
+# line in one file rather than two that must move together.
+#
+# **Nothing restores a build cache, deliberately.** `actions/setup-node`'s
+# `cache: pnpm` caches the pnpm *store* — the tarballs — not `node_modules`, not
+# `.turbo`, and not `node_modules/.cache/tsc`. P44 in BUILD_LOG.md records why
+# that matters: a restored `dist` that disagrees with a surviving tsbuildinfo
+# makes `tsc` exit 0 and emit nothing, so a build cache can turn a broken tree
+# green. Do not add an `actions/cache` step for `.turbo` without reading P44.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+# `main` is excluded from cancellation so the history of what passed stays intact.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Quieter installs, and the flag Playwright's `forbidOnly` keys off.
+  CI: "true"
+
+jobs:
+  verify:
+    name: typecheck · lint · test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        # No `version:` — see the header. The pin lives in package.json.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # `--frozen-lockfile` is the point: a lockfile that does not match
+      # package.json fails here rather than silently resolving something else.
+      # `apps/api`'s postinstall runs `prisma generate`, so the client exists
+      # from this step onward.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      # `pnpm build` failing is caught by its exit code, which is the whole
+      # point of P37: a failed `vite build` leaves a plausible-looking `dist/`
+      # behind, ~70 kB short and complete-looking. The assertions below are the
+      # same ones the Dockerfiles make, for the same reason — never infer
+      # success from a directory existing.
+      - name: Build
+        run: pnpm build
+
+      - name: Assert build output
+        run: |
+          test -s packages/contracts/dist/index.js
+          test -s packages/contracts/dist/index.d.ts
+          test -s apps/api/dist/server.js
+          test -s apps/api/dist/seed/index.js
+          test -s apps/web/dist/index.html
+
+      # The committed spec is an artefact of the contracts, so it can go stale
+      # silently. Regenerate and require the tree to be clean: a contract change
+      # that shipped without `openapi:gen` fails here.
+      # docs/features/API_Documentation.md § Rules promises this check exists.
+      - name: OpenAPI spec is up to date
+        run: |
+          pnpm --filter @helpdesk/api openapi:gen
+          if ! git diff --quiet --exit-code -- apps/api/openapi.json; then
+            echo "::error file=apps/api/openapi.json::openapi.json is stale. Run 'pnpm --filter @helpdesk/api openapi:gen' and commit the result."
+            git --no-pager diff -- apps/api/openapi.json
+            exit 1
+          fi
+
+      # Checklist rule #2 in CLAUDE.md: a schema.prisma edit ships with its
+      # migration. `migrate deploy` cannot catch a missing one — it replays the
+      # migration *files* and reports success — so this replays them onto an
+      # empty database and then asks whether that database matches the
+      # datamodel. Exit 2 means it does not. Same check the container entrypoint
+      # runs before serving (docs/operations/DOCKER.md), which matters because
+      # the stage 14 Docker gate is still unrun (D22).
+      - name: Migrations match the schema
+        working-directory: apps/api
+        env:
+          DATABASE_URL: file:/tmp/helpdesk-migration-check.db
+        run: |
+          pnpm exec prisma migrate deploy
+          if ! pnpm exec prisma migrate diff \
+            --from-schema-datasource prisma/schema.prisma \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code; then
+            echo "::error file=apps/api/prisma/schema.prisma::schema.prisma does not match the migration history. Run 'pnpm --filter @helpdesk/api db:migrate --name <descriptive_snake_case>' and commit the migration."
+            exit 1
+          fi
+
+      # Unit + integration across all three workspaces. Each vitest worker
+      # migrates and uses its own temp SQLite file (docs/engineering/TESTING.md
+      # § Database isolation), so no database setup belongs here.
+      - name: Test
+        run: pnpm test
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Required, not an optimisation. `@helpdesk/contracts` resolves only
+      # through `dist` (its package `exports` name no source files), so both
+      # `tsx src/server.ts` and the Vite dev server that `playwright.config.ts`
+      # starts fail at import without it — P44's
+      # "Failed to resolve entry for package" symptom.
+      - name: Build workspaces
+        run: pnpm build
+
+      # chromium only: playwright.config.ts defines exactly one project.
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Boots both apps itself on dedicated ports (API 4010, web 5183) against a
+      # third database, which `e2e/globalSetup.ts` deletes, migrates, and seeds.
+      # `reuseExistingServer: false` and `retries: 0` are set in the config and
+      # apply here too — an intermittent failure is the signal, not noise.
+      - name: E2E
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
