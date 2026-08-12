@@ -1,7 +1,8 @@
 /// <reference types="vitest/config" />
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 
 /**
@@ -17,7 +18,31 @@ import tailwindcss from "@tailwindcss/vite";
  * busy would surface as a CORS preflight failure with no obvious cause.
  */
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  /*
+    React Compiler, rather than hand-placed `memo` / `useMemo` / `useCallback`.
+
+    The screens that re-render most here are the board (four `useQueries`
+    results, an in-flight `pendingMoves` map, and up to 100 cards under one
+    `DndContext`) and the list (a filter bar whose every control is fed from one
+    `params` object). Both are shaped so that manual memoisation would mean
+    memoising a chain — the derived object, then every prop closure hanging off
+    it, then the leaf components — and each link has to stay correct as the code
+    changes. The compiler derives that from the code itself, on every component,
+    including the ones nobody thought to annotate.
+
+    It runs through Babel because that is the only place the compiler exists;
+    `reactCompilerPreset` narrows the files Babel sees to those matching
+    /forwardRef|memo|\b(?:[A-Z]|use[A-Z0-9])/, so the rest of `src/` is still
+    handled by Vite's native oxc transform and never pays the Babel round trip.
+
+    Bail-outs are silent by design: a component the compiler cannot prove safe
+    is left exactly as it is today, so this can never be *worse* than the
+    hand-written version. `pnpm lint` is where those surface:
+    `eslint-plugin-react-hooks` v7's `recommended-latest` is the compiler's own
+    diagnostic set, so a rule violation that would make a component bail out is
+    already a lint error here.
+  */
+  plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()],
 
   resolve: {
     alias: {
@@ -37,7 +62,8 @@ export default defineConfig({
 
   build: {
     outDir: "dist",
-    sourcemap: true,
+
+sourcemap: true,
   },
 
   test: {

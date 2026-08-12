@@ -34,7 +34,7 @@ Details and caveats: [docs/operations/DOCKER.md](docs/operations/DOCKER.md).
 
 ## Run locally
 
-**Requires Node ≥ 22.5** (24 LTS recommended). The repo pins pnpm via `packageManager`, and pnpm 11 imports `node:sqlite`, which does not exist before Node 22.5 — on Node 20 the install fails with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`. Enable the pinned pnpm with `corepack enable`.
+**Requires Node ^22.18 or ≥ 24.11** (24 LTS recommended), which is what the root `engines` field says. Two independent floors produce that range: pnpm 11, pinned via `packageManager`, imports `node:sqlite`, which does not exist before Node 22.5 — on Node 20 the install fails with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`. And `@babel/core` 8, which the web build pulls in for the React Compiler, requires `^22.18.0 || >=24.11.0`. Enable the pinned pnpm with `corepack enable`.
 
 ```bash
 pnpm install

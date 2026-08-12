@@ -34,7 +34,9 @@ Everything else in the workflow is a script a developer already runs. These four
 
 ## Three settings that are load-bearing
 
-**Node 24, not 20.** The root `engines` field says `>=20.11.0` and that is honest about the *application* — but the repo pins `pnpm@11.1.2`, pnpm 11 imports `node:sqlite`, and that builtin does not exist before Node 22.5. On Node 20 every install dies with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` before resolving a single package. 24 is the active LTS and is what the images use.
+**Node 24, not 20.** The root `engines` field says `^22.18.0 || >=24.11.0`, and both halves are load-bearing. The repo pins `pnpm@11.1.2`, pnpm 11 imports `node:sqlite`, and that builtin does not exist before Node 22.5 — on Node 20 every install dies with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` before resolving a single package. The upper floor comes from `@babel/core` 8, which the web build takes on for the React Compiler (P45) and which itself declares `^22.18.0 || >=24.11.0`. 24 is the active LTS, satisfies both, and is what the images use.
+
+The `engines` range used to read `>=20.11.0`, which was already fiction — no install had worked on Node 20 since the pnpm pin. It was corrected when the compiler made a *second* tool disagree with it.
 
 **pnpm's version appears nowhere in the workflow.** `pnpm/action-setup` reads `packageManager` from the root `package.json`, so CI cannot disagree with the pin. That coupling is the whole reason D4's pnpm bump was deferred to stage 16: it is now a one-line change in one file, not two that have to move together.
 

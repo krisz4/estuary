@@ -6,7 +6,7 @@
   "description": "Helpdesk ticketing system — monorepo root",
   "packageManager": "pnpm@11.1.2",
   "engines": {
-    "node": ">=20.11.0"
+    "node": "^22.18.0 || >=24.11.0"
   },
   "scripts": {
     "dev": "turbo run dev",

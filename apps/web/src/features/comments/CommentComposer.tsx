@@ -28,6 +28,27 @@ import { applyServerValidationErrors } from "@/lib/serverErrors";
  *
  * The reset therefore lives in `onSuccess`, not after `mutateAsync`, not in a
  * `finally`, and not in the submit handler.
+ *
+ * ## Why this one component opts out of the React Compiler
+ *
+ * `reset(values)` clears react-hook-form's `_fields` registry and then relies on
+ * the next render **re-invoking `register("body")`** to re-attach the field's
+ * ref, which is the moment RHF writes the new value into the uncontrolled
+ * `<textarea>`. Nothing else writes that DOM node.
+ *
+ * Compiled, the `<Field label="Comment">` element is cached on
+ * `[errors.body?.message, childrenFn]`, and `childrenFn` is cached on
+ * `register` — a stable function. A successful submit changes neither: the
+ * error was already `undefined`. So React gets back the identical element, bails
+ * out of re-rendering `Field`, the render prop never runs, `register` is never
+ * called again, and the textarea keeps the comment that was just posted. The
+ * caching is correct — the render prop *is* pure in the compiler's terms; the
+ * side effect it is being relied on for is invisible to it.
+ *
+ * `TicketForm` uses the same `register`-inside-a-render-prop shape and stays
+ * compiled, because it never calls `reset()` — nothing there depends on
+ * re-registration. **Adding a `reset(values)` to it means adding this directive
+ * too**, and the failure is silent: stale text in a field, no error anywhere.
  */
 
 const FIELDS = ["authorName", "body"] as const;
@@ -39,6 +60,8 @@ export type CommentComposerProps = {
 };
 
 export const CommentComposer = ({ ticketId, onCreated }: CommentComposerProps) => {
+  "use no memo";
+
   const [formErrors, setFormErrors] = useState<string[]>([]);
   const mutation = useCreateCommentMutation(ticketId);
 
