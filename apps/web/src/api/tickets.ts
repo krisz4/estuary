@@ -212,6 +212,100 @@ export const useTicketStatusMutation = (
   });
 };
 
+/**
+ * The board's drag-and-drop move — a status PATCH that is **not bound to one
+ * ticket id**.
+ *
+ * `useTicketStatusMutation` above cannot serve this screen: it closes over a
+ * single `ticketId`, which works on a detail page showing one ticket and does
+ * not work on a board where any of a hundred cards may be the next one dropped.
+ * A hook-per-card is not an option either — the number of cards changes with the
+ * data, and hooks cannot be called in a loop over it.
+ *
+ * ## What is optimistic, and what is not
+ *
+ * **The detail entry is written optimistically here**, exactly as
+ * `useTicketStatusMutation` does it, and for a reason that only shows up on this
+ * screen: a card is a link. Drag `HD-000042` to Resolved and click straight into
+ * it, and without this the detail page renders the *cached* row — still "In
+ * progress" — while the board behind it says Resolved. The user changed the
+ * status and the ticket disagrees. Patching the entry (and rolling it back on
+ * failure) makes the two screens tell one story for the whole in-flight window.
+ *
+ * **The list entries are not.** A move changes which of four column queries a
+ * row belongs to, so an optimistic version there would have to delete the row
+ * from one cached page, insert it into another, and fix up both `meta.total`s —
+ * cache surgery across entries whose page size and filters were chosen by the
+ * caller. The board holds the in-flight move in local state instead and derives
+ * its columns through it (`useBoardTickets`), so the card is in its new column
+ * on the next frame while the cache stays the server's story about the world.
+ *
+ * ## Which prefix `onSettled` invalidates, and why it is not `tickets.all`
+ *
+ * A status-only PATCH cannot change `facets`: that endpoint reports the distinct
+ * assignees and categories *present* in the table, and moving a ticket between
+ * statuses adds and removes nothing. `tickets.all` would include it, and unlike
+ * on the detail page — where nothing observes facets, so the invalidation is
+ * free — the board **has a mounted facets observer** (the filter bar), so every
+ * drag would fire a `GET /tickets/facets` that cannot return anything new.
+ *
+ * So the two prefixes a move genuinely changes are invalidated: every list (the
+ * four columns, and any list page the user has visited) and this ticket's detail.
+ *
+ * `onSettled` returns the invalidation promise, so `mutateAsync` resolves only
+ * once the refetches it triggered have landed. That is what lets the board drop
+ * its optimistic entry without a frame in which neither the optimistic move nor
+ * the refreshed data is on screen — which reads as the card flicking back to
+ * where it came from and then jumping forward again.
+ */
+export type TicketStatusMove = { ticketId: number; status: TicketStatus };
+
+export const useMoveTicketStatusMutation = (): UseMutationResult<
+  Ticket,
+  Error,
+  TicketStatusMove,
+  { previous: Ticket | undefined }
+> => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ ticketId, status }: TicketStatusMove) => updateTicket(ticketId, { status }),
+
+    onMutate: async ({ ticketId, status }) => {
+      const detailKey = queryKeys.tickets.detail(ticketId);
+
+      // Without this, an in-flight GET can resolve after the optimistic write
+      // and overwrite it with the pre-change row.
+      await queryClient.cancelQueries({ queryKey: detailKey });
+
+      const previous = queryClient.getQueryData<Ticket>(detailKey);
+      if (previous !== undefined) {
+        queryClient.setQueryData<Ticket>(detailKey, { ...previous, status });
+      }
+      return { previous };
+    },
+
+    onError: (_error, { ticketId }, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(queryKeys.tickets.detail(ticketId), context.previous);
+      }
+    },
+
+    // The response carries the ticket *with* its comments (the API's update path
+    // re-reads it with `include: withComments`), so this seeds a complete detail
+    // row rather than one whose thread would blank until the refetch lands.
+    onSuccess: (ticket) => {
+      queryClient.setQueryData(queryKeys.tickets.detail(ticket.id), ticket);
+    },
+
+    onSettled: (_data, _error, { ticketId }) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.tickets.lists() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.tickets.detail(ticketId) }),
+      ]),
+  });
+};
+
 export const useDeleteTicketMutation = (): UseMutationResult<void, Error, number> => {
   const queryClient = useQueryClient();
 

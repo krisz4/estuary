@@ -8,6 +8,7 @@ import { useTicketFacetsQuery, useTicketsQuery } from "@/api/tickets";
 import { TicketCardList, TicketCardListSkeleton } from "@/features/tickets/TicketCardList";
 import { TicketFilterBar } from "@/features/tickets/TicketFilterBar";
 import { TicketTable, TicketTableSkeleton } from "@/features/tickets/TicketTable";
+import { ViewSwitch } from "@/features/tickets/ViewSwitch";
 import { cn } from "@/lib/cn";
 import { formatCount } from "@/lib/formatting";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
@@ -61,11 +62,19 @@ export const TicketsListPage = () => {
         identical buttons 60px apart is not redundancy, it is a question about
         whether they do the same thing.
       */}
-      <header>
-        <h1 className="text-2xl font-semibold text-foreground">Tickets</h1>
-        <p className="text-sm text-muted-foreground">
-          Every support request, newest first by default.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Tickets</h1>
+          <p className="text-sm text-muted-foreground">
+            Every support request, newest first by default.
+          </p>
+        </div>
+
+        {/*
+          The switch carries the current search string to `/tickets/board`, which
+          reads the same filters out of the URL — see `ViewSwitch`.
+        */}
+        <ViewSwitch />
       </header>
 
       <TicketFilterBar

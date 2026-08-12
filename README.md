@@ -2,14 +2,14 @@
 
 A helpdesk ticketing system — file, track, comment on, and close IT support tickets. Built for the code challenge in [instructions.md](instructions.md).
 
-Tickets have a reference (`HD-000042`), a status lifecycle, a priority, a category, a requester, an optional assignee, and a comment thread. The list screen filters, sorts, and pages entirely through the URL, so any view is shareable. There is no authentication — that is a deliberate scope decision from the brief, not an omission.
+Tickets have a reference (`HD-000042`), a status lifecycle, a priority, a category, a requester, an optional assignee, and a comment thread. The list screen filters, sorts, and pages entirely through the URL, so any view is shareable — and the [board](docs/pages/Tickets_Board.md) at `/tickets/board` is a second reading of that same URL state, with one column per status and drag-and-drop between them. There is no authentication — that is a deliberate scope decision from the brief, not an omission.
 
 ## Stack
 
 | Part | Tech |
 | ---- | ---- |
 | API | Node (20+ at runtime, 22.5+ to develop — see below), Express 5, TypeScript, Prisma, SQLite |
-| Web | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind |
+| Web | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind, dnd-kit (board) |
 | Shared | zod contracts consumed by both |
 | Tooling | pnpm workspaces, Turborepo, vitest, Playwright, Docker |
 
@@ -60,8 +60,8 @@ Run one side at a time with `pnpm dev:api` or `pnpm dev:web`. Every `db:*` scrip
 ## Tests
 
 ```bash
-pnpm test          # 755 unit + integration tests (contracts, API, web)
-pnpm test:e2e      # 5 Playwright specs — boots both apps itself
+pnpm test          # 765 unit + integration tests (contracts, API, web)
+pnpm test:e2e      # 6 Playwright spec files — boots both apps itself
 pnpm typecheck
 pnpm lint
 pnpm format:check

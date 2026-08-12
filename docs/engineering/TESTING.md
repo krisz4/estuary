@@ -103,6 +103,7 @@ This section carries the most weight.
 - `useTicketListParams`: garbage params fall back to defaults without throwing.
 - `TicketForm`: shows field errors, maps a server `VALIDATION_ERROR` onto fields, and **keeps values after a failed submit**.
 - List page: renders loading skeleton → rows; renders the correct empty variant for "no tickets" vs "no matches"; error panel retry refetches.
+- Board page: one request per status column; a move PATCHes and lands the card — **and the count** — in the new column; a 409 puts it back and quotes the server's allowed targets; the status filter picks columns rather than filtering rows. Its `mockApi` handlers hold state, because a move is only interesting after the refetch it triggers: against a fixed body the refetch would restore the pre-move world and a passing rollback test would be indistinguishable from a broken one.
 - `ConfirmDialog`: cancel does not fire the mutation.
 
 MSW intercepts at the network layer so the real query hooks and fetch client are exercised — mocking the hooks would test the mock.
@@ -120,6 +121,9 @@ Because the suite shares one database across specs, **every test that mutates cr
 | 3. Open a ticket, add a comment, change status, verify both persist after reload | `e2e/comment-and-status.spec.ts` |
 | 4. Create a ticket, then delete it → confirm → gone from the list | `e2e/delete-ticket.spec.ts` |
 | 5. Load the list at 375px width and confirm the card layout renders (the brief grades mobile) | `e2e/mobile-list.spec.ts` |
+| 6. Drag a ticket between board columns; move one with the card's status select; check the board's 375px overflow and the List ⇄ Board filter hand-off | `e2e/board.spec.ts` |
+
+**Spec 6 is where the drag lives, and it has to be.** `@dnd-kit` is driven entirely by pointer geometry: its `MouseSensor` waits for 6px of movement, and its collision detection asks every droppable for a bounding rect — in jsdom every rect is 0×0, so a simulated drag there asserts the test's own arithmetic and nothing about the app. The component suite drives the *other* entry into the same `move()` (the card's status select) and leaves the pointer to a browser that has a layout. The same reasoning covers the 375px overflow check: the bug it caught (`position: absolute` `sr-only` spans escaping a scroll container's clip and stretching the document to 1115px) has no representation in jsdom at all.
 
 **Its own ports, and `reuseExistingServer: false`.** The API runs on `4010` and the web app on `5183`, never `4000`/`5173`. On the development ports, `reuseExistingServer` would hand the suite a developer's `pnpm dev` servers — pointed at `apps/api/prisma/data/helpdesk.db` — and specs 1, 3, and 4 create, comment on, and *delete* tickets. That is the same rule as § Database isolation above, applied to the E2E layer: a test run must not be able to touch local data. A busy port is therefore an error rather than a substitution. Everything is spelled `127.0.0.1` and never `localhost`, because Vite binds the IPv4 address while `localhost` also resolves to `::1`.
 

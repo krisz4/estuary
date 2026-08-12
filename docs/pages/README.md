@@ -11,11 +11,14 @@ Each doc has YAML frontmatter (`type: Page`, `title`, `description`, `tags`, opt
 | *(all)* | [App_Shell.md](./App_Shell.md) | Layout, header, providers, toaster, error boundary |
 | `/` → `/tickets` | [Tickets_List.md](./Tickets_List.md) | Ticket list with filtering, sorting, paging |
 | `/tickets/new` | [Ticket_Create.md](./Ticket_Create.md) | Create a ticket |
+| `/tickets/board` | [Tickets_Board.md](./Tickets_Board.md) | Kanban board — one column per status, drag and drop to change it |
 | `/tickets/:ticketId` | [Ticket_Detail.md](./Ticket_Detail.md) | Detail view, status change, comments, delete |
 | `/tickets/:ticketId/edit` | [Ticket_Edit.md](./Ticket_Edit.md) | Edit an existing ticket |
 | `*` | [Not_Found.md](./Not_Found.md) | Unmatched routes |
 
-Route order matters: `/tickets/new` is declared **before** `/tickets/:ticketId` so `new` is not parsed as an id.
+Route order matters: `/tickets/new` and `/tickets/board` are declared **before** `/tickets/:ticketId` so neither is parsed as an id.
+
+`/tickets` and `/tickets/board` are two readings of the **same URL state** — both parse it with `useTicketListParams`, and `ViewSwitch` carries the search string between them.
 
 ## Conventions across all pages
 

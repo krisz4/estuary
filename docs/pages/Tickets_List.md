@@ -23,6 +23,7 @@ The landing screen and the most feature-dense page in the app. Task 4.1 of the b
 | Component | Role on this page |
 | --------- | ----------------- |
 | `TicketFilterBar` (`src/features/tickets/`) | Debounced search input, status + priority + category chip multiselects, assignee select, created-from / created-to date inputs (UTC), removable active-filter chips, clear-all. Assignee and category options come from `GET /tickets/facets` — there is no other source of the assignee list, and sending an exact stored value is what makes the case-sensitive match work. **Assignee is one control, not a select plus an "unassigned" toggle**: its options are Anyone / Unassigned / Assigned to anyone / each name, so the mutually-exclusive `assignee` + `assigneeIsNull` 422 is unrepresentable in the UI rather than merely avoided |
+| `ViewSwitch` (`src/features/tickets/`) | List ⇄ Board, carrying the current search string so switching view preserves every filter. The board reads the same URL state — [Tickets_Board.md](./Tickets_Board.md) |
 | `TicketTable` | Desktop `<table>` — sortable column headers, row click → detail |
 | `TicketCardList` | Mobile stacked cards (same data, different presentation) |
 | `SortSelect` | Mobile-only sort control, offering named orderings ("Priority: high to low") rather than a field picker plus a direction toggle |

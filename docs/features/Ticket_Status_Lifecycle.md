@@ -16,6 +16,7 @@ status: canonical
 | Transition table + guard | `apps/api/src/services/ticket-status.ts` (`assertTransition`, `applyStatusSideEffects`) |
 | Rank mapping for sorting | Same file (`STATUS_RANK`) |
 | UI badge + picker | `apps/web/src/features/tickets/StatusBadge.tsx`, `StatusSelect.tsx` |
+| Drag-and-drop status change | `apps/web/src/pages/tickets-board/` — see [../pages/Tickets_Board.md](../pages/Tickets_Board.md) |
 
 ## States
 
@@ -84,6 +85,10 @@ The third row is stated as an explicit pair of source states, not "from a termin
 
 Color alone never carries the meaning — the badge always renders the text label too. See [../engineering/UI_DESIGN_GUIDELINES.md](../engineering/UI_DESIGN_GUIDELINES.md).
 
+On the board there is no badge at all: the column heading names the status, and repeating it on every card would spend that screen's one strong colour on information the card's position already carries.
+
+**No client holds a copy of the transition table** — not the detail page's picker, and not the board, which offers every column to every card and lets a `closed → resolved` drop fail. The guard above is deliberately permissive and has been loosened before; a client-side table would forbid something the server allows, with nothing failing anywhere to say so. Rejections are rendered from the server's own `details.allowed` (`apps/web/src/lib/statusTransition.ts`).
+
 ## Error codes
 
 | Code | Status | When |
@@ -94,5 +99,6 @@ Color alone never carries the meaning — the badge always renders the text labe
 ## Related pages
 
 - [../pages/Ticket_Detail.md](../pages/Ticket_Detail.md) — inline status change
+- [../pages/Tickets_Board.md](../pages/Tickets_Board.md) — status change by drag and drop
 - [../pages/Ticket_Edit.md](../pages/Ticket_Edit.md) — status in the edit form
 - [Tickets.md](./Tickets.md)

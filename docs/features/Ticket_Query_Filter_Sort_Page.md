@@ -71,6 +71,8 @@ So `desc` is free on descending sorts and costs a temp B-tree on ascending ones 
 
 Different params AND together; repeated values within one param OR together. `?status=open&status=resolved&priority=urgent` = "(open OR resolved) AND urgent".
 
+**On the board (`/tickets/board`) `status` selects which *columns* render**, and every column then sends its own single-status request. The parameter's meaning on the wire is unchanged — the difference is entirely in which requests the screen makes — but it is worth knowing before "fixing" the board to also filter rows: on a screen whose columns are the statuses, applying the filter twice leaves columns that are empty for a reason nothing on screen explains. See [../pages/Tickets_Board.md](../pages/Tickets_Board.md).
+
 `assigneeIsNull` filters in **both** directions. `false` is not "no filter" — it is "assigned to someone". A boolean that only means something when it is `true` is a trap for the next caller who sends the other value explicitly.
 
 **`status` and `priority` push *both* predicates — the rank column and the text column — ANDed together.** `?status=open` compiles to `statusRank IN (0) AND status IN ('open')`, not to either one alone. The two terms do different jobs and **removing either is a regression**:
