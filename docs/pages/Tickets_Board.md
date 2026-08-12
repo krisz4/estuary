@@ -53,7 +53,7 @@ No new endpoint, no contract change, no migration: the board is a second reading
 
 1. **Four queries, not one.** A board is four independently-sized queues. One list request big enough to fill every column would spend its paging on whichever status happens to be largest — 400 closed tickets would push the three open ones off the board. Each column pages on its own and reports its own `meta.total` as the count in its heading.
 2. **Load more is per column**, +25 rows at a time up to `MAX_PAGE_SIZE` (100). Past that the column says "Showing the first 100 of N. Narrow the filters to see the rest." rather than offering a button that would 422 — the API rejects an over-large `pageSize`, it does not clamp it.
-3. **Dragging** is `@dnd-kit/core`: mouse drags activate after 6px of movement (so a click on a card's link is still a click), touch drags after a 250ms press-and-hold (so scrolling a column is still scrolling). The dragged card is drawn in a `DragOverlay` portal, because a card transformed in place is clipped by its own column's `overflow-y: auto` the moment it leaves.
+3. **Dragging** is `@dnd-kit/core`: mouse drags activate after 6px of movement (so a click on a card's link is still a click), touch drags after a 250ms press-and-hold (so scrolling a column is still scrolling). The dragged card is drawn in a `DragOverlay` portal, because a card transformed in place is clipped by the board's `overflow-x: auto` the moment it leaves its column.
 4. **Dropping** PATCHes the status and shows the card in its new column immediately. The optimistic move is held in `useBoardTickets`'s `pendingMoves`, not written into the *list* cache: a move changes which query a row belongs to, so a cache-level version would have to splice rows between entries and fix up two `meta.total`s. The card and both column counts move together; the entry is dropped once the invalidation triggered by `onSettled` has refetched.
 
    The **detail entry is** written optimistically (and rolled back on failure), because a card is a link: drag `HD-000042` to Resolved, click straight into it, and without that write the ticket page renders the cached "In progress" while the board behind it says Resolved.
@@ -85,7 +85,11 @@ No new endpoint, no contract change, no migration: the board is a second reading
 
 Horizontal scrolling is deliberate here and nowhere else in the app: a kanban column is a queue, and a queue that reflows into a stack is the list page again. **The document itself never scrolls sideways** — the columns scroll inside their own container, which `e2e/board.spec.ts` asserts at 375px. Two classes make that true and both are commented in the page: `min-w-0` (a flex item will not shrink below its content without it) and `relative` (the cards' `sr-only` spans are `position: absolute`, and an absolutely positioned element is only clipped by an ancestor in its containing-block chain — without it those 1px spans stretched the document to 1115px).
 
-Each column scrolls vertically inside itself, so the four headings stay in place.
+**Vertically, the board grows with its content and the *page* scrolls it.** Columns are `items-start`, so each one is as tall as its own queue rather than as tall as the fullest.
+
+This replaced a `max-h: calc(100vh - 19rem)` on each column's card area. That cap made the board exactly one window tall whatever it held — so arriving from a long list left a screenful of dead space between the board and the footer, and the magic number had to be re-tuned every time the chrome above the board changed height (a wrapping filter bar was enough). Growing with the content means the document height *is* the board's height, and there is nothing underneath it to explain.
+
+The column headings keep their old job — telling you which column you are in — by being `sticky top-14`, pinned directly under the app header rather than under a per-column scrollbar.
 
 ## Accessibility
 

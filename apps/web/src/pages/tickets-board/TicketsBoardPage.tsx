@@ -279,7 +279,14 @@ export const TicketsBoardPage = () => {
             sideways scroll on every phone. Making the scroller the containing
             block puts them back inside the box that clips them.
         */}
-        <div className="relative -mx-1 flex min-w-0 snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 lg:snap-none lg:overflow-x-visible">
+        {/*
+          `items-start`: a column is as tall as its own queue. The default
+          `stretch` gave every column the height of the fullest one, so a board
+          with 40 open and 2 closed tickets drew a 2000px empty box next to a
+          full one. Each column keeps its own `min-h` floor, so the short ones
+          are still comfortable drop targets.
+        */}
+        <div className="relative -mx-1 flex min-w-0 snap-x snap-mandatory items-start gap-3 overflow-x-auto px-1 pb-2 lg:snap-none lg:overflow-x-visible">
           {visibleColumns.map((column) => (
             <BoardColumn
               key={column.status}
@@ -292,9 +299,10 @@ export const TicketsBoardPage = () => {
 
         {/*
           The dragged card is drawn once, in a portal above everything, instead of
-          the original being transformed in place. Inside a column that scrolls,
-          a transformed card is clipped by its own `overflow-y: auto` the moment
-          it leaves — you would watch the card you are dragging get cut in half.
+          the original being transformed in place. Below `lg` the board is a
+          horizontal scroll container, and a transformed card is clipped by it
+          the moment it leaves its column — you would watch the card you are
+          dragging get cut in half on the way to the next one.
         */}
         <DragOverlay dropAnimation={null}>
           {activeTicket === null ? null : <BoardCardOverlay ticket={activeTicket} />}

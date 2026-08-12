@@ -71,7 +71,21 @@ export const BoardColumn = ({ column, onMove, pendingMoves }: BoardColumnProps) 
         isOver && "border-primary bg-primary-subtle/40",
       )}
     >
-      <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+      {/*
+        From `lg`, sticky under the app header (`h-14`): the column scrolls with
+        the page now, and a kanban whose headings scroll away stops being a
+        kanban. Opaque `bg-muted` and `rounded-t-lg` because it slides over the
+        cards — a translucent heading would have card text reading through it.
+
+        **Only from `lg`, and that is a CSS constraint rather than a choice.**
+        Below it the board is a horizontal scroll container, and a sticky
+        element sticks to its nearest scrollport, not the window — so on a phone
+        `top-14` pinned the heading to a box that scrolls with the page and it
+        drifted up over the first card instead of staying put. A heading that
+        sticks to nothing is worse than one that scrolls honestly with its
+        column, so below `lg` it is a plain heading.
+      */}
+      <header className="flex items-center justify-between gap-2 rounded-t-lg border-b border-border bg-muted px-3 py-2 lg:sticky lg:top-14 lg:z-10">
         <h2 className="text-sm font-semibold text-foreground">{label}</h2>
         {/*
           The count is `aria-hidden` and repeated in the section's own label:
@@ -89,9 +103,21 @@ export const BoardColumn = ({ column, onMove, pendingMoves }: BoardColumnProps) 
       <div
         className={cn(
           "flex flex-col gap-2 p-2",
-          // Tall columns scroll inside themselves so the four headings stay put
-          // — a board whose headings scroll away stops being a board.
-          "max-h-[calc(100vh-19rem)] min-h-32 overflow-y-auto lg:max-h-[calc(100vh-17rem)]",
+          /*
+            The column is as tall as its cards and the *page* scrolls it — no
+            inner scrollbar and no viewport cap.
+
+            It used to be capped at `calc(100vh - 19rem)`, and that is what put
+            a screenful of dead space under the board: the cap made the board
+            window-height whatever it held, while the document kept the height
+            of whichever view was rendered before it. Growing with the content
+            means the document height is the board's height, so there is nothing
+            underneath it to explain.
+
+            `min-h-32` is the floor that keeps an empty column a droppable
+            target rather than a 1px line.
+          */
+          "min-h-32",
           column.isRefreshing && "opacity-60",
         )}
         aria-busy={column.isRefreshing || undefined}

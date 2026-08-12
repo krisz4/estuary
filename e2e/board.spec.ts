@@ -141,6 +141,38 @@ test.describe("at 375px", () => {
 });
 
 /**
+ * The board grows with its content, so the document ends where the board ends.
+ *
+ * It used to cap each column at `calc(100vh - 19rem)`, which made the board one
+ * window tall however much it held — and arriving from a long list left a
+ * screenful of dead space between the last card and the footer. The assertion is
+ * on the gap between the two rather than on any height, because that is the
+ * thing the user saw.
+ */
+test("leaves no dead space under the board after switching from the list", async ({ page }) => {
+  await page.goto("/tickets");
+  await expect(page.getByRole("heading", { name: "Tickets", level: 1 })).toBeVisible();
+
+  await page
+    .getByRole("navigation", { name: "Ticket view" })
+    .getByRole("link", { name: "Board" })
+    .click();
+  await expect(column(page, "Open")).toBeVisible();
+  await expect(column(page, "Open").getByRole("listitem").first()).toBeVisible();
+
+  const gap = await page.evaluate(() => {
+    const columns = [...document.querySelectorAll("main section")];
+    const boardBottom = Math.max(...columns.map((node) => node.getBoundingClientRect().bottom));
+    const footerTop = document.querySelector("footer")!.getBoundingClientRect().top;
+    return footerTop - boardBottom;
+  });
+
+  // Padding below the board, not a screenful of nothing.
+  expect(gap).toBeGreaterThanOrEqual(0);
+  expect(gap).toBeLessThan(120);
+});
+
+/**
  * The status filter picks **columns** on this screen rather than filtering rows
  * inside them, which is the one place the board reads the shared URL state
  * differently from the list. Worth an end-to-end check because it is the kind of

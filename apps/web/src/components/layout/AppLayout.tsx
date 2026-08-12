@@ -18,7 +18,15 @@ export const AppLayout = () => {
   const location = useLocation();
 
   return (
-    <div className="flex min-h-full flex-col bg-background">
+    /*
+      `min-h-dvh`, not `min-h-full`: a percentage minimum resolves against a
+      parent that has no height of its own, so `min-h-full` was silently doing
+      nothing — on any page shorter than the window the footer floated up under
+      the content instead of sitting at the bottom. `dvh` rather than `vh` so a
+      mobile browser's collapsing address bar does not leave the shell one
+      toolbar taller than the window.
+    */
+    <div className="flex min-h-dvh flex-col bg-background">
       <SkipLink />
       <AppHeader />
 
