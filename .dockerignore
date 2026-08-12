@@ -1,0 +1,69 @@
+# Build context exclusions. Both Dockerfiles use the repo root as their context
+# (they need `pnpm-workspace.yaml`, the lockfile, and `packages/contracts`), so
+# everything below would otherwise be uploaded to the daemon on every build.
+#
+# The entries that matter for correctness, not just for speed:
+#
+#   node_modules/  — a macOS/arm64 pnpm store contains native binaries (Prisma's
+#                    query engine, esbuild) built for the host. Copying them into
+#                    a linux image and then installing on top produces a tree
+#                    that is half host-built and fails at runtime, not at build.
+#   dist/          — the image builds its own. A stale local `dist` copied in
+#                    would be served instead, which is exactly the P37 failure
+#                    mode (a plausible-looking `dist` that disagrees with source).
+#   *.db           — the dev database. It must never reach a layer: the container
+#                    keeps its data on a named volume at /data, and a baked-in
+#                    file would both leak local data and be silently shadowed.
+#   .env           — real local values; the container is configured by compose.
+
+node_modules
+**/node_modules
+
+dist
+**/dist
+build
+**/build
+.turbo
+**/.turbo
+*.tsbuildinfo
+
+.env
+.env.*
+!env.example
+!**/env.example
+
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+apps/api/prisma/data
+
+.git
+.gitignore
+.github
+
+coverage
+**/coverage
+playwright-report
+test-results
+blob-report
+playwright/.cache
+e2e
+
+.DS_Store
+.idea
+.vscode
+*.log
+
+# Docs and editor config change on almost every commit and are not build inputs;
+# excluding them keeps the layer cache from being invalidated by a typo fix.
+docs
+README.md
+CLAUDE.md
+instructions.md
+.editorconfig
+.prettierrc.json
+.prettierignore
+eslint.config.js
+docker-compose.yml
+.dockerignore

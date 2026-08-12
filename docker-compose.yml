@@ -1,0 +1,79 @@
+# Helpdesk — one command to a running, seeded app.
+#
+#   docker compose up --build
+#
+# → web on http://localhost:5173, API on http://localhost:4000,
+#   Swagger UI on http://localhost:4000/docs (also proxied at /docs on 5173).
+#
+# The web container serves the SPA *and* proxies /api/ to the API on the same
+# origin, so the browser issues no cross-origin request and no CORS preflight.
+# Port 4000 is published anyway, for curl and for Swagger UI's "try it out".
+
+name: helpdesk
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: helpdesk-api:local
+    ports:
+      - "4000:4000"
+    environment:
+      # Absolute path on the volume. A relative `file:./…` would resolve from
+      # prisma/ inside the image and land on a layer the volume then shadows.
+      DATABASE_URL: file:/data/helpdesk.db
+      # Required in a container: the default 127.0.0.1 would bind the loopback
+      # interface *inside* the namespace, and the published port would connect
+      # to nothing.
+      HOST: 0.0.0.0
+      PORT: "4000"
+      NODE_ENV: production
+      # Not on the request path while the app is served through nginx's proxy —
+      # kept because Swagger UI's "try it out" and any direct browser use of
+      # :4000 are cross-origin, and because a web image rebuilt with an absolute
+      # VITE_API_BASE_URL must keep working. Both loopback spellings and both
+      # ports (dev 5173, preview 4173) are listed: they are four distinct
+      # origins to a browser.
+      ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
+      # Demo data on a clean volume. The entrypoint checks the ticket table is
+      # empty first, so restarting never wipes what a reviewer added.
+      SEED_ON_START: "true"
+      LOG_LEVEL: info
+      DOCS_ENABLED: "true"
+    volumes:
+      # Named, so the database survives `docker compose down`. `down -v` is the
+      # documented way to start over.
+      - helpdesk-db:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      # Migrate + seed runs before the port is bound; 63 tickets and ~180
+      # comments on a cold SQLite file is well under this, and a start_period
+      # means the attempts made during it do not count toward `retries`.
+      start_period: 30s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Relative → same origin → no preflights. See apps/web/Dockerfile for
+        # why this is a build arg and not an environment variable.
+        VITE_API_BASE_URL: /api/v1
+    image: helpdesk-web:local
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        # nginx resolves `api` lazily per request, so this is not required for
+        # correctness — it is here so the page a reviewer opens immediately
+        # after `up` is backed by an API that has finished migrating.
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  helpdesk-db:

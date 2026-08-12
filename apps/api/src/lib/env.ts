@@ -77,13 +77,29 @@ const envSchema = z.object({
   HOST: z.string().min(1).default("0.0.0.0"),
 
   /**
-   * Comma-separated CORS allow-list. Both spellings of loopback are in the
-   * default on purpose: `localhost` and `127.0.0.1` are different origins to a
-   * browser, and Playwright drives one while the dev server prints the other.
+   * Comma-separated CORS allow-list.
+   *
+   * **Four origins, because a browser sees four.** `localhost` and `127.0.0.1`
+   * are different origins, and so are the two ports this app is legitimately
+   * served from: `5173` (`vite dev`, and the port compose publishes the web
+   * container on) and `4173` (`vite preview`, the production build, which is
+   * also what Playwright's `webServer` runs). Listing fewer is what D21 was:
+   * the preview build could not reach the API at all, and the failure surfaced
+   * as an opaque network error rather than as anything naming CORS.
+   *
+   * The container does not depend on this list. nginx proxies `/api/` to the
+   * API on the same origin, so no request the app makes is cross-origin — the
+   * list still covers Swagger UI's "try it out" against the published `:4000`
+   * and a web image rebuilt with an absolute `VITE_API_BASE_URL`.
+   *
+   * This is not an "allow anything local" default: it is four exact origins,
+   * and a deployment that serves the app from anywhere else sets the variable.
    */
   ALLOWED_ORIGINS: z
     .string()
-    .default("http://localhost:5173,http://127.0.0.1:5173")
+    .default(
+      "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
+    )
     .transform((value) =>
       value
         .split(",")
