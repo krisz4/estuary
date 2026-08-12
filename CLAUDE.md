@@ -20,7 +20,7 @@ Standard scripts are in `package.json` (root and per-workspace). What isn't obvi
 - **`db:*` scripts are always invoked as `pnpm --filter @helpdesk/api db:<script>`** from the repo root (they are defined in `apps/api/package.json` and resolve paths relative to it). Use that form everywhere, including in docs. The SQLite file lives at `apps/api/prisma/data/helpdesk.db` and is gitignored.
 - `db:reset` drops and re-seeds — destructive. `db:seed` generates 63 realistic tickets so the list page has something to filter and page through; it is guarded by `ALLOW_SEED`, not `NODE_ENV`.
 - `pnpm test` = vitest across workspaces. API tests run against a **temp SQLite file per worker**, never the dev DB. E2E uses its own third database.
-- `pnpm test:e2e` = Playwright; it boots both apps itself via `webServer` config.
+- `pnpm test:e2e` = Playwright; it boots both apps itself via `webServer` config, on **dedicated ports** (API 4010, web 5183) against a third database at `e2e/helpdesk-e2e.db`. It never reuses a running `pnpm dev` — that would point the mutating specs at your local data.
 - OpenAPI spec is generated from the zod contracts: `pnpm --filter @helpdesk/api openapi:gen` → `apps/api/openapi.json`, served at `GET /docs`.
 
 ## Architecture

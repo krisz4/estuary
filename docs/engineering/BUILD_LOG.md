@@ -30,6 +30,7 @@ An item leaves this file only when it is done (or explicitly rejected with a rea
 | 12 · Detail → Create → Edit | pass — **full CRUD end to end in a real browser** against the seeded API: create HD-000064 (email lowercased on write, blank assignee/category → `null`) → comment (body cleared, author kept, `updatedAt` unmoved) → status open → in_progress → closed with timestamps appearing → **`closed → resolved` rejected**, value rolled back, allowed transitions rendered inline from `details.allowed` → edit (empty submit = zero API calls; PATCH carried only changed fields; timestamps cleared) → reload persisted → delete with confirm → back to a 63-row list, `/tickets/64` then rendering the not-found state. XSS check: a description containing `<img src=x onerror=…>` renders as text. 715 tests (301 API, 190 contracts, 224 web); build exit 0 | 6 findings, all 6 fixed post-review — plus 5 found and fixed in-stage, **one of which was the implementing agent catching its own vacuous probe** | `Add ticket detail, create, and edit` |
 | 14 · Docker | **gate not run — see D22, and do not read this row as a pass.** The five artefacts are complete (`apps/api/Dockerfile`, `apps/web/Dockerfile`, `apps/web/nginx.conf`, `docker-entrypoint.sh`, `docker-compose.yml`, `.dockerignore`) and their comments carry measurements from the session that built them — the drift-check 500 (`slaBreachedAt does not exist`), P37's short `dist`, the `SQLITE_READONLY` chown. **None of that was re-verified here, and the clean-volume `up` / `down && up` gate was never executed**: the Colima VM backing Docker on this machine had corrupted its own filesystem (every read inside it, including `/bin/sh`, returned `EIO`), and it was deleted without being recreated at the user's instruction. What *was* verified: `pnpm install --frozen-lockfile`, `typecheck`, `lint`, and the full suite clean with `prisma` moved to `dependencies`; docs reconciled against the implementation | not reviewed | `Add the Docker images, compose stack, and container entrypoint` |
 | 13 · Web component tests | pass — MSW swapped in at the existing seam; 755 tests (301 API, 190 contracts, 264 web); `typecheck`/`lint`/`format:check` clean, build exit 0. **The stage's value was the audit, not the count**: 34 behaviour reverts run against the existing suite, finding three tests that did not discriminate, plus a real bug in `http.ts` that only a real network layer could expose | 5 findings, all 5 fixed post-review — two of them in the harness this stage built | `Add MSW and the web component test suite` |
+| 15 · E2E | pass — 5 Playwright specs green **twice from cold** and green under three spec orderings (reverse-alphabetical, delete-first/create-last, mutating-first), each a single run sharing one database. Verified non-vacuous by six implementation breaks, each firing exactly the intended spec: `priorityRank` → `priority` in the API sort map, the comment composer clearing the author, the list always rendering the desktop table, the create mutation not invalidating, the delete mutation not invalidating `lists()`, and `data.status` never written. Both branches of `globalSetup`'s API check proven to fire. Repo-wide `typecheck`/`lint`/`format:check` clean, 755 unit tests green. **The stage's finding was that three of its own assertions did not discriminate on first writing** — see below | self-reviewed; findings fixed in-stage | `Add the Playwright E2E suite` |
 
 ### A note on what these gates are actually worth
 
@@ -51,6 +52,22 @@ Every stage from 6 onward has produced at least one test that could not fail:
 None were caught by reading. All were caught by **breaking the implementation and watching which
 tests fired** — and in each case the count was lower than expected, which is the signal. Keep doing
 it, and treat "fewer tests fired than I expected" as a finding rather than a relief.
+
+- Stage 15: **three of the five specs' key assertions could not fail when first written.** Ordered by how
+  quietly each would have gone unnoticed:
+  1. *"Priorities descend"* checked page 1 only. With the seeded data the open subset is 3 urgent / 6 high /
+     11 medium / 6 low, so a **text** sort fills page 1 with urgent, medium, low — already non-increasing by
+     rank — and pushes every `high` row onto page 2. Swapping `priorityRank` for `priority` in the API's sort
+     map passed. Fixed by asserting across the page boundary.
+  2. *"The deleted ticket is gone from the list"* was written as an unscoped `getByText(reference)`, which also
+     matched the **success toast** naming the ticket. It passed after ~4.5 s — the toast's own timer — and
+     reported that as the list updating. The 4.5 s in an otherwise 1.7 s spec was the tell.
+  3. The same assertion reached the detail page by `page.goto`, so no list was ever cached and removing the
+     delete mutation's invalidation changed nothing. Fixed by arriving at the ticket *through* the list.
+
+  All three were found by breaking the implementation, and in each case the probe script's own guard was the
+  second problem: `grep -qF 'priority: "priority",'` matches `priority: "priorityRank",` as a substring, so it
+  reported a patch as applied that had not been. **A check that the break landed must be a diff, not a grep.**
 
 Two recurring shapes, worth naming because they are predictable:
 
@@ -129,7 +146,7 @@ answer is "the same thing", the probe is measuring something else.**
 
 | # | Item | Raised in | Reason deferred | Lands in |
 | - | ---- | --------- | --------------- | -------- |
-| D1 | `pnpm test:e2e` has no runner — `@playwright/test` is not installed | Stage 1 review #4 | Playwright pulls browser binaries; nothing before stage 15 uses it, and it is not in any earlier gate | Stage 15 |
+| ~~D1~~ | ~~`pnpm test:e2e` has no runner — `@playwright/test` is not installed~~ | Stage 1 review #4 | — | **Resolved in stage 15** — `@playwright/test` at the root, chromium only, plus `playwright.config.ts`, `tsconfig.e2e.json` (the root files were previously typechecked by nothing; `pnpm typecheck` now runs `turbo run typecheck && tsc -p tsconfig.e2e.json`), and the five specs |
 | ~~D2~~ | ~~`packages/tsconfig/react-app.json` is unexercised~~ | Stage 1 review | — | **Resolved in stage 10** — `tsc --listFiles` shows `vite/client.d.ts` and its five `vite/types/*.d.ts` dependencies in the program. Non-vacuous: `--types vite/client-typo` produces `TS2688`, so the entry is resolved rather than ignored, and a probe using `import.meta.hot` (declared only by `vite/client`) compiles clean |
 | ~~D3~~ | ~~`pnpm test` is a turbo passthrough with no package implementing `test`~~ | Stage 1 | — | **Resolved in stage 2** — vitest is in the graph; `test:coverage` wired too |
 | D4 | pnpm pinned at `11.1.2` while `11.21.0` is available | Stage 1 | A version bump wants CI to agree with the pin; both should move together | Stage 16 |

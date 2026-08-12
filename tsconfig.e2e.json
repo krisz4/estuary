@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@helpdesk/tsconfig/base.json",
+  "compilerOptions": {
+    // `DOM` is here for the callbacks handed to `page.evaluate()`: those run in
+    // the browser, so `document` and `window` are legitimately in scope inside
+    // them even though nothing else in this project is browser code.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "noEmit": true,
+    "tsBuildInfoFile": "./node_modules/.cache/tsc/e2e.tsbuildinfo"
+  },
+  "include": ["playwright.config.ts", "e2e/**/*.ts"]
+}

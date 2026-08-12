@@ -82,10 +82,14 @@ const envSchema = z.object({
    * **Four origins, because a browser sees four.** `localhost` and `127.0.0.1`
    * are different origins, and so are the two ports this app is legitimately
    * served from: `5173` (`vite dev`, and the port compose publishes the web
-   * container on) and `4173` (`vite preview`, the production build, which is
-   * also what Playwright's `webServer` runs). Listing fewer is what D21 was:
-   * the preview build could not reach the API at all, and the failure surfaced
-   * as an opaque network error rather than as anything naming CORS.
+   * container on) and `4173` (`vite preview`, the production build). Listing
+   * fewer is what D21 was: the preview build could not reach the API at all,
+   * and the failure surfaced as an opaque network error rather than as anything
+   * naming CORS.
+   *
+   * The E2E suite is **not** among the four. It runs its own API process on its
+   * own port and passes `ALLOWED_ORIGINS` explicitly (`e2e/env.ts`), so nothing
+   * had to be widened here to accommodate it.
    *
    * The container does not depend on this list. nginx proxies `/api/` to the
    * API on the same origin, so no request the app makes is cross-origin — the

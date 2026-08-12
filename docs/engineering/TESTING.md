@@ -20,7 +20,8 @@ Weight sits on **API integration** — five endpoints where filtering, sorting, 
 pnpm test              # all workspaces
 pnpm test:api
 pnpm test:web
-pnpm test:e2e          # Playwright boots both apps via webServer
+pnpm test:e2e          # Playwright boots both apps via webServer (API :4010, web :5183)
+pnpm test:e2e:report   # open the HTML report from the last run
 pnpm test:coverage
 ```
 
@@ -108,15 +109,25 @@ MSW intercepts at the network layer so the real query hooks and fetch client are
 
 ### E2E (happy paths only)
 
-**Data strategy.** Playwright `globalSetup` points the API at its own database (`e2e/helpdesk-e2e.db`), runs `migrate deploy`, and seeds it with `ALLOW_SEED=true` — the suite needs enough rows for filtering and paging to be meaningful, which is the one place seed data is legitimate. It is a **third** database: not the dev file, not the vitest temp files.
+**Data strategy.** `e2e/globalSetup.ts` deletes `e2e/helpdesk-e2e.db`, runs `migrate deploy` against it, and seeds it with `ALLOW_SEED=true` — the suite needs enough rows for filtering and paging to be meaningful, which is the one place seed data is legitimate. It is a **third** database: not the dev file, not the vitest temp files.
 
-Because the suite shares one database across specs, **every test that mutates creates its own ticket first and acts on that one.** No spec may delete or edit a seeded ticket, or the run becomes order-dependent and fails only in CI. `globalSetup` re-seeds from scratch on every run, so a crashed run never poisons the next one.
+Because the suite shares one database across specs, **every test that mutates creates its own ticket first and acts on that one.** No spec may delete or edit a seeded ticket, or the run becomes order-dependent and fails only in CI. `globalSetup` starts from an empty file on every run, so a crashed run never poisons the next one.
 
-1. Create a ticket → land on its detail page → it appears at the top of the list.
-2. Filter by status, sort by priority, page forward — URL reflects each step and survives reload.
-3. Open a ticket, add a comment, change status, verify both persist after reload.
-4. Create a ticket, then delete it → confirm → gone from the list.
-5. Load the list at 375px width and confirm the card layout renders (the brief grades mobile).
+| Spec | File |
+| ---- | ---- |
+| 1. Create a ticket → land on its detail page → it appears at the top of the list | `e2e/create-ticket.spec.ts` |
+| 2. Filter by status, sort by priority, page forward — URL reflects each step and survives reload | `e2e/filter-sort-page.spec.ts` |
+| 3. Open a ticket, add a comment, change status, verify both persist after reload | `e2e/comment-and-status.spec.ts` |
+| 4. Create a ticket, then delete it → confirm → gone from the list | `e2e/delete-ticket.spec.ts` |
+| 5. Load the list at 375px width and confirm the card layout renders (the brief grades mobile) | `e2e/mobile-list.spec.ts` |
+
+**Its own ports, and `reuseExistingServer: false`.** The API runs on `4010` and the web app on `5183`, never `4000`/`5173`. On the development ports, `reuseExistingServer` would hand the suite a developer's `pnpm dev` servers — pointed at `apps/api/prisma/data/helpdesk.db` — and specs 1, 3, and 4 create, comment on, and *delete* tickets. That is the same rule as § Database isolation above, applied to the E2E layer: a test run must not be able to touch local data. A busy port is therefore an error rather than a substitution. Everything is spelled `127.0.0.1` and never `localhost`, because Vite binds the IPv4 address while `localhost` also resolves to `::1`.
+
+**One worker, no retries.** The suite shares one SQLite database, and spec 1 asserts a just-created ticket is at the *top* of a list sorted newest-first — which a second worker creating its own ticket would race. Retries are off, in CI too: an intermittent failure that a retry turns green is exactly the signal the suite exists to produce.
+
+**`globalSetup` runs after `webServer`, not before it** — measured, not assumed. That is safe only because `GET /health` touches no database and Prisma opens SQLite lazily, so the API holds no handle when the file is replaced. `globalSetup` ends by asking the *API* for a ticket count, so if that ever stops being true the run fails at setup with a sentence naming the cause instead of `no such table: Ticket` in the middle of an unrelated spec.
+
+**Reading the rendered list is always polled.** The list page keeps the previous rows on screen while the next query is in flight, so a single read straight after a click races the refetch. Use `expect.poll` (or a settle signal rendered from the same data, such as the pager's "Showing 21–…") rather than `allInnerTexts()` once.
 
 ## Conventions
 
