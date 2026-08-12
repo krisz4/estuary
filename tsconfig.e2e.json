@@ -5,7 +5,13 @@
     // `DOM` is here for the callbacks handed to `page.evaluate()`: those run in
     // the browser, so `document` and `window` are legitimately in scope inside
     // them even though nothing else in this project is browser code.
-    "lib": ["ES2022", "DOM"],
+    //
+    // `DOM.Iterable` comes with it and is not optional: without it the DOM
+    // collections are typed as plain array-likes, so spreading one —
+    // `[...document.querySelectorAll("main section")]`, which board.spec.ts
+    // does — fails with TS2488 rather than at runtime, where it is fine in
+    // every browser Playwright drives.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "noEmit": true,
     "tsBuildInfoFile": "./node_modules/.cache/tsc/e2e.tsbuildinfo"
