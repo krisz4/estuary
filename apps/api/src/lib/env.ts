@@ -92,9 +92,12 @@ const envSchema = z.object({
    * had to be widened here to accommodate it.
    *
    * The container does not depend on this list. nginx proxies `/api/` to the
-   * API on the same origin, so no request the app makes is cross-origin — the
-   * list still covers Swagger UI's "try it out" against the published `:4000`
-   * and a web image rebuilt with an absolute `VITE_API_BASE_URL`.
+   * API on the same origin, so no request the app makes is cross-origin.
+   * Neither is Swagger UI: the OpenAPI document declares
+   * `servers: [{ url: "/" }]`, so "try it out" resolves against whichever origin
+   * served `/docs` and is same-origin on both `:4000` and the proxied `:5173`.
+   * What the list still covers is `vite preview` on `:4173` and a web image
+   * rebuilt with an absolute `VITE_API_BASE_URL`.
    *
    * This is not an "allow anything local" default: it is four exact origins,
    * and a deployment that serves the app from anywhere else sets the variable.

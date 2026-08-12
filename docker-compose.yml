@@ -7,7 +7,10 @@
 #
 # The web container serves the SPA *and* proxies /api/ to the API on the same
 # origin, so the browser issues no cross-origin request and no CORS preflight.
-# Port 4000 is published anyway, for curl and for Swagger UI's "try it out".
+# Port 4000 is published anyway, for curl and for direct use of Swagger UI.
+#
+# Both published ports are bound to 127.0.0.1: this app has no authentication,
+# so the default all-interfaces binding would hand ticket CRUD to the LAN.
 
 name: helpdesk
 
@@ -18,7 +21,14 @@ services:
       dockerfile: apps/api/Dockerfile
     image: helpdesk-api:local
     ports:
-      - "4000:4000"
+      # **Bound to loopback, not to every interface.** This app has no
+      # authentication by design, which is why `apps/api/env.example` ships
+      # `HOST=127.0.0.1` for local development — a bare `"4000:4000"` undoes
+      # exactly that, publishing full ticket CRUD (including DELETE) to everyone
+      # on the network. Every documented use is from this machine: the browser,
+      # curl, Swagger UI. To reach the stack from another device, change this
+      # deliberately and know what is being exposed.
+      - "127.0.0.1:4000:4000"
     environment:
       # Absolute path on the volume. A relative `file:./…` would resolve from
       # prisma/ inside the image and land on a layer the volume then shadows.
@@ -29,11 +39,13 @@ services:
       HOST: 0.0.0.0
       PORT: "4000"
       NODE_ENV: production
-      # Not on the request path while the app is served through nginx's proxy —
-      # kept because Swagger UI's "try it out" and any direct browser use of
-      # :4000 are cross-origin, and because a web image rebuilt with an absolute
-      # VITE_API_BASE_URL must keep working. Both loopback spellings and both
-      # ports (dev 5173, preview 4173) are listed: they are four distinct
+      # Not on the request path in this stack at all: nginx proxies /api/ on the
+      # same origin, and Swagger UI is same-origin too (the OpenAPI document
+      # declares `servers: [{ url: "/" }]`, so "try it out" resolves against
+      # whichever origin served /docs). It is set because a web image rebuilt
+      # with an absolute VITE_API_BASE_URL must keep working, and because the
+      # published :4000 is there to be used directly. Both loopback spellings and
+      # both ports (dev 5173, preview 4173) are listed: they are four distinct
       # origins to a browser.
       ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
       # Demo data on a clean volume. The entrypoint checks the ticket table is
@@ -54,6 +66,10 @@ services:
       # comments on a cold SQLite file is well under this, and a start_period
       # means the attempts made during it do not count toward `retries`.
       start_period: 30s
+    # `src/server.ts` arms a 10s force-exit timer on SIGTERM. Docker's default
+    # grace is also 10s, so the two land on the same instant; 15s puts the app's
+    # own last resort inside the window rather than racing SIGKILL.
+    stop_grace_period: 15s
     restart: unless-stopped
 
   web:
@@ -66,7 +82,8 @@ services:
         VITE_API_BASE_URL: /api/v1
     image: helpdesk-web:local
     ports:
-      - "5173:80"
+      # Loopback, for the reason spelled out under the api service above.
+      - "127.0.0.1:5173:80"
     depends_on:
       api:
         # nginx resolves `api` lazily per request, so this is not required for

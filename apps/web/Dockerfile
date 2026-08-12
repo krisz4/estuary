@@ -10,7 +10,11 @@
 # ------------------------------------------------------------------ #
 # deps
 # ------------------------------------------------------------------ #
-FROM node:24-alpine AS deps
+# Pinned to a minor, not the floating `24-alpine`. The root `engines` floor is
+# `^22.18.0 || >=24.11.0` and pnpm refuses to install a project whose engines the
+# running node does not satisfy, so a tag that ever resolves below 24.11 turns
+# into an install error that names neither the tag nor this line.
+FROM node:24.11-alpine AS deps
 
 RUN corepack enable
 WORKDIR /app
@@ -45,6 +49,13 @@ FROM deps AS build
 # the request is issued by the user's browser, which cannot resolve it.
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+
+# No source maps in the image. `vite.config.ts` builds them by default so a
+# stack trace from `pnpm build` or `vite preview` is readable locally, but the
+# runtime stage copies `dist/` wholesale into nginx and serves it publicly under
+# /assets/ with a one-year cache — which would publish the entire TypeScript
+# source of the app and roughly double the asset bytes in the image.
+ENV WEB_SOURCEMAP=false
 
 COPY packages/tsconfig packages/tsconfig
 COPY packages/contracts packages/contracts

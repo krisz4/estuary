@@ -25,7 +25,7 @@ docker compose up --build
 services:
   api:
     build: { context: ., dockerfile: apps/api/Dockerfile }
-    ports: ["4000:4000"]
+    ports: ["127.0.0.1:4000:4000"]   # loopback only — see "Both ports are bound to loopback"
     environment:
       DATABASE_URL: file:/data/helpdesk.db
       HOST: 0.0.0.0
@@ -38,6 +38,7 @@ services:
       interval: 5s
       retries: 10
       start_period: 30s          # migrate + seed run before the port is bound
+    stop_grace_period: 15s       # the server's own 10s force-exit timer fits inside it
 
   web:
     build:
@@ -45,7 +46,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_API_BASE_URL: /api/v1     # relative — nginx proxies it. See below.
-    ports: ["5173:80"]
+    ports: ["127.0.0.1:5173:80"]
     depends_on:
       api: { condition: service_healthy }
 
@@ -62,9 +63,18 @@ Two consequences, both of them the reason for the design:
 - **No CORS preflight on any request.** P41 measured one extra round trip per write against the cross-origin dev setup; same-origin removes all of them. The API's `ALLOWED_ORIGINS` is not on the container's request path at all.
 - **`VITE_API_BASE_URL` is `/api/v1`, a relative path** — not `http://localhost:4000/api/v1`. An absolute URL still works (compose publishes 4000) but reintroduces the preflights.
 
-Port 4000 stays published for `curl` and for Swagger UI's "try it out", which *is* cross-origin — that, plus a web image someone rebuilds with an absolute base URL, is why `ALLOWED_ORIGINS` is still set.
+Port 4000 stays published for `curl` and for using Swagger UI directly. Note that Swagger UI is **not** a CORS case: the OpenAPI document declares `servers: [{ url: "/" }]`, so "try it out" resolves against whichever origin served `/docs` — same-origin on `:4000` and same-origin through the proxy on `:5173`. `ALLOWED_ORIGINS` is set for `vite preview` on `:4173` and for a web image someone rebuilds with an absolute base URL, and for nothing in this stack.
 
 nginx resolves `api` through Docker's embedded DNS **per request** (`resolver 127.0.0.11` + a `$upstream` variable), not once at startup. With a literal hostname in `proxy_pass`, nginx caches the resolution forever and an API container that restarts with a new IP is unreachable until nginx restarts too.
+
+### The rest of `nginx.conf`, and the two traps in it
+
+- **`gzip_types` must list `text/javascript`.** nginx has mapped `.js` to `text/javascript` in its `mime.types` since 1.21.3, so a config listing only the older `application/javascript` compresses the CSS and quietly ships the JS bundle — the largest asset in the build — raw. Both spellings are listed now, so the config does not depend on which `mime.types` the base image carries.
+- **`add_header` does not merge across levels.** A location that declares an `add_header` of its own inherits *none* of the server-level ones. Two locations do (`/assets/` for its immutable `Cache-Control`, `= /index.html` for `no-cache`), and both repeat the three security headers for exactly that reason — the duplication is the nginx rule, not an oversight. `expires` is a different directive and does not trigger it, which is why the proxied locations need no copy.
+- `server_tokens off` and `X-Content-Type-Options` / `Referrer-Policy` / `X-Frame-Options`. The API disables `x-powered-by` deliberately; leaking the nginx version in front of it would give the same information back. **No CSP** — Tailwind v4 injects styles and Swagger UI runs its own bundle, so a policy written without a browser in front of it is a white screen with a console error (D24).
+- `/assets/` carries one `Cache-Control`, written out in full rather than `expires 1y` plus an `add_header`, which emitted two of the header on every asset response.
+- Swagger UI is proxied by `location = /docs` plus `location ^~ /docs/`. A bare `location /docs` is a prefix match and would also proxy `/docsomething`.
+- `try_files … /index.html` is an internal *redirect*, so it re-enters location matching and the `= /index.html` no-cache header does apply to SPA routes. `/assets/` ends in `=404` so a missing bundle is not answered with HTML, which would surface as a JS syntax error instead of a missing file.
 
 ## Things that bite
 
@@ -79,6 +89,10 @@ nginx resolves `api` through Docker's embedded DNS **per request** (`resolver 12
 **The SQLite file lives on the volume at `/data`**, not inside the image. `DATABASE_URL` is the **absolute** `file:/data/helpdesk.db` — a relative `file:./…` resolves from `prisma/` inside the image and lands on a layer the volume then shadows. Without the volume every `docker compose up` starts empty; with it, data survives `down`. Reset with `docker compose down -v`.
 
 **`HOST=0.0.0.0` is required in the container.** The default `127.0.0.1` binds the loopback interface *inside* the network namespace, and the published port connects to nothing.
+
+**Both ports are bound to loopback on the host** — `127.0.0.1:5173:80` and `127.0.0.1:4000:4000`, not the bare `5173:80` / `4000:4000` that publishes on every interface. This app has no authentication by design, which is the same reason `apps/api/env.example` ships `HOST=127.0.0.1` for local development: on a shared network, an all-interfaces publish hands full ticket CRUD, `DELETE` included, to anyone who can reach the machine. Note that the two settings are independent — `HOST` controls the bind *inside* the container's namespace and still has to be `0.0.0.0`; the `127.0.0.1:` prefix is what constrains the *host* side. Every documented use is local: the browser, `curl`, Swagger UI. Reaching the stack from a phone or another laptop means dropping the prefix knowingly.
+
+**nginx is a second place a limit is enforced, and `client_max_body_size` has to stay above `BODY_LIMIT`.** nginx's default is exactly `1m` — the same threshold as the API's `BODY_LIMIT=1mb` — so an over-limit body was refused by the proxy as an HTML 413 and never reached Express. That silently voided the error contract on the only path the app uses: `src/app.ts` mounts `cors` before the JSON parser specifically so `PAYLOAD_TOO_LARGE` arrives readable, with a `code` and an `x-request-id`, and a long ticket description is the realistic way a user gets there. `location /api/` now sets `client_max_body_size 2m`, deliberately above the API's limit so the API is the component that refuses. **Raise both together.**
 
 ## The entrypoint checks for schema drift, and refuses to start on it
 
@@ -112,9 +126,12 @@ docker compose exec -e ALLOW_SEED=true api node dist/seed/index.js    # in place
 
 ## Image notes
 
-- Base **`node:24-alpine`, not 20**, and that is forced rather than chosen: the repo pins `pnpm@11.1.2` via `packageManager`, and pnpm 11 imports `node:sqlite`, which does not exist before Node 22.5 — on `node:20-alpine` every install dies with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` before resolving a single package. 24 is the active LTS and satisfies the root `engines` (`^22.18.0 || >=24.11.0`, whose upper floor is `@babel/core` 8 in the web build — see CI.md).
+- Base **`node:24.11-alpine`, not 20**, and that is forced rather than chosen: the repo pins `pnpm@11.1.2` via `packageManager`, and pnpm 11 imports `node:sqlite`, which does not exist before Node 22.5 — on `node:20-alpine` every install dies with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` before resolving a single package. 24 is the active LTS and satisfies the root `engines` (`^22.18.0 || >=24.11.0`, whose upper floor is `@babel/core` 8 in the web build — see CI.md).
 - Prisma needs `openssl` on Alpine — its engines are dynamically linked against it. Install it in every stage that runs Prisma, **including runtime**, or the client fails to initialize at the *first query* with an engine error that names neither OpenSSL nor the missing package.
-- `pnpm` via `corepack enable`, so the container resolves the same lockfile the developer does.
+- **The tag is pinned to a minor**, not left as the floating `24-alpine`. pnpm refuses to install a project whose `engines` the running node does not satisfy, and the floor here is `>=24.11.0` — a tag that ever resolves below it fails the install with a message naming neither the tag nor the `FROM` line.
+- `pnpm` via `corepack enable`, so the container resolves the same lockfile the developer does. The `ENV CI=1` above it also keeps corepack from prompting before it downloads the pinned pnpm.
+- **`CHECKPOINT_DISABLE=1` in the runtime stage.** The Prisma CLI otherwise pings `checkpoint-api.prisma.io` for a version check on each of the entrypoint's two `migrate` invocations. It has a timeout, so an offline host degrades rather than fails — but this is a local-first SQLite app and there is no reason for an outbound HTTPS round trip to sit on the critical path of every start.
+- **The web image ships no source maps.** `vite.config.ts` builds them by default, because that is what makes a stack trace from `pnpm build` or `vite preview` readable; the Dockerfile sets `WEB_SOURCEMAP=false`, because the runtime stage copies `dist/` into nginx and serves it publicly under `/assets/` with a one-year cache, so every `.map` would publish the app's original TypeScript and roughly double the asset bytes in the image.
 - Each image installs only its own half of the workspace: `--filter "@helpdesk/api..."` skips `apps/web`, and `--filter "@helpdesk/web..."` skips `apps/api` and therefore Prisma, which is ~57% of the tree (P1). Every workspace `package.json` is still copied in first — pnpm reads the whole workspace to validate the lockfile, and a missing importer turns `--frozen-lockfile` into an error about the lockfile rather than about the missing file.
 - Runtime stage copies `dist/` (including the **compiled** `dist/seed/index.js`), production `node_modules`, `prisma/` (schema + migrations), and `package.json`.
 - The seed source lives at `apps/api/src/seed/`, not `apps/api/prisma/`, precisely so it lands in `dist/`: `tsconfig.build.json` has `rootDir: "src"` and will not compile a file outside it. `prisma/` holds the schema and migrations only.

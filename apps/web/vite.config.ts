@@ -63,7 +63,20 @@ export default defineConfig({
   build: {
     outDir: "dist",
 
-sourcemap: true,
+    /*
+      Source maps on by default, off in the Docker image (`WEB_SOURCEMAP=false`,
+      set in apps/web/Dockerfile).
+
+      Locally they are what makes a stack trace from `pnpm build` or
+      `vite preview` readable. In the image they are a liability: the runtime
+      stage copies `dist/` into nginx and serves it publicly under /assets/ with
+      a one-year cache, so every `.map` publishes the original TypeScript and
+      roughly doubles the asset bytes shipped.
+
+      Build-time only — it is read here, in the node process running Vite, and is
+      not a `VITE_`-prefixed variable, so it is never inlined into the bundle.
+    */
+    sourcemap: process.env.WEB_SOURCEMAP !== "false",
   },
 
   test: {

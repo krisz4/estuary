@@ -6,7 +6,9 @@
 # `pnpm@11.1.2` via `packageManager`, and pnpm 11 imports `node:sqlite`, which
 # does not exist before Node 22.5 — on `node:20-alpine` every install dies with
 # `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` before resolving a single package.
-# 24 is the active LTS and satisfies the root `engines` (`>=20.11.0`).
+# 24 is the active LTS and satisfies the root `engines`
+# (`^22.18.0 || >=24.11.0`, whose upper floor is `@babel/core` 8 in the web
+# build — see docs/operations/CI.md).
 #
 # Build from the **repo root**: the image needs `pnpm-workspace.yaml`, the
 # lockfile, and `packages/contracts`, none of which are reachable from
@@ -22,7 +24,11 @@
 # ------------------------------------------------------------------ #
 # base — the toolchain every stage shares
 # ------------------------------------------------------------------ #
-FROM node:24-alpine AS base
+# Pinned to a minor, not the floating `24-alpine`: pnpm refuses to install a
+# project whose `engines` the running node does not satisfy, so a tag that ever
+# resolves below 24.11 turns into an install error naming neither the tag nor
+# this line.
+FROM node:24.11-alpine AS base
 
 # Prisma's engines are dynamically linked against OpenSSL on Alpine. Without it
 # the client fails to initialize at the *first query* with an engine error that
@@ -95,6 +101,13 @@ FROM base AS runtime
 
 ENV NODE_ENV=production
 
+# The Prisma CLI checks for a newer version against checkpoint-api.prisma.io on
+# every `migrate` invocation, and the entrypoint runs two of them before binding
+# the port. It has a timeout, so an offline host degrades rather than fails —
+# but this is a local-first SQLite app, and putting an outbound HTTPS round trip
+# on the critical path of every container start buys nothing.
+ENV CHECKPOINT_DISABLE=1
+
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY packages/tsconfig/package.json packages/tsconfig/
 COPY packages/contracts/package.json packages/contracts/
@@ -142,7 +155,11 @@ EXPOSE 4000
 # Healthcheck lives in compose so it can be tuned without a rebuild, but is
 # repeated here so `docker run` (no compose) reports health too. `/health` sits
 # outside /api/v1 and touches no database — it answers "is the process up".
-HEALTHCHECK --interval=5s --timeout=3s --start-period=20s --retries=10 \
+#
+# `--start-period` matches compose's 30s rather than undercutting it: migrate +
+# drift check + seed all run before the port is bound, and a `docker run` has no
+# reason to be given a shorter grace than the same image gets under compose.
+HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=10 \
   CMD wget -qO- http://127.0.0.1:4000/health || exit 1
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

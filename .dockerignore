@@ -54,6 +54,13 @@ e2e
 .idea
 .vscode
 *.log
+.claude
+
+# Scratch artefacts that collect at the repo root during a working session.
+# Anchored to the root on purpose: a bare `*.png` would also exclude any image
+# the web app ships, which would break the build rather than speed it up.
+/*.png
+/*.tmp.*
 
 # Docs and editor config change on almost every commit and are not build inputs;
 # excluding them keeps the layer cache from being invalidated by a typo fix.
