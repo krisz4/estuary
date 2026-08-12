@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import { harnessFaults, server } from "./src/test/server";
+import { resetTicketViewStore } from "./src/stores/ticketView";
 
 /**
  * Vitest runs with `globals: false`, so React Testing Library's automatic
@@ -10,6 +11,17 @@ import { harnessFaults, server } from "./src/test/server";
  */
 afterEach(() => {
   cleanup();
+});
+
+/**
+ * The ticket-view store is a module singleton backed by `localStorage`, and
+ * neither outlives `cleanup()` — so a test that renders the board would leave
+ * `view: "board"` behind and change what the *next* test's back link points at.
+ * Reset it here rather than per file: the leak is silent and would be found by
+ * whichever unrelated test happened to run next.
+ */
+afterEach(() => {
+  resetTicketViewStore();
 });
 
 /**

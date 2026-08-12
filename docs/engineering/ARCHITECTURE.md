@@ -28,6 +28,7 @@ helpdesk/
 │           ├── features/     Ticket-domain components
 │           ├── components/   Shared presentational (ui/ = primitives)
 │           ├── api/          Typed fetch client + query hooks + queryKeys
+│           ├── stores/       zustand — client-only preferences (ticketView)
 │           └── lib/          formatting, cn(), url helpers
 ├── packages/
 │   ├── contracts/            @helpdesk/contracts — zod schemas + types
@@ -106,6 +107,8 @@ URL search params ──► useTicketListParams() ──► typed params
 Server state lives only in TanStack Query; list state lives only in the URL. Nothing is mirrored into `useState` — a second copy is a second thing to keep in sync, and the bug it produces (stale filters after back-navigation) is hard to spot in review.
 
 Mutations invalidate through `queryKeys`, never inline key arrays.
+
+**Client state is the third bucket, and `src/stores/` (zustand) is the only place it lives.** It holds what is neither the server's nor the URL's: a preference belonging to this user on this machine, which no other screen can reconstruct. Today that is one store — `stores/ticketView.ts`, the list ⇄ board choice, persisted to `localStorage` so a ticket opened from the board returns to the board. The bar for adding a second one is the same test: if pasting the URL into another browser should reproduce it, it is URL state and does not belong here.
 
 ## Key decisions
 

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { isApiClientError } from "@/api/http";
 import { useCreateTicketMutation } from "@/api/tickets";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { backToListPath, PageHeader } from "@/components/PageHeader";
+import { PageHeader, useBackToListPath } from "@/components/PageHeader";
 import { emptyTicketFormValues, TicketForm } from "@/features/tickets/TicketForm";
 import { errorCopy } from "@/lib/errorMessages";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
@@ -27,6 +27,7 @@ export const TicketCreatePage = () => {
 
   const navigate = useNavigate();
   const location = useLocation();
+  const backPath = useBackToListPath();
 
   const [isDirty, setDirty] = useState(false);
   const [isDiscardOpen, setDiscardOpen] = useState(false);
@@ -43,7 +44,7 @@ export const TicketCreatePage = () => {
    */
   const leave = () => {
     allowNavigation();
-    void navigate(backToListPath(location.state), { replace: true });
+    void navigate(backPath, { replace: true });
   };
 
   return (

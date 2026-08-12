@@ -30,7 +30,8 @@
     "react-hook-form": "^7.85.0",
     "react-router-dom": "^7.18.2",
     "sonner": "^2.0.8",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@helpdesk/tsconfig": "workspace:*",

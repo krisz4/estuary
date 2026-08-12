@@ -29,6 +29,7 @@ import { errorCopy } from "@/lib/errorMessages";
 import { statusChangeErrorMessage } from "@/lib/statusTransition";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { useRememberTicketView } from "@/stores/ticketView";
 import { useTicketListParams } from "@/pages/tickets-list/useTicketListParams";
 import { useBoardTickets } from "@/pages/tickets-board/useBoardTickets";
 
@@ -67,6 +68,14 @@ import { useBoardTickets } from "@/pages/tickets-board/useBoardTickets";
  */
 export const TicketsBoardPage = () => {
   useDocumentTitle("Board");
+
+  /*
+    Being here *is* the preference. Every screen that leaves the two views
+    behind — detail, create, edit — reads it back out of the store to know which
+    one to return to, because their own URLs cannot say. See
+    `stores/ticketView.ts`.
+  */
+  useRememberTicketView("board");
 
   const { params, setSort, setFilters, clearFilters, activeFilterCount } = useTicketListParams();
 

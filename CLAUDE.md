@@ -89,6 +89,7 @@ Migration workflow:
 
 - **List state lives in the URL**, not React state: `?page=2&pageSize=20&status=open&sort=createdAt:desc`. This makes filtered views shareable and makes back/forward work. Helper: `useTicketListParams()`, which **picks known keys** rather than strict-parsing the raw params — a stray `utm_source` on a shared link must not reset every filter. See [docs/features/Ticket_Query_Filter_Sort_Page.md](docs/features/Ticket_Query_Filter_Sort_Page.md).
 - Server state is TanStack Query only. Do not mirror fetched data into `useState`.
+- **Client-only preferences live in `apps/web/src/stores/` (zustand)** — state that is neither the server's nor the URL's, i.e. per-user, per-machine, and not meaningful in a shared link. Currently one store: `ticketView` (list ⇄ board, persisted to `localStorage`, so a ticket opened from the board goes back to the board). If pasting the URL elsewhere should reproduce it, it is URL state and does not belong in a store.
 - Mutations invalidate `queryKeys.tickets.all` on success and show a toast; destructive actions require a confirm dialog.
 - **Responsive is a requirement, not a nice-to-have** (explicit in the brief): the ticket table collapses to stacked cards below `md`. Every page must be checked at 360px. See [docs/engineering/UI_DESIGN_GUIDELINES.md](docs/engineering/UI_DESIGN_GUIDELINES.md).
 - Every async view has three states wired: loading (skeleton), error (with retry), empty (with CTA). Reviewers look for this.

@@ -25,6 +25,7 @@ The product is small enough to hold in your head: **one resource (Ticket) with o
 | How is the OpenAPI spec produced? | [features/API_Documentation.md](./features/API_Documentation.md) |
 | Schema, indexes, migrations, SQLite caveats | [engineering/DATABASE.md](./engineering/DATABASE.md) |
 | Layer boundaries, dependency direction | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) |
+| Where does this piece of state belong — URL, query cache, or store? | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) § Web data flow |
 | In what order is this being built, and what is done? | [engineering/IMPLEMENTATION_PLAN.md](./engineering/IMPLEMENTATION_PLAN.md) |
 | What did a stage defer, and what is the known perf debt? | [engineering/BUILD_LOG.md](./engineering/BUILD_LOG.md) |
 | What env var controls X? | [engineering/ENVIRONMENT_VARIABLES.md](./engineering/ENVIRONMENT_VARIABLES.md) |

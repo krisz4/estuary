@@ -63,7 +63,7 @@ No new endpoint, no contract change, no migration: the board is a second reading
 6. **Dropping a card on the column it came from does nothing** — no PATCH. The API treats `X → X` as a write-free success, but the round trip would still flash the card's busy state.
 7. **The status filter picks columns**, rather than filtering rows inside them. On a board the columns *are* the status filter; applying it twice would leave columns that are empty for a reason nothing on screen explains. `?status=open&status=in_progress` means "show me the active half of the board". Columns always render in lifecycle order, never in the order the chips were clicked.
 8. **`page` is ignored** — the board pages per column. The key is left in the URL untouched, so switching back to the list returns to the page you were on.
-9. Cards link to the detail page from the reference and the title, and carry `{ from: search }` so "Back to tickets" returns to this board with its filters intact.
+9. Cards link to the detail page from the reference and the title, and carry `{ from: search }` so "Back to tickets" returns to this board with its filters intact. The **filters** ride in that state; the **board itself** is remembered in the `stores/ticketView` zustand store, which this page writes on mount (`useRememberTicketView("board")`). Router state alone cannot do it — it is gone on a pasted link or a reload — so without the store the back link took board users to the list. The store follows the URL and never drives it: `ViewSwitch` only navigates.
 
 ## States
 

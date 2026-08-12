@@ -8,7 +8,7 @@ import { useDeleteTicketMutation, useTicketQuery, useTicketStatusMutation } from
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { NotFoundState } from "@/components/NotFoundState";
-import { backToListPath, PageHeader } from "@/components/PageHeader";
+import { PageHeader, useBackToListPath } from "@/components/PageHeader";
 import { Button } from "@/components/ui";
 import { CommentThread } from "@/features/comments/CommentThread";
 import { PriorityBadge } from "@/features/tickets/PriorityBadge";
@@ -61,6 +61,11 @@ export const TicketDetailPage = () => {
 const TicketDetailView = ({ ticketId }: { ticketId: number }) => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Read before the early returns: the delete handler needs the same
+  // destination the header's back link points at, and hooks cannot be called
+  // below the loading and error branches.
+  const backPath = useBackToListPath();
 
   const [isDeleteOpen, setDeleteOpen] = useState(false);
   const [statusError, setStatusError] = useState<unknown>(null);
@@ -117,7 +122,7 @@ const TicketDetailView = ({ ticketId }: { ticketId: number }) => {
       onSuccess: () => {
         setDeleteOpen(false);
         toast.success(`${ticket.reference} deleted`);
-        void navigate(backToListPath(location.state), { replace: true });
+        void navigate(backPath, { replace: true });
       },
       onError: (deleteError) => {
         setDeleteOpen(false);

@@ -1,6 +1,7 @@
 import { Columns3, List } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/cn";
+import { ticketViewFromPathname, ticketViewPath } from "@/stores/ticketView";
 
 /**
  * List ⇄ Board, as two links rather than a toggle button.
@@ -20,6 +21,10 @@ import { cn } from "@/lib/cn";
  *
  * `aria-current="page"` marks the active view. It is the attribute a screen
  * reader announces for "you are here"; a class name is not.
+ *
+ * **Neither link writes the remembered view.** That happens when the target
+ * page mounts (`useRememberTicketView`), so arriving by pasted URL, bookmark or
+ * back button records the same thing a click does. See `stores/ticketView.ts`.
  */
 
 const LINK_CLASS =
@@ -31,7 +36,7 @@ export type ViewSwitchProps = {
 
 export const ViewSwitch = ({ className }: ViewSwitchProps) => {
   const { pathname, search } = useLocation();
-  const isBoard = pathname === "/tickets/board";
+  const isBoard = ticketViewFromPathname(pathname) === "board";
 
   return (
     <nav
@@ -39,7 +44,7 @@ export const ViewSwitch = ({ className }: ViewSwitchProps) => {
       className={cn("inline-flex rounded-lg border border-border bg-card p-0.5", className)}
     >
       <Link
-        to={{ pathname: "/tickets", search }}
+        to={{ pathname: ticketViewPath("list"), search }}
         aria-current={isBoard ? undefined : "page"}
         className={cn(
           LINK_CLASS,
@@ -51,7 +56,7 @@ export const ViewSwitch = ({ className }: ViewSwitchProps) => {
       </Link>
 
       <Link
-        to={{ pathname: "/tickets/board", search }}
+        to={{ pathname: ticketViewPath("board"), search }}
         aria-current={isBoard ? "page" : undefined}
         className={cn(
           LINK_CLASS,

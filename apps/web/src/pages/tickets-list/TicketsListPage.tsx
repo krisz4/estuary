@@ -14,6 +14,7 @@ import { formatCount } from "@/lib/formatting";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useTicketListParams } from "@/pages/tickets-list/useTicketListParams";
+import { useRememberTicketView } from "@/stores/ticketView";
 
 /**
  * `/tickets` — the landing screen. Spec: `docs/pages/Tickets_List.md`.
@@ -25,6 +26,14 @@ import { useTicketListParams } from "@/pages/tickets-list/useTicketListParams";
  */
 export const TicketsListPage = () => {
   useDocumentTitle("Tickets");
+
+  /*
+    The one piece of *user* state this screen records: which view they are in,
+    so a ticket opened from here comes back to here rather than to the board.
+    The list's own state stays in the URL — see `stores/ticketView.ts` for why
+    the view is the exception.
+  */
+  useRememberTicketView("list");
 
   const { params, setPage, setPageSize, setSort, setFilters, clearFilters, activeFilterCount } =
     useTicketListParams();

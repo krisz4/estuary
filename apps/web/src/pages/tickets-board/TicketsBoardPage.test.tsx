@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { type TicketStatus, type TicketSummary } from "@helpdesk/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TicketDetailPage } from "@/pages/ticket-detail/TicketDetailPage";
 import { TicketsBoardPage } from "@/pages/tickets-board/TicketsBoardPage";
 import { TicketsListPage } from "@/pages/tickets-list/TicketsListPage";
 import { queryKeys } from "@/api/queryKeys";
@@ -54,7 +55,10 @@ const boardApi = (): { requests: MockRequest[] } =>
     "GET /tickets": ({ url }) => {
       const status = url.searchParams.get("status");
       const pageSize = Number(url.searchParams.get("pageSize") ?? "20");
-      const matching = store.filter((ticket) => ticket.status === status);
+      // No `status` is the *list* page asking for everything. The board always
+      // sends one — a column is a status — so this branch only serves the list
+      // route these tests render alongside it.
+      const matching = status === null ? store : store.filter((ticket) => ticket.status === status);
       const data = matching.slice(0, pageSize);
 
       return {
@@ -71,6 +75,11 @@ const boardApi = (): { requests: MockRequest[] } =>
         },
       };
     },
+
+    /* For the round trip through the detail page. Same suffix rule as PATCH. */
+    "GET /tickets/1": () => ({
+      body: makeTicket({ id: 1, reference: "HD-000001", title: "Printer jam", status: "open" }),
+    }),
 
     /*
       `mockApi` matches a handler by *path suffix*, so one `"PATCH /tickets"` key
@@ -457,5 +466,77 @@ describe("ViewSwitch", () => {
       expect(router.state.location.pathname).toBe("/tickets");
     });
     expect(router.state.location.search).toBe("?priority=urgent&q=vpn");
+  });
+});
+
+/**
+ * The regression this suite exists for: the board is a *second* list route, and
+ * every screen reached from it has to know which of the two to go back to.
+ * `location.state.from` carries only the search string, so before the view
+ * store the back link took a board user to `/tickets` — same filters, wrong
+ * screen.
+ */
+describe("the remembered view", () => {
+  const routesWithDetail = [
+    ...routes,
+    { path: "/tickets/:ticketId", element: <TicketDetailPage /> },
+  ];
+
+  it("returns to the board — with its filters — from a ticket opened on it", async () => {
+    const user = userEvent.setup();
+    boardApi();
+
+    const { router } = renderRoute({
+      routes: routesWithDetail,
+      initialEntries: ["/tickets/board?priority=urgent"],
+    });
+
+    await user.click(await screen.findByRole("link", { name: "HD-000001" }));
+
+    const back = await screen.findByRole("link", { name: /back to tickets/i });
+    expect(back).toHaveAttribute("href", "/tickets/board?priority=urgent");
+
+    await user.click(back);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/tickets/board");
+    });
+    expect(router.state.location.search).toBe("?priority=urgent");
+  });
+
+  it("returns to the list from a ticket opened on the list", async () => {
+    const user = userEvent.setup();
+    boardApi();
+
+    renderRoute({
+      routes: routesWithDetail,
+      initialEntries: ["/tickets?priority=urgent"],
+    });
+
+    await user.click(await screen.findByRole("link", { name: "HD-000001" }));
+
+    expect(await screen.findByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+      "href",
+      "/tickets?priority=urgent",
+    );
+  });
+
+  /*
+    Switching view is what changes the answer — not the ticket, and not the
+    history entry the detail page happens to sit on.
+  */
+  it("follows the view the user switched to before opening the ticket", async () => {
+    const user = userEvent.setup();
+    boardApi();
+
+    renderRoute({ routes: routesWithDetail, initialEntries: ["/tickets"] });
+
+    await user.click(await screen.findByRole("link", { name: "Board" }));
+    await user.click(await screen.findByRole("link", { name: "HD-000001" }));
+
+    expect(await screen.findByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+      "href",
+      "/tickets/board",
+    );
   });
 });

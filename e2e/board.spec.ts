@@ -163,3 +163,56 @@ test("shows only the filtered statuses as columns, and keeps filters across the 
   await page.getByRole("link", { name: "Board" }).click();
   await expect(page).toHaveURL(/\/tickets\/board\?.*priority=high/);
 });
+
+/**
+ * The view survives leaving the board — the regression the ticket-view store
+ * was added for.
+ *
+ * Worth doing in a browser rather than only in jsdom: the preference is held in
+ * `localStorage`, which the component environment cannot exercise, and the
+ * point of persisting it is that it outlives a *reload* as well as a
+ * navigation.
+ */
+test("returns to the board, not the list, after opening a ticket from it", async ({
+  page,
+  request,
+}) => {
+  const ticket = await createTicket(request);
+  const filtered = `/tickets/board?q=${encodeURIComponent(ticket.title)}`;
+
+  await page.goto(filtered);
+
+  await page.getByRole("link", { name: ticket.reference }).first().click();
+  await expect(page).toHaveURL(new RegExp(`/tickets/${ticket.id}$`));
+
+  await page.getByRole("link", { name: /back to tickets/i }).click();
+
+  // The filter rides along as it always did; the *view* is what used to be lost.
+  await expect(page).toHaveURL(new RegExp(`/tickets/board\\?.*q=`));
+  await expect(column(page, "Open")).toBeVisible();
+});
+
+test("still returns to the board after a reload, and to the list once the user switches back", async ({
+  page,
+  request,
+}) => {
+  const ticket = await createTicket(request);
+
+  await page.goto("/tickets/board");
+  // A fresh load of the detail page: no history entry to walk back through and
+  // no router state — only the stored preference can answer.
+  await page.goto(`/tickets/${ticket.id}`);
+
+  await expect(page.getByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+    "href",
+    "/tickets/board",
+  );
+
+  await page.goto("/tickets");
+  await page.goto(`/tickets/${ticket.id}`);
+
+  await expect(page.getByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+    "href",
+    "/tickets",
+  );
+});
