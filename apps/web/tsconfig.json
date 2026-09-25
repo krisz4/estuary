@@ -4,7 +4,6 @@
   "compilerOptions": {
     "rootDir": ".",
     "tsBuildInfoFile": "./node_modules/.cache/tsc/typecheck.tsbuildinfo",
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
