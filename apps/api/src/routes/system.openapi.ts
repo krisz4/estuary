@@ -36,7 +36,7 @@ export const healthResponseSchema = z
 
 /**
  * Registers the health probe and the catch-all. A function rather than an import
- * side effect, for the reason given at the top of `tickets.openapi.ts`.
+ * side effect, for the reason given at the top of `tasks.openapi.ts`.
  */
 export function registerSystemPaths(): void {
   registry.registerPath({
@@ -62,7 +62,7 @@ export function registerSystemPaths(): void {
    *
    * It is also the only home for `NOT_FOUND`. That code comes from the
    * `notFound` middleware rather than from any handler, so no operation above
-   * can honestly list it — `GET /api/v1/tickets` cannot return `NOT_FOUND`, and
+   * can honestly list it — `GET /api/v1/tasks` cannot return `NOT_FOUND`, and
    * claiming it could would be exactly the kind of plausible-but-false line a
    * generated spec exists to avoid. `routes/openapi.contract.test.ts` knows this
    * path is synthetic and excludes it from the "documented paths equal mounted

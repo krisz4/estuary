@@ -30,7 +30,7 @@ describe("FormErrorSummary", () => {
    * `splitValidationErrors` flattens every unrecognised `details` key into one
    * flat array of messages, discarding which key produced each. Two fields
    * rejected identically therefore arrive as two *equal strings* — and
-   * `updateTicketInputSchema` produces exactly that for a payload carrying both
+   * `updateTaskInputSchema` produces exactly that for a payload carrying both
    * server-owned timestamps, since it rejects each with the same text.
    *
    * Keyed by message, React sees one key twice: a development warning, and a

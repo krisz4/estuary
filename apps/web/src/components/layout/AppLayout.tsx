@@ -3,6 +3,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Container } from "@/components/layout/Container";
 import { SkipLink } from "@/components/layout/SkipLink";
+import { SessionDialog } from "@/features/session/SessionDialog";
+import { UnauthorizedBanner } from "@/features/session/UnauthorizedBanner";
 
 /**
  * The frame every route renders inside: skip link → header → main → footer.
@@ -29,6 +31,7 @@ export const AppLayout = () => {
     <div className="flex min-h-dvh flex-col bg-background">
       <SkipLink />
       <AppHeader />
+      <UnauthorizedBanner />
 
       <main id="main" tabIndex={-1} className="flex-1 py-6 focus:outline-none md:py-8">
         <Container>
@@ -44,7 +47,7 @@ export const AppLayout = () => {
 
       <footer className="border-t border-border py-6">
         <Container className="text-xs text-muted-foreground">
-          Helpdesk — internal IT support ticketing.
+          Tasks — one board for the work humans and AI agents share.
         </Container>
       </footer>
 
@@ -53,6 +56,9 @@ export const AppLayout = () => {
         because the scroll position survives the route change.
       */}
       <ScrollRestoration />
+
+      {/* One instance for the whole app; opened through the session store. */}
+      <SessionDialog />
     </div>
   );
 };

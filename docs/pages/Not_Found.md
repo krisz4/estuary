@@ -16,11 +16,11 @@ status: canonical
 
 ## Behavior / UI flow
 
-Renders inside the app shell — header and skip link stay available. Shows the attempted path, a short explanation, and "Back to tickets" (primary, → `/tickets`).
+Renders inside the app shell — header and skip link stay available. Shows the attempted path, a short explanation, and "Back to tasks" (primary, → `/tasks`).
 
 A secondary "Go back" (`navigate(-1)`) is rendered **only when there is an in-app entry behind this one** — `location.key !== "default"`, or `history.state.idx > 0` for the reload case. The common way to reach a 404 is a pasted or mistyped URL, which makes it the *first* entry of the session; `navigate(-1)` there either does nothing or leaves the app, so the button is omitted rather than shown broken.
 
-**This is only for unmatched routes.** A *matched* route whose resource is missing — `/tickets/<valid-shape-but-gone>` — renders the in-page `NotFoundState` on [Ticket_Detail.md](./Ticket_Detail.md) instead, because the ticket-specific message ("this ticket was deleted") is more useful than a generic 404, and the route itself is legitimate.
+**This is only for unmatched routes.** A *matched* route whose resource is missing — `/tasks/<valid-shape-but-gone>` — renders the in-page `NotFoundState` on [Task_Detail.md](./Task_Detail.md) instead, because the task-specific message ("this task was deleted") is more useful than a generic 404, and the route itself is legitimate.
 
 ## States
 
@@ -39,4 +39,4 @@ Centered column, `max-w-md`, generous vertical padding. Actions stack full-width
 ## Related
 
 - [App_Shell.md](./App_Shell.md) — routing and the shell this renders inside
-- [Ticket_Detail.md](./Ticket_Detail.md) — the resource-level not-found state
+- [Task_Detail.md](./Task_Detail.md) — the resource-level not-found state

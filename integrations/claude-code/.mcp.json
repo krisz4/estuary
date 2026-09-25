@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "tasks": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/start-mcp.mjs"],
+      "env": {
+        "TASKS_API_URL": "${user_config.api_url}",
+        "TASKS_ACTOR": "${user_config.actor}",
+        "TASKS_API_TOKEN": "${user_config.api_token}",
+        "TASKS_MCP_SERVER": "${user_config.server_path}"
+      }
+    }
+  }
+}

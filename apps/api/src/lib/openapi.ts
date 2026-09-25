@@ -1,11 +1,23 @@
-import { OpenAPIRegistry, OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi";
 import {
+  OpenAPIRegistry,
+  OpenApiGeneratorV31,
+  type RouteConfig,
+} from "@asteasolutions/zod-to-openapi";
+import {
+  ACTOR_HEADER,
+  ANONYMOUS_ACTOR,
   apiErrorResponseSchema,
   apiErrorSchema,
   commentSchema,
-  paginatedTicketsSchema,
-  ticketFacetsSchema,
-  ticketSchema,
+  decisionSchema,
+  eventsResponseSchema,
+  nextTaskResponseSchema,
+  paginatedTasksSchema,
+  taskEventSchema,
+  taskFacetsSchema,
+  taskSchema,
+  taskStatsSchema,
+  taskSummarySchema,
   type ApiErrorCode,
 } from "@helpdesk/contracts";
 import { z } from "zod";
@@ -16,7 +28,7 @@ import { z } from "zod";
  *
  * The point of generating is not convenience. A hand-written spec can describe a
  * response the code does not actually return and nothing catches it; here the
- * schema in `components.schemas.Ticket` *is* the object `ticketSchema.parse()`
+ * schema in `components.schemas.Task` *is* the object `taskSchema.parse()`
  * enforces, so the two cannot disagree.
  *
  * ## Why the metadata lives here and not in `packages/contracts`
@@ -40,8 +52,10 @@ import { z } from "zod";
  *
  * A consequence worth knowing: a schema becomes a **named component** only when
  * it is the schema handed to `registerPath` at a request or response boundary. An
- * id on a schema that only ever appears nested (`TicketSummary` inside
- * `PaginatedTickets`) is inlined. That is cosmetic — the shape is still exact.
+ * id on a schema that only ever appears nested (`TaskSummary` inside
+ * `PaginatedTasks`) is inlined. That is cosmetic — the shape is still exact —
+ * and `NESTED_COMPONENTS` below registers the ones a reader would look for by
+ * name, so they are listed under `components.schemas` as well.
  */
 
 /* ------------------------------------------------------------------ *
@@ -50,30 +64,112 @@ import { z } from "zod";
 
 export const CommentComponent = commentSchema.meta({
   id: "Comment",
-  description: "A comment on a ticket. Comments are append-only, so there is no updatedAt.",
+  description:
+    "A comment on a task. Comments are append-only, so there is no updatedAt. `author` is the X-Actor that posted it.",
 });
 
-export const TicketComponent = ticketSchema.meta({
-  id: "Ticket",
-  description: "A single ticket with its full comment thread, oldest comment first.",
+export const DecisionComponent = decisionSchema.meta({
+  id: "Decision",
+  description:
+    "The structured half of needs_user_decision: a question, at least two options, and — once answered — the choice and who made it. A task has at most one open decision.",
 });
 
-export const PaginatedTicketsComponent = paginatedTicketsSchema.meta({
-  id: "PaginatedTickets",
+export const TaskSummaryComponent = taskSummarySchema.meta({
+  id: "TaskSummary",
+  description:
+    "A list row: every column of the task plus the open decision, the unfinished-dependency count, and the comment count — no thread and no relation lists.",
+});
+
+export const TaskComponent = taskSchema.meta({
+  id: "Task",
+  description:
+    "A single task: the summary plus its comment thread (oldest first), full decision history (newest first), parent, children, dependencies, and dependents.",
+});
+
+export const PaginatedTasksComponent = paginatedTasksSchema.meta({
+  id: "PaginatedTasks",
   description:
     "The list envelope. List responses are always { data, meta }; single resources are returned directly.",
 });
 
-export const TicketFacetsComponent = ticketFacetsSchema.meta({
-  id: "TicketFacets",
+export const TaskFacetsComponent = taskFacetsSchema.meta({
+  id: "TaskFacets",
   description:
-    "Distinct non-null values actually present in the table. The assignee filter sends values from here, which is what makes case-sensitive exact matching safe.",
+    "Distinct non-null values actually present in the table. The assignee, project, and createdBy filters send values from here, which is what makes case-sensitive exact matching safe.",
+});
+
+export const TaskStatsComponent = taskStatsSchema.meta({
+  id: "TaskStats",
+  description:
+    "Task count per status — all ten keys present, zero included — plus needsAttention, the number of tasks waiting on a human (needs_user_decision + needs_user_action + needs_qa).",
+});
+
+export const NextTaskResponseComponent = nextTaskResponseSchema.meta({
+  id: "NextTaskResponse",
+  description:
+    "The task just claimed for the caller, or { task: null } when nothing is available — not a 404, since nothing is missing.",
+});
+
+export const TaskEventComponent = taskEventSchema.meta({
+  id: "TaskEvent",
+  description:
+    "One entry in the append-only change log. `payload` is type-specific: branch on `type` first. `taskId` is not a foreign key, so events outlive their task.",
+});
+
+export const EventsResponseComponent = eventsResponseSchema.meta({
+  id: "EventsResponse",
+  description:
+    "A cursor page of the feed, oldest first. Poll with after=meta.nextAfter; nextAfter equals the incoming cursor when nothing new happened.",
 });
 
 export const ErrorResponseComponent = apiErrorResponseSchema.meta({
   id: "ErrorResponse",
   description: "The error envelope. Clients branch on error.code, never on the HTTP status alone.",
 });
+
+/**
+ * Components that only ever appear **nested** — `TaskSummary` inside
+ * `PaginatedTasks`, `Decision` inside `Task`, `TaskEvent` inside
+ * `EventsResponse` — and so would be inlined rather than named (see the note at
+ * the top of this file). Registering them explicitly puts them in
+ * `components.schemas` where a reader, or a client generator, can find them.
+ */
+const NESTED_COMPONENTS = [TaskSummaryComponent, DecisionComponent, TaskEventComponent];
+
+/* ------------------------------------------------------------------ *
+ * Request headers and security
+ * ------------------------------------------------------------------ */
+
+/** The name `security` requirements refer to. */
+export const BEARER_AUTH = "bearerAuth";
+
+/**
+ * `X-Actor`, documented on every `/api/v1` operation because the `actor`
+ * middleware parses it on every one of them — reads included, so a malformed
+ * header fails the same way on a GET as on the POST that would have recorded
+ * it.
+ *
+ * Documented as a plain pattern string rather than `actorSchema` itself: the
+ * schema lowercases before matching, so its regex alone would tell a reader
+ * that `Agent:Claude` is invalid when the server in fact accepts it.
+ */
+export const actorHeaders = (): z.ZodObject =>
+  z.object({
+    [ACTOR_HEADER]: z
+      .string()
+      .optional()
+      .meta({
+        description: `Who is acting: \`agent:<name>\` or \`human:<name>\` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means \`${ANONYMOUS_ACTOR}\`. Malformed is a 422 VALIDATION_ERROR with details["${ACTOR_HEADER}"]. \`system:\` is reserved for the server.`,
+        example: "agent:claude-code",
+      }),
+  });
+
+/**
+ * The bearer requirement, **optional**: `{}` is the "no auth" alternative.
+ * Whether the gate is on is a deployment decision (`API_TOKEN`), so the spec
+ * says "may be required" rather than claiming either answer for every server.
+ */
+export const v1Security = (): Record<string, string[]>[] => [{ [BEARER_AUTH]: [] }, {}];
 
 /* ------------------------------------------------------------------ *
  * Error responses
@@ -83,8 +179,8 @@ export const ErrorResponseComponent = apiErrorResponseSchema.meta({
  * An error response narrowed to the codes **that operation can actually emit**.
  *
  * `docs/features/API_Documentation.md` requires this rather than a generic
- * "500 Error" entry: someone reading `PATCH /tickets/{ticketId}` should find
- * `INVALID_STATUS_TRANSITION` there and nowhere else, because that is the only
+ * "500 Error" entry: someone reading `POST /tasks/{taskId}/decision/answer` should
+ * find `NO_OPEN_DECISION` there and nowhere else, because that is the only
  * operation that produces it.
  *
  * The narrowing is `.extend()` on the contract's own envelope, so the
@@ -137,6 +233,19 @@ export const INTERNAL_ERROR_RESPONSE = errorResponse(
   ["INTERNAL_ERROR"],
 );
 
+/**
+ * Every `/api/v1` operation sits behind the optional `API_TOKEN` gate, which
+ * runs before any router — so this is honest on all of them, and on nothing
+ * outside `/api/v1`.
+ */
+export const UNAUTHORIZED_RESPONSE = errorResponse(
+  "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+  ["UNAUTHORIZED"],
+);
+
+/** Appended to every `/api/v1` 422 description: the X-Actor header is checked first. */
+export const ACTOR_422_NOTE = `A malformed ${ACTOR_HEADER} header is also a VALIDATION_ERROR, with details["${ACTOR_HEADER}"].`;
+
 /* ------------------------------------------------------------------ *
  * The registry
  * ------------------------------------------------------------------ */
@@ -149,14 +258,39 @@ export const INTERNAL_ERROR_RESPONSE = errorResponse(
 export const registry: OpenAPIRegistry = new OpenAPIRegistry();
 
 /**
+ * `registry.registerPath` for an operation under `/api/v1`, adding what every
+ * one of them shares because of middleware that runs before any router:
+ *
+ * - the `X-Actor` header parameter (`middleware/actor.ts`),
+ * - the optional `bearerAuth` requirement and its 401 (`middleware/apiToken.ts`),
+ * - the 500 and the `default` envelope (`middleware/errorHandler.ts`).
+ *
+ * Centralised so a new operation cannot forget one of them — and so the header
+ * and the 401 never leak onto `/health`, which sits outside the gate.
+ */
+export const registerV1Path = (route: RouteConfig): void => {
+  registry.registerPath({
+    ...route,
+    security: v1Security(),
+    request: { ...route.request, headers: actorHeaders() },
+    responses: {
+      401: UNAUTHORIZED_RESPONSE,
+      ...route.responses,
+      500: INTERNAL_ERROR_RESPONSE,
+      default: defaultErrorResponse,
+    },
+  });
+};
+
+/**
  * Unwraps a `z.preprocess(...)`-wrapped object back to the object carrying the
  * field definitions.
  *
- * `ticketListQuerySchema` is a preprocessed schema — a `ZodPipe` — so its twelve
+ * `taskListQuerySchema` is a preprocessed schema — a `ZodPipe` — so its twelve
  * query parameters live on the output side. Unwrapping is the difference between
  * a spec that tracks the validator and a spec that tracks whoever last remembered
  * to edit it. It throws rather than degrading: a silent fallback would document
- * zero parameters, and a `GET /tickets` with no documented filters looks
+ * zero parameters, and a `GET /tasks` with no documented filters looks
  * plausible enough to ship. `routes/openapi.contract.test.ts` additionally
  * asserts the documented parameter names equal this object's keys.
  */
@@ -219,38 +353,81 @@ export const describeQueryParams = (
  */
 export type OpenApiDocument = ReturnType<OpenApiGeneratorV31["generateDocument"]>;
 
-export const OPENAPI_TITLE = "Helpdesk API";
+export const OPENAPI_TITLE = "Task Manager API";
 export const OPENAPI_VERSION = "1.0.0";
 
 /**
- * Paths are written in full (`/api/v1/tickets`) with the server at the origin
- * root, rather than as `/tickets` under a `/api/v1` server entry. `GET /health`
+ * Definitions the generator gets **alongside** the registry rather than through
+ * it: the nested components and the bearer scheme.
+ *
+ * Handed over as raw definitions, not via `registry.register()` /
+ * `registerComponent()`, for two reasons. `register()` calls
+ * `zodSchema.openapi()`, the monkey-patched method this file avoids (see the
+ * top of the file) — it throws `zodSchema.openapi is not a function` at
+ * generation time, which took down `/docs` and with it server boot. And not
+ * mutating the registry here keeps `buildOpenApiDocument()` free of side
+ * effects, so calling it twice cannot register anything twice.
+ */
+/** The library does not export its definition type; this is it, taken from the registry. */
+type OpenApiDefinition = OpenAPIRegistry["definitions"][number];
+
+const extraDefinitions = (): OpenApiDefinition[] => [
+  // The component name is the schema's `.meta({ id })`.
+  ...NESTED_COMPONENTS.map((schema): OpenApiDefinition => ({ type: "schema", schema })),
+  {
+    type: "component",
+    componentType: "securitySchemes",
+    name: BEARER_AUTH,
+    component: {
+      type: "http",
+      scheme: "bearer",
+      description:
+        "Only when the server sets API_TOKEN: every /api/v1 request must then send `Authorization: Bearer <API_TOKEN>`, or it gets 401 UNAUTHORIZED. /health and /docs stay open. It is one shared secret for every caller — who did what is still the X-Actor header.",
+    },
+  },
+];
+
+/**
+ * Paths are written in full (`/api/v1/tasks`) with the server at the origin
+ * root, rather than as `/tasks` under a `/api/v1` server entry. `GET /health`
  * sits **outside** the version prefix on purpose — a Docker healthcheck should
  * not move the day the version does — and a spec whose server URL was `/api/v1`
  * could not describe it without a second server entry covering exactly one path.
  */
 export function buildOpenApiDocument(): OpenApiDocument {
-  return new OpenApiGeneratorV31(registry.definitions).generateDocument({
-    openapi: "3.1.0",
-    info: {
-      title: OPENAPI_TITLE,
-      version: OPENAPI_VERSION,
-      description: [
-        "REST API for the helpdesk ticketing system.",
-        "",
-        "**There is no authentication.** That is a deliberate scope decision from the brief, not an omission.",
-        "",
-        "- List responses are enveloped as `{ data, meta }`; single resources are returned directly.",
-        "- Failures always use the `ErrorResponse` envelope with a `SCREAMING_SNAKE` `code`. Branch on the code, not on the status alone.",
-        "- Dates are ISO 8601 UTC strings.",
-        "- Ticket ids are also ticket numbers: ticket `42` renders as `HD-000042`.",
-      ].join("\n"),
+  return new OpenApiGeneratorV31([...registry.definitions, ...extraDefinitions()]).generateDocument(
+    {
+      openapi: "3.1.0",
+      info: {
+        title: OPENAPI_TITLE,
+        version: OPENAPI_VERSION,
+        description: [
+          "REST API for the AI task manager — used by the web app, by agents through the MCP server, and by scripts.",
+          "",
+          "**Identity is attribution, not authentication.** Every request may send an `X-Actor` header (`agent:<name>` or `human:<name>`); it is recorded on every write and defaults to `human:anonymous`. Nothing verifies it — it exists so the timeline can tell an agent's change from a human's, and so agents can be kept from overwriting each other's claimed work.",
+          "",
+          "**Optional access gate.** A self-hosted server may set `API_TOKEN`; every `/api/v1` request must then carry `Authorization: Bearer <token>` (the `bearerAuth` scheme). Without it the API is open — right for localhost, wrong for anything reachable from a network you do not control.",
+          "",
+          "- Status changes go through `POST /api/v1/tasks/{taskId}/transition`, never PATCH. What a status requires is the shape of its payload.",
+          "- Writes that accept `expectedVersion` fail with `VERSION_CONFLICT` when the task changed since it was read.",
+          "- List responses are enveloped as `{ data, meta }`; single resources are returned directly. The events feed is cursor-paged instead.",
+          "- Failures always use the `ErrorResponse` envelope with a `SCREAMING_SNAKE` `code`. Branch on the code, not on the status alone.",
+          "- Dates are ISO 8601 UTC strings.",
+          "- Task ids are also task numbers: task `42` renders as `TASK-000042`.",
+        ].join("\n"),
+      },
+      servers: [{ url: "/", description: "This server" }],
+      tags: [
+        { name: "Tasks", description: "Create, read, update, delete, filter, sort, and page" },
+        {
+          name: "Workflow",
+          description:
+            "Status transitions, claims and leases, next-task, decisions, and dependencies",
+        },
+        { name: "Comments", description: "Append-only comment threads on a task" },
+        { name: "Events", description: "The append-only change feed, cursor-paged" },
+        { name: "System", description: "Liveness, and what happens to an unmatched request" },
+      ],
     },
-    servers: [{ url: "/", description: "This server" }],
-    tags: [
-      { name: "Tickets", description: "Create, read, update, delete, filter, sort, and page" },
-      { name: "Comments", description: "Append-only comment threads on a ticket" },
-      { name: "System", description: "Liveness, and what happens to an unmatched request" },
-    ],
-  });
+  );
 }

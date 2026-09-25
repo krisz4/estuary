@@ -21,7 +21,8 @@ import { describe, expect, it } from "vitest";
  * service would only wrap it").
  *
  * Two rules that are not in the table but belong to stage 8 are pinned here too:
- * the `/facets` declaration order, and the absence of `express-async-handler`.
+ * the literal-before-`/:taskId` declaration order (`/facets`, `/stats`,
+ * `/next`), and the absence of `express-async-handler`.
  */
 
 const SRC = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -48,9 +49,11 @@ describe("routes/ contains no Prisma", () => {
       "routes/comments.openapi.ts",
       "routes/comments.route.ts",
       "routes/docs.route.ts",
+      "routes/events.openapi.ts",
+      "routes/events.route.ts",
       "routes/system.openapi.ts",
-      "routes/tickets.openapi.ts",
-      "routes/tickets.route.ts",
+      "routes/tasks.openapi.ts",
+      "routes/tasks.route.ts",
     ]);
   });
 
@@ -65,7 +68,18 @@ describe("routes/ contains no Prisma", () => {
 
 describe("services/ contains no HTTP", () => {
   it("finds service files to check at all", () => {
-    expect(serviceFiles.length).toBeGreaterThanOrEqual(4);
+    // Listed rather than counted, so a new service is a conscious addition to
+    // the checked set and a renamed one cannot silently drop out of it.
+    expect(serviceFiles.map((file) => file.name).sort()).toEqual([
+      "services/comment.service.ts",
+      "services/task-events.ts",
+      "services/task-guards.ts",
+      "services/task-query.ts",
+      "services/task-read.ts",
+      "services/task-status.ts",
+      "services/task-workflow.service.ts",
+      "services/task.service.ts",
+    ]);
   });
 
   it.each(serviceFiles)("$name references no req, res, or express type", ({ text }) => {
@@ -79,20 +93,33 @@ describe("services/ contains no HTTP", () => {
 });
 
 describe("stage-8 route rules", () => {
-  const tickets = routeFiles.find((file) => file.name === "routes/tickets.route.ts")?.text ?? "";
+  const tasks = routeFiles.find((file) => file.name === "routes/tasks.route.ts")?.text ?? "";
 
   /**
    * Declaration order, checked positionally. With these swapped, `facets` is
-   * captured as `:ticketId` and 404s — `tickets.route.test.ts` catches the
+   * captured as `:taskId` and 404s — `tasks.route.test.ts` catches the
    * behaviour, this catches the cause and names it.
    */
-  it("declares /facets before /:ticketId", () => {
-    const facets = tickets.indexOf('ticketsRouter.get(\n  "/facets"');
-    const byId = tickets.indexOf('ticketsRouter.get(\n  "/:ticketId"');
+  it.each(["/facets", "/stats"])("declares GET %s before GET /:taskId", (path) => {
+    const literal = tasks.indexOf(`tasksRouter.get(\n  "${path}"`);
+    const byId = tasks.indexOf('tasksRouter.get(\n  "/:taskId"');
 
-    expect(facets).toBeGreaterThan(-1);
+    expect(literal).toBeGreaterThan(-1);
     expect(byId).toBeGreaterThan(-1);
-    expect(facets).toBeLessThan(byId);
+    expect(literal).toBeLessThan(byId);
+  });
+
+  /**
+   * `POST /next` cannot collide with a `POST /:taskId` today, because there is
+   * none — but the day someone adds one, `next` must already be above it.
+   */
+  it("declares POST /next before any POST on /:taskId", () => {
+    const nextRoute = tasks.indexOf('tasksRouter.post(\n  "/next"');
+    const firstById = tasks.indexOf('tasksRouter.post(\n  "/:taskId');
+
+    expect(nextRoute).toBeGreaterThan(-1);
+    expect(firstById).toBeGreaterThan(-1);
+    expect(nextRoute).toBeLessThan(firstById);
   });
 
   it("implements no PUT — PATCH is the only update verb", () => {
@@ -119,7 +146,7 @@ describe("stage-8 route rules", () => {
      * inside the loop.** Counting it and then `continue`-ing past it made the
      * floor pass with a single file left to check — renaming `comments.route.ts`
      * would have kept the length at 2 while the rule was asserted against
-     * `tickets.route.ts` alone. Same class as the vacuous tests in the build
+     * `tasks.route.ts` alone. Same class as the vacuous tests in the build
      * log's "what these gates are actually worth" note.
      */
     const resourceRouters = routeFiles.filter(
@@ -127,7 +154,8 @@ describe("stage-8 route rules", () => {
     );
     expect(resourceRouters.map((file) => file.name).sort()).toEqual([
       "routes/comments.route.ts",
-      "routes/tickets.route.ts",
+      "routes/events.route.ts",
+      "routes/tasks.route.ts",
     ]);
 
     for (const { text } of resourceRouters) {

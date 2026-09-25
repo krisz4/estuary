@@ -2,20 +2,28 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { API_ERROR_CODES, ticketListQuerySchema } from "@helpdesk/contracts";
+import {
+  ACTOR_HEADER,
+  API_ERROR_CODES,
+  eventsQuerySchema,
+  taskListQuerySchema,
+  taskStatsQuerySchema,
+} from "@helpdesk/contracts";
 import type { Router } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { ROUTER_MOUNTS, createApp } from "../app.js";
-import { unwrapPreprocessedObject } from "../lib/openapi.js";
+import { BEARER_AUTH, unwrapPreprocessedObject } from "../lib/openapi.js";
 import { getOpenApiDocument } from "../openapi.js";
+import { EVENTS_QUERY_DESCRIPTIONS } from "./events.openapi.js";
 import { healthResponseSchema } from "./system.openapi.js";
 import {
   QUERY_DESCRIPTIONS,
   QUERY_OVERRIDES,
-  buildTicketListQueryParams,
-} from "./tickets.openapi.js";
+  STATS_QUERY_DESCRIPTIONS,
+  buildTaskListQueryParams,
+} from "./tasks.openapi.js";
 
 /**
  * **The OpenAPI half of the stage-9 gate, executable.**
@@ -35,7 +43,7 @@ const document = getOpenApiDocument();
  * What the application actually serves
  * ------------------------------------------------------------------ */
 
-/** `/tickets/:ticketId` → `/tickets/{ticketId}`, the OpenAPI spelling. */
+/** `/tasks/:taskId` → `/tasks/{taskId}`, the OpenAPI spelling. */
 const toOpenApiPath = (expressPath: string): string =>
   expressPath.replaceAll(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}");
 
@@ -115,7 +123,7 @@ const documentedOperations: Operation[] = Object.entries(document.paths ?? {}).f
  *
  * Exactly one entry, and it needs a reason: `NOT_FOUND` comes from the
  * `notFound` middleware rather than from any handler, so no operation can
- * honestly list it — `GET /api/v1/tickets` cannot return `NOT_FOUND`, and saying
+ * honestly list it — `GET /api/v1/tasks` cannot return `NOT_FOUND`, and saying
  * it could would be the plausible-but-false line a generated spec exists to
  * avoid. Documenting the catch-all gives the code a home and tells a reader what
  * an unmatched request does. Anything else appearing here is a bug.
@@ -178,7 +186,7 @@ describe("the spec covers every mounted route", () => {
     // Without this the comparison below passes vacuously the day the
     // introspection stops working — which is exactly what Express 5 changing its
     // layer internals would do.
-    expect(mountedOperations.length).toBeGreaterThanOrEqual(9);
+    expect(mountedOperations.length).toBeGreaterThanOrEqual(19);
     expect(mountedOperations.map(key)).toContain("GET /health");
   });
 
@@ -202,7 +210,7 @@ describe("the spec covers every error code", () => {
   /**
    * Codes are collected from the **explicit status responses only**. The
    * `default` response on every operation references the full `ErrorResponse`
-   * envelope, which enumerates all nine codes — counting it would make this test
+   * envelope, which enumerates every code — counting it would make this test
    * pass no matter what the per-operation responses said, which is the failure
    * mode the build log calls "a test that could not fail".
    */
@@ -246,7 +254,7 @@ describe("the list query is documented from the real schema", () => {
    * **Written out on purpose, and the reason is a test that could not fail.**
    *
    * The first version of this block compared the documented parameter names
-   * against `Object.keys(unwrapPreprocessedObject(ticketListQuerySchema).shape)`
+   * against `Object.keys(unwrapPreprocessedObject(taskListQuerySchema).shape)`
    * — the same call the production annotation layer makes. Making that unwrap
    * degrade to an empty object (instead of throwing) was then invisible: both
    * sides of the comparison became `[]` together and every assertion passed. It
@@ -260,24 +268,26 @@ describe("the list query is documented from the real schema", () => {
     page: "2",
     pageSize: "10",
     sort: "priority:desc",
-    status: "open",
+    status: "todo",
     priority: "high",
-    category: "network",
+    project: "helpdesk",
     assignee: "Priya Nair",
     assigneeIsNull: undefined, // exclusive with `assignee`; probed on its own below
-    requesterEmail: "someone@example.com",
+    createdBy: "agent:claude-code",
+    claimedBy: "agent:claude-code",
+    parentId: "42",
     q: "printer",
     createdFrom: "2026-01-01",
     createdTo: "2026-12-31",
   };
 
   const expectedNames = Object.keys(EXPECTED_QUERY_PARAMS).sort();
-  const schemaKeys = Object.keys(unwrapPreprocessedObject(ticketListQuerySchema).shape).sort();
+  const schemaKeys = Object.keys(unwrapPreprocessedObject(taskListQuerySchema).shape).sort();
 
-  it("names only parameters ticketListQuerySchema actually accepts", () => {
+  it("names only parameters taskListQuerySchema actually accepts", () => {
     for (const [name, sample] of Object.entries(EXPECTED_QUERY_PARAMS)) {
       const input = name === "assigneeIsNull" ? { assigneeIsNull: "true" } : { [name]: sample };
-      const parsed = ticketListQuerySchema.safeParse(input);
+      const parsed = taskListQuerySchema.safeParse(input);
       expect(
         parsed.success,
         `?${name}= was rejected: ${JSON.stringify(parsed.error?.issues)}`,
@@ -286,17 +296,20 @@ describe("the list query is documented from the real schema", () => {
 
     // The other half: `.strict()` is what makes the list above exhaustive rather
     // than merely valid.
-    expect(ticketListQuerySchema.safeParse({ notAParameter: "x" }).success).toBe(false);
+    expect(taskListQuerySchema.safeParse({ notAParameter: "x" }).success).toBe(false);
   });
 
-  it("documents exactly those parameters, all of them in the query string", () => {
-    const parameters = (document.paths?.["/api/v1/tickets"]?.get?.parameters ?? []) as unknown as {
+  it("documents exactly those parameters in the query string, plus the X-Actor header", () => {
+    const parameters = (document.paths?.["/api/v1/tasks"]?.get?.parameters ?? []) as unknown as {
       name: string;
       in: string;
     }[];
+    const query = parameters.filter((parameter) => parameter.in === "query");
 
-    expect(parameters.map((parameter) => parameter.name).sort()).toEqual(expectedNames);
-    expect(parameters.every((parameter) => parameter.in === "query")).toBe(true);
+    expect(query.map((parameter) => parameter.name).sort()).toEqual(expectedNames);
+    expect(parameters.filter((parameter) => parameter.in !== "query").map((p) => p.name)).toEqual([
+      ACTOR_HEADER,
+    ]);
   });
 
   it("takes its parameter set from the schema, so a new filter cannot go undocumented", () => {
@@ -305,7 +318,7 @@ describe("the list query is documented from the real schema", () => {
 
   it("describes every parameter, and describes nothing that does not exist", () => {
     expect(Object.keys(QUERY_DESCRIPTIONS).sort()).toEqual(expectedNames);
-    expect(Object.keys(buildTicketListQueryParams().shape).sort()).toEqual(expectedNames);
+    expect(Object.keys(buildTaskListQueryParams().shape).sort()).toEqual(expectedNames);
   });
 
   it("overrides only parameters that exist", () => {
@@ -313,7 +326,7 @@ describe("the list query is documented from the real schema", () => {
   });
 
   it("keeps the validated bounds rather than flattening everything to a string", () => {
-    const parameters = (document.paths?.["/api/v1/tickets"]?.get?.parameters ?? []) as unknown as {
+    const parameters = (document.paths?.["/api/v1/tasks"]?.get?.parameters ?? []) as unknown as {
       name: string;
       schema: Record<string, unknown>;
     }[];
@@ -323,6 +336,90 @@ describe("the list query is documented from the real schema", () => {
     // annotation layer has started retyping parameters instead of annotating them.
     expect(pageSize?.schema.maximum).toBe(100);
     expect(pageSize?.schema.default).toBe(20);
+  });
+});
+
+describe("the other query surfaces are documented from their schemas", () => {
+  const documentedParams = (path: string): string[] =>
+    ((document.paths?.[path]?.get?.parameters ?? []) as unknown as { name: string; in: string }[])
+      .filter((parameter) => parameter.in === "query")
+      .map((parameter) => parameter.name)
+      .sort();
+
+  it.each([
+    ["/api/v1/tasks/stats", taskStatsQuerySchema, STATS_QUERY_DESCRIPTIONS, ["project"]],
+    ["/api/v1/events", eventsQuerySchema, EVENTS_QUERY_DESCRIPTIONS, ["after", "limit", "taskId"]],
+  ] as const)(
+    "%s documents exactly its schema's parameters, each described",
+    (path, schema, descriptions, expected) => {
+      expect(Object.keys(unwrapPreprocessedObject(schema).shape).sort()).toEqual(expected);
+      expect(documentedParams(path)).toEqual(expected);
+      expect(Object.keys(descriptions).sort()).toEqual(expected);
+    },
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ * What every /api/v1 operation shares
+ * ------------------------------------------------------------------ */
+
+describe("cross-cutting request metadata", () => {
+  const operations = Object.entries(document.paths ?? {}).flatMap(([path, item]) =>
+    HTTP_METHODS.filter((method) => method in (item as Record<string, unknown>)).map((method) => ({
+      path,
+      method,
+      operation: (item as Record<string, Record<string, unknown>>)[method]!,
+    })),
+  );
+  const v1 = operations.filter(
+    (entry) => entry.path.startsWith("/api/v1/") && !SYNTHETIC_PATHS.has(entry.path),
+  );
+
+  it("finds /api/v1 operations to check", () => {
+    expect(v1.length).toBeGreaterThanOrEqual(18);
+  });
+
+  it("documents the X-Actor header on every /api/v1 operation", () => {
+    for (const { path, method, operation } of v1) {
+      const headers = ((operation.parameters ?? []) as { name: string; in: string }[]).filter(
+        (parameter) => parameter.in === "header",
+      );
+      expect(
+        headers.map((header) => header.name),
+        `${method} ${path}`,
+      ).toEqual([ACTOR_HEADER]);
+    }
+  });
+
+  it("marks every /api/v1 operation as optionally bearer-authenticated, with a 401", () => {
+    for (const { path, method, operation } of v1) {
+      expect(operation.security, `${method} ${path}`).toEqual([{ [BEARER_AUTH]: [] }, {}]);
+      expect(Object.keys(operation.responses as object), `${method} ${path}`).toContain("401");
+    }
+    expect(document.components?.securitySchemes?.[BEARER_AUTH]).toMatchObject({
+      type: "http",
+      scheme: "bearer",
+    });
+  });
+
+  it("keeps the header and the gate off /health, which sits outside /api/v1", () => {
+    const health = document.paths?.["/health"]?.get;
+
+    expect(health?.parameters).toBeUndefined();
+    expect(health?.security).toBeUndefined();
+    expect(Object.keys(health?.responses ?? {})).not.toContain("401");
+  });
+
+  it("no longer documents the retired INVALID_STATUS_TRANSITION anywhere", () => {
+    expect(JSON.stringify(document)).not.toContain("INVALID_STATUS_TRANSITION");
+  });
+
+  it("describes the X-Actor header and the optional token in the document description", () => {
+    const description = document.info.description ?? "";
+
+    expect(description).toContain("X-Actor");
+    expect(description).toContain("API_TOKEN");
+    expect(description).not.toMatch(/there is no authentication/i);
   });
 });
 

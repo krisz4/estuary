@@ -91,11 +91,21 @@ describe("with DOCS_ENABLED (the default)", () => {
     const paths = Object.keys(res.body.paths as Record<string, unknown>);
 
     expect(paths).toContain("/health");
-    expect(paths).toContain("/api/v1/tickets");
-    expect(paths).toContain("/api/v1/tickets/{ticketId}");
-    expect(paths).toContain("/api/v1/tickets/facets");
-    expect(paths).toContain("/api/v1/tickets/{ticketId}/comments");
-    expect(paths).toContain("/api/v1/tickets/{ticketId}/comments/{commentId}");
+    expect(paths).toContain("/api/v1/tasks");
+    expect(paths).toContain("/api/v1/tasks/{taskId}");
+    expect(paths).toContain("/api/v1/tasks/facets");
+    expect(paths).toContain("/api/v1/tasks/{taskId}/comments");
+    expect(paths).toContain("/api/v1/tasks/{taskId}/comments/{commentId}");
+    expect(paths).toContain("/api/v1/tasks/stats");
+    expect(paths).toContain("/api/v1/tasks/next");
+    expect(paths).toContain("/api/v1/tasks/{taskId}/transition");
+    expect(paths).toContain("/api/v1/events");
+  });
+
+  it("titles the UI page with the API's name", async () => {
+    const res = await request(app).get("/docs/");
+
+    expect(res.text).toContain(`<title>${OPENAPI_TITLE}</title>`);
   });
 });
 

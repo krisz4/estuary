@@ -19,13 +19,13 @@ The page doc is the spec. If your implementation diverges from it, either fix th
 ## Non-negotiables
 
 1. **Server state is TanStack Query only.** Never mirror fetched data into `useState`.
-2. **List state lives in the URL**, via `useTicketListParams()`. Any filter or sort change resets `page` to 1.
+2. **List state lives in the URL**, via `useTaskListParams()`. Any filter or sort change resets `page` to 1.
 3. **Query keys come from `src/api/queryKeys.ts`.** No inline key arrays, ever — they break invalidation silently.
 4. **Types come from `@helpdesk/contracts`.** Never hand-write an interface mirroring an API response.
 5. **Form validation uses the contract zod schema** through `zodResolver`, so client and server messages match.
 6. **All four states wired** on every data view: loading skeleton, error panel with `refetch()` retry, empty (distinguishing "nothing exists" from "nothing matches"), success. This is the most common gap.
 7. **A failed submit never clears the form.**
-8. **Responsive is a requirement.** Verify at 360px, 768px, 1280px. Below `md` the ticket table becomes cards — the table is never horizontally scrolled on mobile.
+8. **Responsive is a requirement.** Verify at 360px, 768px, 1280px. Below `md` the task table becomes cards — the table is never horizontally scrolled on mobile.
 9. **Accessibility baseline** from the design guidelines: real labels, `aria-invalid` + `aria-describedby`, `aria-label` on icon-only buttons, visible focus ring, semantic table markup.
 
 ## Workflow

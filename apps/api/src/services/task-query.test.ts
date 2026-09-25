@@ -1,17 +1,32 @@
-import { formatReference, ticketListQuerySchema, type TicketListQuery } from "@helpdesk/contracts";
+import {
+  formatReference,
+  TASK_STATUSES,
+  taskListQuerySchema,
+  taskSummarySchema,
+  type TaskListQuery,
+} from "@helpdesk/contracts";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "../lib/prisma.js";
-import { makeTicket, makeTickets } from "../test/factories.js";
+import {
+  claimedBy,
+  expiredClaimBy,
+  makeComment,
+  makeDecision,
+  makeDependency,
+  makeTask,
+  makeTaskAwaitingDecision,
+  makeTasks,
+} from "../test/factories.js";
 import {
   buildOrderBy,
   buildWhere,
   escapeLikePattern,
   LIKE_ESCAPE_CHAR,
-  listTickets,
+  listTasks,
   needsEscapedSearch,
   resolveTextSearch,
-} from "./ticket-query.js";
+} from "./task-query.js";
 
 /**
  * The list query, against a real (temp) SQLite file. Required cases come from
@@ -20,13 +35,13 @@ import {
  *
  * Conventions that make these tests able to fail:
  *
- * 1. **Params go through `ticketListQuerySchema`**, never hand-built objects.
+ * 1. **Params go through `taskListQuerySchema`**, never hand-built objects.
  *    Defaulting, `""`-dropping, coercion, and the mutual-exclusion refinement
- *    are all schema behaviour; a test that handed `listTickets` a pre-cooked
+ *    are all schema behaviour; a test that handed `listTasks` a pre-cooked
  *    object would assert nothing about the path a client actually takes.
  * 2. **Validation failures are asserted at the schema**, because routes do not
  *    exist yet (stage 8). Every "→ 422" bullet in TESTING.md is a
- *    `ticketListQuerySchema` rejection here; the HTTP status is the route's half
+ *    `taskListQuerySchema` rejection here; the HTTP status is the route's half
  *    of the same assertion.
  * 3. **Ordering is asserted as an exact id sequence**, not just as a set. A
  *    "page 1 and page 2 are disjoint" assertion alone passes on SQLite even with
@@ -39,12 +54,11 @@ import {
  * ------------------------------------------------------------------ */
 
 /** Parse raw query params exactly as the route will. */
-const query = (raw: Record<string, unknown> = {}): TicketListQuery =>
-  ticketListQuerySchema.parse(raw);
+const query = (raw: Record<string, unknown> = {}): TaskListQuery => taskListQuerySchema.parse(raw);
 
 /** Assert the schema rejects these params, naming the field it blamed. */
 const expectRejected = (raw: Record<string, unknown>, path: string): void => {
-  const result = ticketListQuerySchema.safeParse(raw);
+  const result = taskListQuerySchema.safeParse(raw);
   expect(result.success).toBe(false);
   const paths = result.error?.issues.map((issue) => issue.path.join(".")) ?? [];
   expect(paths).toContain(path);
@@ -52,8 +66,8 @@ const expectRejected = (raw: Record<string, unknown>, path: string): void => {
 
 /** Ids of the returned page, in the order the service returned them. */
 const listIds = async (raw: Record<string, unknown> = {}): Promise<number[]> => {
-  const page = await listTickets(query(raw));
-  return page.data.map((ticket) => ticket.id);
+  const page = await listTasks(query(raw));
+  return page.data.map((task) => task.id);
 };
 
 /* ------------------------------------------------------------------ *
@@ -62,11 +76,11 @@ const listIds = async (raw: Record<string, unknown> = {}): Promise<number[]> => 
 
 describe("defaults", () => {
   it("returns page 1 at size 20 sorted by createdAt descending when no params are sent", async () => {
-    const [oldest, middle, newest] = await makeTickets(3, (index) => ({
+    const [oldest, middle, newest] = await makeTasks(3, (index) => ({
       createdAt: new Date(Date.UTC(2026, 0, index + 1)),
     }));
 
-    const page = await listTickets(query());
+    const page = await listTasks(query());
 
     expect(page.meta).toEqual({
       page: 1,
@@ -76,17 +90,17 @@ describe("defaults", () => {
       hasNextPage: false,
       hasPrevPage: false,
     });
-    expect(page.data.map((ticket) => ticket.id)).toEqual([newest?.id, middle?.id, oldest?.id]);
+    expect(page.data.map((task) => task.id)).toEqual([newest?.id, middle?.id, oldest?.id]);
   });
 
   it("returns summaries carrying commentCount rather than a comment array", async () => {
-    const ticket = await makeTicket();
+    const task = await makeTask();
 
-    const page = await listTickets(query());
+    const page = await listTasks(query());
 
     expect(page.data[0]).toMatchObject({
-      id: ticket.id,
-      reference: formatReference(ticket.id),
+      id: task.id,
+      reference: formatReference(task.id),
       commentCount: 0,
     });
     expect(page.data[0]).not.toHaveProperty("comments");
@@ -99,9 +113,9 @@ describe("defaults", () => {
 
 describe("paging", () => {
   it("reports total, totalPages, and both page flags for a middle page", async () => {
-    await makeTickets(5);
+    await makeTasks(5);
 
-    const page = await listTickets(query({ page: "2", pageSize: "2" }));
+    const page = await listTasks(query({ page: "2", pageSize: "2" }));
 
     expect(page.meta).toEqual({
       page: 2,
@@ -115,9 +129,9 @@ describe("paging", () => {
   });
 
   it("returns an empty page with correct meta beyond the end, not an error", async () => {
-    await makeTickets(5);
+    await makeTasks(5);
 
-    const page = await listTickets(query({ page: "9", pageSize: "2" }));
+    const page = await listTasks(query({ page: "9", pageSize: "2" }));
 
     expect(page.data).toEqual([]);
     expect(page.meta).toMatchObject({
@@ -130,9 +144,9 @@ describe("paging", () => {
   });
 
   it("reports one page rather than zero when nothing matches", async () => {
-    await makeTicket({ status: "open" });
+    await makeTask({ status: "todo" });
 
-    const page = await listTickets(query({ status: "closed" }));
+    const page = await listTasks(query({ status: "deferred" }));
 
     expect(page.data).toEqual([]);
     // `Math.max(1, …)`. Zero would render as "Page 1 of 0" in the pager.
@@ -143,8 +157,8 @@ describe("paging", () => {
     // Every row shares a createdAt, so the default sort is entirely ties and the
     // `{ id: "desc" }` tiebreaker is the only thing making the order total.
     const createdAt = new Date(Date.UTC(2026, 4, 20));
-    const tickets = await makeTickets(6, () => ({ createdAt }));
-    const ids = tickets.map((ticket) => ticket.id);
+    const tasks = await makeTasks(6, () => ({ createdAt }));
+    const ids = tasks.map((task) => task.id);
 
     const first = await listIds({ page: "1", pageSize: "3" });
     const second = await listIds({ page: "2", pageSize: "3" });
@@ -169,7 +183,7 @@ describe("parameter validation", () => {
     // Clamping would hide a client bug: the caller asked for 101 rows and would
     // be handed 100 with no indication the request was altered.
     expectRejected({ pageSize: "101" }, "pageSize");
-    expect(ticketListQuerySchema.safeParse({ pageSize: "100" }).success).toBe(true);
+    expect(taskListQuerySchema.safeParse({ pageSize: "100" }).success).toBe(true);
   });
 
   it("rejects page=0", () => {
@@ -189,7 +203,7 @@ describe("parameter validation", () => {
   });
 
   it("rejects an unknown query parameter", () => {
-    const result = ticketListQuerySchema.safeParse({ utm_source: "slack" });
+    const result = taskListQuerySchema.safeParse({ utm_source: "slack" });
 
     expect(result.success).toBe(false);
     // `.strict()` reports unrecognised keys against the object itself, naming
@@ -212,48 +226,48 @@ describe("parameter validation", () => {
 
 describe("filters", () => {
   it("matches a single value", async () => {
-    const open = await makeTicket({ status: "open" });
-    await makeTicket({ status: "closed" });
+    const todo = await makeTask({ status: "todo" });
+    await makeTask({ status: "deferred" });
 
-    expect(await listIds({ status: "open" })).toEqual([open.id]);
+    expect(await listIds({ status: "todo" })).toEqual([todo.id]);
   });
 
   it("ORs repeated values within one parameter", async () => {
-    const open = await makeTicket({ status: "open" });
-    const inProgress = await makeTicket({ status: "in_progress" });
-    await makeTicket({ status: "closed" });
+    const todo = await makeTask({ status: "todo" });
+    const inProgress = await makeTask({ status: "in_progress" });
+    await makeTask({ status: "deferred" });
 
-    const ids = await listIds({ status: ["open", "in_progress"] });
+    const ids = await listIds({ status: ["todo", "in_progress"] });
 
-    expect(ids.sort((a, b) => a - b)).toEqual([open.id, inProgress.id]);
+    expect(ids.sort((a, b) => a - b)).toEqual([todo.id, inProgress.id]);
   });
 
   it("ANDs across different parameters", async () => {
-    const match = await makeTicket({ status: "open", priority: "urgent", category: "network" });
-    await makeTicket({ status: "open", priority: "low", category: "network" });
-    await makeTicket({ status: "closed", priority: "urgent", category: "network" });
-    await makeTicket({ status: "open", priority: "urgent", category: "hardware" });
+    const match = await makeTask({ status: "todo", priority: "urgent", project: "helpdesk" });
+    await makeTask({ status: "todo", priority: "low", project: "helpdesk" });
+    await makeTask({ status: "deferred", priority: "urgent", project: "helpdesk" });
+    await makeTask({ status: "todo", priority: "urgent", project: "billing" });
 
-    expect(await listIds({ status: "open", priority: "urgent", category: "network" })).toEqual([
+    expect(await listIds({ status: "todo", priority: "urgent", project: "helpdesk" })).toEqual([
       match.id,
     ]);
   });
 
   it("does not return a rank-drifted row under the status it no longer has", async () => {
-    // `statusRank` defaults to 0 and only `applyTicketRanks()` maintains it, so a
+    // `statusRank` defaults to 0 and only `applyTaskRanks()` maintains it, so a
     // row written by raw SQL, a seed, or a service that forgot the helper can
-    // hold `status='archived'` with `statusRank=0` — the rank meaning `open`.
-    // Filtering on the rank alone would return it for `?status=open`, making the
+    // hold `status='archived'` with `statusRank=2` — the rank meaning `todo`.
+    // Filtering on the rank alone would return it for `?status=todo`, making the
     // drift a wrong result set and a wrong `meta.total`, not merely a wrong sort.
-    const drifted = await makeTicket({ status: "open" });
+    const drifted = await makeTask({ status: "todo" });
     await prisma.$executeRawUnsafe(
-      `UPDATE "Ticket" SET status = 'archived' WHERE id = ?`,
+      `UPDATE "Task" SET status = 'archived' WHERE id = ?`,
       drifted.id,
     );
 
-    const page = await listTickets(query({ status: "open" }));
+    const page = await listTasks(query({ status: "todo" }));
 
-    expect(page.data.map((ticket) => ticket.id)).not.toContain(drifted.id);
+    expect(page.data.map((task) => task.id)).not.toContain(drifted.id);
     expect(page.meta.total).toBe(0);
   });
 
@@ -263,52 +277,100 @@ describe("filters", () => {
    * A drifted row is not merely filed under the wrong status — it is
    * unreachable through the status filter entirely: it fails the *text* term
    * under its true status and the *rank* term under the drifted one. So the
-   * union of all four statuses returns strictly fewer rows than no status
+   * union of all ten statuses returns strictly fewer rows than no status
    * filter at all, and the two `meta.total` values disagree.
    *
    * That is the intended trade (a drifted row is corrupt data; hiding it beats
    * reporting it under a status it does not have), and it is pinned here so it
    * is a decision rather than an accident. It stays hypothetical only while
-   * `applyTicketRanks()` is the sole writer of the rank columns — the stage-9
+   * `applyTaskRanks()` is the sole writer of the rank columns — the stage-9
    * seed is exactly the kind of write that could bypass it, and a seeded row
    * that vanished from the list page would be a genuinely confusing bug.
    */
   it("makes a rank-drifted row unreachable under every status, so the totals disagree", async () => {
-    const healthy = await makeTicket({ status: "open" });
-    const drifted = await makeTicket({ status: "open" });
+    const healthy = await makeTask({ status: "todo" });
+    const drifted = await makeTask({ status: "todo" });
     await prisma.$executeRawUnsafe(
-      `UPDATE "Ticket" SET status = 'archived' WHERE id = ?`,
+      `UPDATE "Task" SET status = 'archived' WHERE id = ?`,
       drifted.id,
     );
 
-    const everyStatus = await listTickets(
-      query({ status: ["open", "in_progress", "resolved", "closed"] }),
-    );
-    const noFilter = await listTickets(query());
+    const everyStatus = await listTasks(query({ status: [...TASK_STATUSES] }));
+    const noFilter = await listTasks(query());
 
     // Unreachable under the union of every legal status…
-    expect(everyStatus.data.map((ticket) => ticket.id)).toEqual([healthy.id]);
+    expect(everyStatus.data.map((task) => task.id)).toEqual([healthy.id]);
     expect(everyStatus.meta.total).toBe(1);
 
     // …while an unfiltered list still sees it. The two totals disagreeing is
     // the observable symptom, and it is the point of the test.
-    expect(noFilter.data.map((ticket) => ticket.id)).toContain(drifted.id);
+    expect(noFilter.data.map((task) => task.id)).toContain(drifted.id);
     expect(noFilter.meta.total).toBe(2);
     expect(everyStatus.meta.total).toBeLessThan(noFilter.meta.total);
   });
 
-  it("matches requesterEmail case-insensitively by lowercasing the input to match storage", async () => {
-    const ticket = await makeTicket({ requesterEmail: "dana.whitfield@example.com" });
-    await makeTicket({ requesterEmail: "other@example.com" });
+  it("matches project case-insensitively by lowercasing the input to match storage", async () => {
+    const task = await makeTask({ project: "helpdesk" });
+    await makeTask({ project: "billing" });
+    await makeTask({ project: null });
 
-    expect(await listIds({ requesterEmail: "Dana.Whitfield@Example.COM" })).toEqual([ticket.id]);
+    expect(await listIds({ project: "HelpDesk" })).toEqual([task.id]);
+  });
+
+  it("ORs repeated project values", async () => {
+    const helpdesk = await makeTask({ project: "helpdesk" });
+    const billing = await makeTask({ project: "billing" });
+    await makeTask({ project: "infra" });
+
+    const ids = await listIds({ project: ["helpdesk", "billing"] });
+    expect(ids.sort((a, b) => a - b)).toEqual([helpdesk.id, billing.id]);
+  });
+
+  it("rejects a project that is not a slug", () => {
+    expectRejected({ project: "two words" }, "project.0");
+  });
+
+  it("matches createdBy exactly, lowercasing the input like the stored actor", async () => {
+    const byAgent = await makeTask({ createdBy: "agent:claude-code" });
+    await makeTask({ createdBy: "human:krisz" });
+    await makeTask({ createdBy: "agent:claude-code-2" });
+
+    expect(await listIds({ createdBy: "Agent:Claude-Code" })).toEqual([byAgent.id]);
+  });
+
+  it("matches claimedBy against the stored holder, lowercasing the input — expired leases included", async () => {
+    const live = await makeTask(claimedBy("agent:claude-code"));
+    const expired = await makeTask(expiredClaimBy("agent:claude-code"));
+    await makeTask(claimedBy("agent:codex"));
+    await makeTask({ status: "todo" });
+
+    const ids = await listIds({ claimedBy: "Agent:Claude-Code" });
+
+    expect(ids.sort((a, b) => a - b)).toEqual([live.id, expired.id]);
+  });
+
+  it("returns only the subtasks of one parent for parentId", async () => {
+    const parent = await makeTask();
+    const other = await makeTask();
+    const child = await makeTask({ parentId: parent.id });
+    await makeTask({ parentId: other.id });
+
+    expect(await listIds({ parentId: String(parent.id) })).toEqual([child.id]);
+  });
+
+  it("rejects a parentId that is not a positive integer", () => {
+    expectRejected({ parentId: "0" }, "parentId");
+    expectRejected({ parentId: "abc" }, "parentId");
+    // Digits only, like the path parameter: no hex or exponent aliases.
+    expectRejected({ parentId: "0x2a" }, "parentId");
+    expectRejected({ parentId: "1e3" }, "parentId");
   });
 
   it("matches assignee exactly and case-sensitively", async () => {
-    const ticket = await makeTicket({ assignee: "Ada Chen" });
-    await makeTicket({ assignee: "ada chen" });
+    const task = await makeTask({ assignee: "Ada Chen" });
+    await makeTask({ assignee: "ada chen" });
 
-    expect(await listIds({ assignee: "Ada Chen" })).toEqual([ticket.id]);
+    expect(await listIds({ assignee: "Ada Chen" })).toEqual([task.id]);
   });
 });
 
@@ -317,24 +379,24 @@ describe("filters", () => {
  * ------------------------------------------------------------------ */
 
 describe("assigneeIsNull", () => {
-  it("returns only unassigned tickets when true", async () => {
-    const unassigned = await makeTicket({ assignee: null });
-    await makeTicket({ assignee: "Ada Chen" });
+  it("returns only unassigned tasks when true", async () => {
+    const unassigned = await makeTask({ assignee: null });
+    await makeTask({ assignee: "Ada Chen" });
 
     expect(await listIds({ assigneeIsNull: "true" })).toEqual([unassigned.id]);
   });
 
-  it("returns only assigned tickets when false", async () => {
-    const assigned = await makeTicket({ assignee: "Ada Chen" });
-    await makeTicket({ assignee: null });
+  it("returns only assigned tasks when false", async () => {
+    const assigned = await makeTask({ assignee: "Ada Chen" });
+    await makeTask({ assignee: null });
 
     expect(await listIds({ assigneeIsNull: "false" })).toEqual([assigned.id]);
   });
 
   it("treats an assignee literally named None as a person, not a sentinel", async () => {
     // The test that would have caught the rejected `assignee=none` design.
-    const none = await makeTicket({ assignee: "None" });
-    const unassigned = await makeTicket({ assignee: null });
+    const none = await makeTask({ assignee: "None" });
+    const unassigned = await makeTask({ assignee: null });
 
     expect(await listIds({ assignee: "None" })).toEqual([none.id]);
     expect(await listIds({ assigneeIsNull: "true" })).toEqual([unassigned.id]);
@@ -347,45 +409,45 @@ describe("assigneeIsNull", () => {
 
 describe("q", () => {
   it("matches the title", async () => {
-    const ticket = await makeTicket({ title: "VPN drops every morning" });
-    await makeTicket({ title: "Printer jam", description: "Tray two" });
+    const task = await makeTask({ title: "VPN drops every morning" });
+    await makeTask({ title: "Printer jam", description: "Tray two" });
 
-    expect(await listIds({ q: "vpn" })).toEqual([ticket.id]);
+    expect(await listIds({ q: "vpn" })).toEqual([task.id]);
   });
 
   it("matches the description", async () => {
-    const ticket = await makeTicket({ title: "Laptop issue", description: "Fails with error 809" });
-    await makeTicket({ title: "Printer jam", description: "Tray two" });
+    const task = await makeTask({ title: "Laptop issue", description: "Fails with error 809" });
+    await makeTask({ title: "Printer jam", description: "Tray two" });
 
-    expect(await listIds({ q: "error 809" })).toEqual([ticket.id]);
+    expect(await listIds({ q: "error 809" })).toEqual([task.id]);
   });
 
-  it("matches a ticket reference in every accepted spelling", async () => {
+  it("matches a task reference in every accepted spelling", async () => {
     // Ids start at 1 in every test (`sqlite_sequence` is reset), so creating 42
-    // rows in order arranges HD-000042. Titles and descriptions carry no digits,
+    // rows in order arranges TASK-000042. Titles and descriptions carry no digits,
     // so a match can only have come from the id branch of the `OR`.
-    await makeTickets(42, () => ({ title: "Printer jam", description: "Tray two sticks" }));
+    await makeTasks(42, () => ({ title: "Printer jam", description: "Tray two sticks" }));
 
-    for (const spelling of ["HD-000042", "hd-42", "#42", "42"]) {
+    for (const spelling of ["TASK-000042", "task-42", "#42", "42"]) {
       expect(await listIds({ q: spelling })).toEqual([42]);
     }
   });
 
   it("narrows within the active filters rather than widening past them", async () => {
     // The hoisted-`OR` regression test. If the `q` branches are lifted out of the
-    // top-level `AND`, the resolved ticket comes back too and search silently
+    // top-level `AND`, the done task comes back too and search silently
     // widens the result set past the status filter.
-    const open = await makeTicket({ status: "open", title: "VPN drops every morning" });
-    const resolved = await makeTicket({ status: "resolved", title: "VPN drops every evening" });
+    const todo = await makeTask({ status: "todo", title: "VPN drops every morning" });
+    const done = await makeTask({ status: "done", title: "VPN drops every evening" });
 
-    const ids = await listIds({ q: "VPN", status: "open" });
+    const ids = await listIds({ q: "VPN", status: "todo" });
 
-    expect(ids).toEqual([open.id]);
-    expect(ids).not.toContain(resolved.id);
+    expect(ids).toEqual([todo.id]);
+    expect(ids).not.toContain(done.id);
   });
 
   it("nests its branches as one OR group inside the top-level AND", () => {
-    const where = buildWhere(query({ q: "42", status: "open" }));
+    const where = buildWhere(query({ q: "42", status: "todo" }));
 
     // Structural proof of the same invariant: two entries in the `AND`, one of
     // which is the whole `OR` group — not three siblings.
@@ -396,7 +458,7 @@ describe("q", () => {
   });
 
   it("keeps the OR group nested when the raw prefilter path is taken", () => {
-    const where = buildWhere(query({ q: "42%", status: "open" }), [7, 9]);
+    const where = buildWhere(query({ q: "42%", status: "todo" }), [7, 9]);
 
     expect(where.AND).toHaveLength(2);
     expect(where.AND).toContainEqual({ OR: [{ id: { in: [7, 9] } }] });
@@ -422,22 +484,22 @@ describe("q", () => {
 
 describe("q with LIKE metacharacters", () => {
   it("treats a lone % as a literal, returning nothing rather than everything", async () => {
-    await makeTickets(3, () => ({ title: "Printer jam", description: "Tray two" }));
+    await makeTasks(3, () => ({ title: "Printer jam", description: "Tray two" }));
 
     expect(await listIds({ q: "%" })).toEqual([]);
   });
 
   it("treats % inside the term as a literal percent sign", async () => {
-    const literal = await makeTicket({ title: "Upload 50% done", description: "Stalled there" });
-    await makeTicket({ title: "500 errors on save", description: "Every request" });
+    const literal = await makeTask({ title: "Upload 50% done", description: "Stalled there" });
+    await makeTask({ title: "500 errors on save", description: "Every request" });
 
     // As a wildcard, `50%` would match "500 errors" too.
     expect(await listIds({ q: "50%" })).toEqual([literal.id]);
   });
 
   it("treats _ as a literal underscore rather than a single-character wildcard", async () => {
-    const literal = await makeTicket({ title: "Code error_809", description: "Since Tuesday" });
-    await makeTicket({ title: "Code errorX809", description: "Unrelated" });
+    const literal = await makeTask({ title: "Code error_809", description: "Since Tuesday" });
+    await makeTask({ title: "Code errorX809", description: "Unrelated" });
 
     expect(await listIds({ q: "error_809" })).toEqual([literal.id]);
   });
@@ -445,20 +507,20 @@ describe("q with LIKE metacharacters", () => {
   it("matches the escape character itself literally", async () => {
     // `!` is the ESCAPE character, so a bare `!` in the pattern would be a
     // dangling escape — SQLite's behaviour there is not something to rely on.
-    const bang = await makeTicket({ title: "It broke!", description: "Again" });
-    await makeTicket({ title: "It broke", description: "Again" });
+    const bang = await makeTask({ title: "It broke!", description: "Again" });
+    await makeTask({ title: "It broke", description: "Again" });
 
     expect(await listIds({ q: "broke!" })).toEqual([bang.id]);
   });
 
   it("still narrows within an active status filter when the term holds a wildcard", async () => {
-    const open = await makeTicket({ status: "open", title: "Upload 50% done" });
-    const resolved = await makeTicket({ status: "resolved", title: "Upload 50% done" });
+    const todo = await makeTask({ status: "todo", title: "Upload 50% done" });
+    const done = await makeTask({ status: "done", title: "Upload 50% done" });
 
-    const ids = await listIds({ q: "50%", status: "open" });
+    const ids = await listIds({ q: "50%", status: "todo" });
 
-    expect(ids).toEqual([open.id]);
-    expect(ids).not.toContain(resolved.id);
+    expect(ids).toEqual([todo.id]);
+    expect(ids).not.toContain(done.id);
   });
 
   /**
@@ -478,13 +540,13 @@ describe("q with LIKE metacharacters", () => {
    * disappears, and the search silently returns nothing.
    */
   it("declares the same escape character in its SQL that escapeLikePattern emits", async () => {
-    const literal = await makeTicket({
+    const literal = await makeTask({
       // Contains the escape character *and* a wildcard, so the pattern only
       // matches if the two sides agree on which one is which.
       title: `Payment ${LIKE_ESCAPE_CHAR}% surcharge`,
       description: "Nothing else",
     });
-    const decoy = await makeTicket({ title: "Payment XY surcharge", description: "Nothing else" });
+    const decoy = await makeTask({ title: "Payment XY surcharge", description: "Nothing else" });
 
     const term = `${LIKE_ESCAPE_CHAR}%`;
     expect(needsEscapedSearch(term), "the probe term must take the raw path").toBe(true);
@@ -521,9 +583,9 @@ describe("q with LIKE metacharacters", () => {
     // The equivalence the fast path rests on, asserted rather than argued:
     // for a term with no `%`, `_`, or `!`, escaping is a no-op, so the raw
     // `LIKE … ESCAPE` and `contains` are the same query.
-    const printer = await makeTicket({ title: "Printer jam", description: "Tray two" });
-    await makeTicket({ title: "VPN drops", description: "Every morning" });
-    await makeTicket({ title: "Laptop", description: "Printer driver missing" });
+    const printer = await makeTask({ title: "Printer jam", description: "Tray two" });
+    await makeTask({ title: "VPN drops", description: "Every morning" });
+    await makeTask({ title: "Laptop", description: "Printer driver missing" });
 
     const viaFastPath = await listIds({ q: "printer" });
     const viaRawPath = await resolveTextSearch(prisma, "printer");
@@ -547,26 +609,26 @@ describe("q with LIKE metacharacters", () => {
  * ------------------------------------------------------------------ */
 
 describe("date bounds", () => {
-  it("includes a ticket created on the createdTo day itself", async () => {
+  it("includes a task created on the createdTo day itself", async () => {
     // The off-by-one-day bound. A naive `lte: 2026-03-05T00:00:00Z` excludes
     // everything created that day, which reads as "the filter is off by one".
-    const onTheDay = await makeTicket({ createdAt: new Date("2026-03-05T13:45:00.000Z") });
-    await makeTicket({ createdAt: new Date("2026-03-06T00:00:00.000Z") });
+    const onTheDay = await makeTask({ createdAt: new Date("2026-03-05T13:45:00.000Z") });
+    await makeTask({ createdAt: new Date("2026-03-06T00:00:00.000Z") });
 
     expect(await listIds({ createdTo: "2026-03-05" })).toEqual([onTheDay.id]);
   });
 
-  it("includes a ticket created at the very start of the createdFrom day", async () => {
-    const onTheDay = await makeTicket({ createdAt: new Date("2026-03-05T00:00:00.000Z") });
-    await makeTicket({ createdAt: new Date("2026-03-04T23:59:59.999Z") });
+  it("includes a task created at the very start of the createdFrom day", async () => {
+    const onTheDay = await makeTask({ createdAt: new Date("2026-03-05T00:00:00.000Z") });
+    await makeTask({ createdAt: new Date("2026-03-04T23:59:59.999Z") });
 
     expect(await listIds({ createdFrom: "2026-03-05" })).toEqual([onTheDay.id]);
   });
 
   it("bounds both ends when a range is given", async () => {
-    const inside = await makeTicket({ createdAt: new Date("2026-03-05T09:00:00.000Z") });
-    await makeTicket({ createdAt: new Date("2026-03-03T09:00:00.000Z") });
-    await makeTicket({ createdAt: new Date("2026-03-08T09:00:00.000Z") });
+    const inside = await makeTask({ createdAt: new Date("2026-03-05T09:00:00.000Z") });
+    await makeTask({ createdAt: new Date("2026-03-03T09:00:00.000Z") });
+    await makeTask({ createdAt: new Date("2026-03-08T09:00:00.000Z") });
 
     expect(await listIds({ createdFrom: "2026-03-04", createdTo: "2026-03-06" })).toEqual([
       inside.id,
@@ -584,10 +646,10 @@ describe("sorting", () => {
     // ascending direction is asserted too, where text and severity disagree
     // (`low` … `urgent` alphabetically vs `low` first by severity is the same,
     // but `high` vs `medium` is not).
-    const low = await makeTicket({ priority: "low" });
-    const urgent = await makeTicket({ priority: "urgent" });
-    const medium = await makeTicket({ priority: "medium" });
-    const high = await makeTicket({ priority: "high" });
+    const low = await makeTask({ priority: "low" });
+    const urgent = await makeTask({ priority: "urgent" });
+    const medium = await makeTask({ priority: "medium" });
+    const high = await makeTask({ priority: "high" });
 
     expect(await listIds({ sort: "priority:desc" })).toEqual([
       urgent.id,
@@ -604,16 +666,24 @@ describe("sorting", () => {
   });
 
   it("follows lifecycle order when sorting by status", async () => {
-    const closed = await makeTicket({ status: "closed" });
-    const open = await makeTicket({ status: "open" });
-    const resolved = await makeTicket({ status: "resolved" });
-    const inProgress = await makeTicket({ status: "in_progress" });
+    // Inserted in reverse-alphabetical order, so alphabetical, insertion, and
+    // lifecycle order all differ.
+    const deferred = await makeTask({ status: "deferred" });
+    const todo = await makeTask({ status: "todo" });
+    const needsQa = await makeTask({ status: "needs_qa" });
+    const done = await makeTask({ status: "done" });
+    const blocked = await makeTask({ status: "blocked" });
+    const inProgress = await makeTask({ status: "in_progress" });
+    const backlog = await makeTask({ status: "backlog" });
 
     expect(await listIds({ sort: "status:asc" })).toEqual([
-      open.id,
+      backlog.id,
+      todo.id,
       inProgress.id,
-      resolved.id,
-      closed.id,
+      blocked.id,
+      needsQa.id,
+      done.id,
+      deferred.id,
     ]);
   });
 
@@ -621,8 +691,8 @@ describe("sorting", () => {
     // Six rows tied on `status`. Without the `{ id: "desc" }` tiebreaker SQLite
     // is free to return them in storage order, which is ascending id — so the
     // expected sequence, not just the disjointness, is what pins the clause.
-    const tickets = await makeTickets(6, () => ({ status: "open" as const }));
-    const ids = tickets.map((ticket) => ticket.id);
+    const tasks = await makeTasks(6, () => ({ status: "todo" as const }));
+    const ids = tasks.map((task) => task.id);
 
     const first = await listIds({ sort: "status:asc", page: "1", pageSize: "3" });
     const second = await listIds({ sort: "status:asc", page: "2", pageSize: "3" });
@@ -634,8 +704,8 @@ describe("sorting", () => {
   });
 
   it("sorts by title alphabetically", async () => {
-    const beta = await makeTicket({ title: "Beta" });
-    const alpha = await makeTicket({ title: "Alpha" });
+    const beta = await makeTask({ title: "Beta" });
+    const alpha = await makeTask({ title: "Alpha" });
 
     expect(await listIds({ sort: "title:asc" })).toEqual([alpha.id, beta.id]);
   });
@@ -658,5 +728,81 @@ describe("sorting", () => {
     ]);
     // A second clause on the same column can never break a tie there are none of.
     expect(buildOrderBy({ field: "id", direction: "asc" })).toEqual([{ id: "asc" }]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * List rows — the summary fields
+ *
+ * Everything a row carries beyond its own columns comes from one `include`
+ * batched across the page (`summaryInclude`). These pin that each derived
+ * field is computed from the right rows, not merely present.
+ * ------------------------------------------------------------------ */
+
+describe("list rows", () => {
+  const rowFor = async (id: number) => {
+    const page = await listTasks(query({ pageSize: "100" }));
+    const row = page.data.find((task) => task.id === id);
+    if (row === undefined) throw new Error(`task ${id} not in the list`);
+    return row;
+  };
+
+  it("counts only dependencies that are not done — a deferred blocker still counts", async () => {
+    const task = await makeTask({ status: "blocked" });
+    const done = await makeTask({ status: "done" });
+    const deferred = await makeTask({ status: "deferred" });
+    const inProgress = await makeTask({ status: "in_progress" });
+    for (const dep of [done, deferred, inProgress]) await makeDependency(task.id, dep.id);
+
+    expect((await rowFor(task.id)).openDependencyCount).toBe(2);
+    expect((await rowFor(done.id)).openDependencyCount).toBe(0);
+  });
+
+  it("carries the open decision inline, and only the open one", async () => {
+    const { task, decision } = await makeTaskAwaitingDecision();
+    await makeDecision({ taskId: task.id, status: "withdrawn", question: "An older question?" });
+
+    const row = await rowFor(task.id);
+
+    expect(row.openDecision?.id).toBe(decision.id);
+    expect(row.openDecision?.options.map((option) => option.label)).toEqual([
+      "Keep the endpoint",
+      "Remove the endpoint",
+    ]);
+    expect((await rowFor((await makeTask()).id)).openDecision).toBeNull();
+  });
+
+  it("shows a live claim and hides an expired one", async () => {
+    const live = await makeTask(claimedBy("agent:alpha"));
+    const expired = await makeTask(expiredClaimBy("agent:beta"));
+
+    expect((await rowFor(live.id)).claim).toEqual({
+      actor: "agent:alpha",
+      expiresAt: live.claimExpiresAt!.toISOString(),
+    });
+    expect((await rowFor(expired.id)).claim).toBeNull();
+  });
+
+  it("reports the comment count without shipping the thread", async () => {
+    const task = await makeTask();
+    await makeComment({ taskId: task.id });
+    await makeComment({ taskId: task.id });
+
+    const row = await rowFor(task.id);
+
+    expect(row.commentCount).toBe(2);
+    expect("comments" in row).toBe(false);
+  });
+
+  it("serializes every row through the summary contract", async () => {
+    await makeTask({ links: [{ label: "PR", url: "https://example.com/pr/1" }], project: "web" });
+    await makeTask(claimedBy("agent:alpha"));
+
+    const page = await listTasks(query());
+
+    for (const row of page.data) {
+      const parsed = taskSummarySchema.safeParse(row);
+      expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    }
   });
 });

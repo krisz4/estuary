@@ -32,6 +32,19 @@ import { dbFileUrl, templateDbPath, testDbPath } from "./vitest.globalSetup.js";
  */
 process.env.NODE_ENV = "test";
 
+/**
+ * Behaviour switches pinned to their defaults, whatever the developer's
+ * `apps/api/.env` says. `lib/env.ts` loads `.env` with `override: false` and
+ * treats a blank value as absent, so an empty string here wins over the file and
+ * still resolves to the default. Without it, a developer who set `API_TOKEN`
+ * for their local server would see every route test fail with 401, and one who
+ * set `AGENTS_MAY_COMPLETE=true` would see the agent-completion tests fail.
+ * Tests that need another value set it on `env` and restore it.
+ */
+for (const name of ["API_TOKEN", "AGENTS_MAY_COMPLETE", "CLAIM_LEASE_MINUTES"]) {
+  process.env[name] = "";
+}
+
 const workerId = process.env.VITEST_WORKER_ID ?? "1";
 const dbPath = testDbPath(workerId);
 
@@ -50,7 +63,7 @@ process.env.DATABASE_URL = dbFileUrl(dbPath);
  * ------------------------------------------------------------------ */
 
 const { env } = await import("./src/lib/env.js");
-const { prisma } = await import("./src/lib/prisma.js");
+const { enableWal, prisma } = await import("./src/lib/prisma.js");
 
 /**
  * The guard that matters, and it has to be **here** — after the import.
@@ -70,6 +83,12 @@ if (env.DATABASE_URL !== dbFileUrl(dbPath)) {
   );
 }
 
+// The same journal mode `server.ts` sets in production. Without it, the
+// concurrency tests exercise a locking regime the app never runs under —
+// rollback-journal readers queue behind a committing writer, and a burst of
+// mixed reads and writes flakes past the 5 s timeout.
+await enableWal();
+
 /* ------------------------------------------------------------------ *
  * 3. Per-test truncation
  * ------------------------------------------------------------------ */
@@ -77,16 +96,22 @@ if (env.DATABASE_URL !== dbFileUrl(dbPath)) {
 /**
  * Truncate rather than re-copy: one transaction beats a file copy plus a new
  * client per test. `sqlite_sequence` is reset too, so ids start from 1 in every
- * test and a test that needs a specific reference (`HD-000042`) can arrange it.
+ * test and a test that needs a specific reference (`TASK-000042`) can arrange it.
  *
- * `Comment` first, then `Ticket`: the cascade would handle it, but relying on
- * the cascade to clean up would hide a broken cascade from the test that checks it.
+ * Children first, then `Task`: the cascade would handle `Comment`, `Decision`,
+ * and `TaskDependency`, but relying on the cascade to clean up would hide a
+ * broken cascade from the test that checks it. `TaskEvent` has no foreign key
+ * at all (events outlive their task), so nothing but this statement clears it —
+ * forgetting it would leak one test's feed into the next test's `GET /events`.
  */
+const TRUNCATED_TABLES = ["TaskEvent", "Decision", "TaskDependency", "Comment", "Task"] as const;
+
 beforeEach(async () => {
   await prisma.$transaction([
-    prisma.$executeRawUnsafe('DELETE FROM "Comment"'),
-    prisma.$executeRawUnsafe('DELETE FROM "Ticket"'),
-    prisma.$executeRawUnsafe(`DELETE FROM sqlite_sequence WHERE name IN ('Ticket', 'Comment')`),
+    ...TRUNCATED_TABLES.map((table) => prisma.$executeRawUnsafe(`DELETE FROM "${table}"`)),
+    prisma.$executeRawUnsafe(
+      `DELETE FROM sqlite_sequence WHERE name IN (${TRUNCATED_TABLES.map((t) => `'${t}'`).join(", ")})`,
+    ),
   ]);
 });
 

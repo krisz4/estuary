@@ -62,6 +62,7 @@ COPY packages/tsconfig/package.json packages/tsconfig/
 COPY packages/contracts/package.json packages/contracts/
 COPY apps/web/package.json apps/web/
 COPY apps/api/package.json apps/api/
+COPY apps/mcp/package.json apps/mcp/
 
 # `apps/api`'s postinstall is `prisma generate`, which reads the schema. Copying
 # `prisma/` before the install is what makes the generated client part of this
@@ -113,6 +114,7 @@ COPY packages/tsconfig/package.json packages/tsconfig/
 COPY packages/contracts/package.json packages/contracts/
 COPY apps/web/package.json apps/web/
 COPY apps/api/package.json apps/api/
+COPY apps/mcp/package.json apps/mcp/
 COPY apps/api/prisma apps/api/prisma
 
 # `--prod` drops tsx, vitest, supertest and the type packages (P11). It keeps

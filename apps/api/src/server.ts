@@ -1,6 +1,7 @@
 import { createApp } from "./app.js";
 import { env } from "./lib/env.js";
 import { logger } from "./lib/logger.js";
+import { enableWal } from "./lib/prisma.js";
 
 /**
  * The listen entrypoint. The only file in `src/` that binds a port — `app.ts`
@@ -9,7 +10,7 @@ import { logger } from "./lib/logger.js";
  * `PORT` and `HOST` come from `lib/env.ts`, the single `process.env` reader.
  * `HOST` defaults to `0.0.0.0` in code because that is what the container
  * needs; `env.example` ships `127.0.0.1`, because this app has no
- * authentication and binding every interface on a laptop publishes ticket CRUD
+ * authentication and binding every interface on a laptop publishes task CRUD
  * to the LAN.
  */
 
@@ -23,6 +24,9 @@ import { logger } from "./lib/logger.js";
 const exit = (code: number): void => {
   setImmediate(() => process.exit(code));
 };
+
+// Before accepting traffic: readers must not queue behind the writer.
+await enableWal();
 
 const app = createApp();
 

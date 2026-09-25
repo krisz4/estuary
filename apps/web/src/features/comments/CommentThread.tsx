@@ -6,11 +6,18 @@ import { toast } from "sonner";
 import { useDeleteCommentMutation } from "@/api/comments";
 import { queryKeys } from "@/api/queryKeys";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { Button } from "@/components/ui";
+import { Badge, Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { errorCopy } from "@/lib/errorMessages";
-import { formatAbsolute, formatRelative, toDateTimeAttribute } from "@/lib/formatting";
+import {
+  COMMENT_KIND_LABELS,
+  actorDisplayName,
+  formatAbsolute,
+  formatRelative,
+  toDateTimeAttribute,
+} from "@/lib/formatting";
 import { CommentComposer } from "@/features/comments/CommentComposer";
+import { ActorBadge } from "@/features/tasks/ActorBadge";
 
 /**
  * The comment thread and its composer.
@@ -21,6 +28,11 @@ import { CommentComposer } from "@/features/comments/CommentComposer";
  * `sort` on `createdAt` alone would reorder them differently from the API on
  * every render.
  *
+ * Agents and humans share the thread. Each comment names its author with an
+ * agent/human badge, and a non-`note` kind — an agent's `progress` log, a
+ * `qa_feedback` send-back — carries a tag, so a reader can tell working notes
+ * from discussion without opening each one.
+ *
  * Bodies render as text nodes. There is no markdown pass and no
  * `dangerouslySetInnerHTML` anywhere in this app — `whitespace-pre-wrap` is what
  * preserves the author's line breaks, and it is a CSS property, so a body
@@ -28,16 +40,16 @@ import { CommentComposer } from "@/features/comments/CommentComposer";
  */
 
 export type CommentThreadProps = {
-  ticketId: number;
+  taskId: number;
   comments: readonly Comment[];
 };
 
-export const CommentThread = ({ ticketId, comments }: CommentThreadProps) => {
+export const CommentThread = ({ taskId, comments }: CommentThreadProps) => {
   const [pendingDelete, setPendingDelete] = useState<Comment | null>(null);
   const [focusCommentId, setFocusCommentId] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
-  const deleteMutation = useDeleteCommentMutation(ticketId);
+  const deleteMutation = useDeleteCommentMutation(taskId);
 
   return (
     <section className="flex flex-col gap-4" aria-labelledby="comments-heading">
@@ -60,7 +72,7 @@ export const CommentThread = ({ ticketId, comments }: CommentThreadProps) => {
         </ul>
       )}
 
-      <CommentComposer ticketId={ticketId} onCreated={(comment) => setFocusCommentId(comment.id)} />
+      <CommentComposer taskId={taskId} onCreated={(comment) => setFocusCommentId(comment.id)} />
 
       <ConfirmDialog
         open={pendingDelete !== null}
@@ -71,7 +83,7 @@ export const CommentThread = ({ ticketId, comments }: CommentThreadProps) => {
         description={
           pendingDelete === null
             ? ""
-            : `The comment by ${pendingDelete.authorName} will be removed. This can't be undone.`
+            : `The comment by ${actorDisplayName(pendingDelete.author)} will be removed. This can't be undone.`
         }
         confirmLabel="Delete comment"
         isPending={deleteMutation.isPending}
@@ -93,7 +105,7 @@ export const CommentThread = ({ ticketId, comments }: CommentThreadProps) => {
               // user just tried to remove is stale. Without this it stays
               // there, and every retry reproduces the same 404 forever.
               void queryClient.invalidateQueries({
-                queryKey: queryKeys.tickets.detail(ticketId),
+                queryKey: queryKeys.tasks.detail(taskId),
               });
             },
           });
@@ -130,8 +142,13 @@ const CommentItem = ({
       <div className="flex items-baseline justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <h3 className="text-sm font-semibold break-words text-foreground">
-            {comment.authorName}
+            <ActorBadge actor={comment.author} plain className="text-sm text-foreground" />
           </h3>
+          {comment.kind === "note" ? null : (
+            <Badge tone={comment.kind === "qa_feedback" ? "warning" : "info"}>
+              {COMMENT_KIND_LABELS[comment.kind]}
+            </Badge>
+          )}
           <time
             dateTime={toDateTimeAttribute(comment.createdAt)}
             title={formatAbsolute(comment.createdAt)}
@@ -144,7 +161,7 @@ const CommentItem = ({
         <Button
           variant="ghost"
           size="icon"
-          aria-label={`Delete comment by ${comment.authorName}`}
+          aria-label={`Delete comment by ${actorDisplayName(comment.author)}`}
           onClick={onDelete}
           className={cn(
             "size-8 shrink-0 text-muted-foreground hover:text-destructive",

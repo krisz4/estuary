@@ -91,6 +91,7 @@ jobs:
           test -s apps/api/dist/server.js
           test -s apps/api/dist/seed/index.js
           test -s apps/web/dist/index.html
+          test -s apps/mcp/dist/index.js
 
       # The committed spec is an artefact of the contracts, so it can go stale
       # silently. Regenerate and require the tree to be clean: a contract change
@@ -164,7 +165,9 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       # Boots both apps itself on dedicated ports (API 4010, web 5183) against a
-      # third database, which `e2e/globalSetup.ts` deletes, migrates, and seeds.
+      # third database, which `e2e/prepareDatabase.ts` deletes, migrates, and
+      # seeds as the first half of the API's `webServer` command (before
+      # `globalSetup.ts`, which only checks the running API is reading it).
       # `reuseExistingServer: false` and `retries: 0` are set in the config and
       # apply here too — an intermittent failure is the signal, not noise.
       - name: E2E

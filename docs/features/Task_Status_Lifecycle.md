@@ -1,104 +1,113 @@
 ---
 type: Feature
-title: Ticket status lifecycle
-description: Status values, legal transitions, and the timestamp side effects they trigger.
-resource: apps/api/src/services/ticket-status.ts
-tags: [tickets, status, workflow]
+title: Task status lifecycle
+description: The ten task statuses, what each means, what a transition into it requires, and the side effects it triggers.
+resource: apps/api/src/services/task-workflow.service.ts
+tags: [tasks, status, workflow, agents]
 status: canonical
 ---
-# Ticket status lifecycle
+# Task status lifecycle
 
 ## Overview
 
 | Concern | Location |
 | ------- | -------- |
-| Enum | `TicketStatus` in `packages/contracts/src/ticket.ts` |
-| Transition table + guard | `apps/api/src/services/ticket-status.ts` (`assertTransition`, `applyStatusSideEffects`) |
-| Rank mapping for sorting | Same file (`STATUS_RANK`) |
-| UI badge + picker | `apps/web/src/features/tickets/StatusBadge.tsx`, `StatusSelect.tsx` |
-| Drag-and-drop status change | `apps/web/src/pages/tickets-board/` — see [../pages/Tickets_Board.md](../pages/Tickets_Board.md) |
+| Enum, lanes, attention set | `TASK_STATUSES`, `TASK_STATUS_LANES`, `HUMAN_ATTENTION_STATUSES` in `packages/contracts/src/task.ts` |
+| What each transition requires | `transitionInputSchema` in `packages/contracts/src/task-workflow.ts` |
+| Transition, claims, decisions, unblocking | `apps/api/src/services/task-workflow.service.ts`, `task-guards.ts` |
+| Ranks, status note, timestamps (pure) | `apps/api/src/services/task-status.ts` |
+| Endpoint reference | [Task_Workflow_API.md](./Task_Workflow_API.md) |
 
 ## States
 
-| Value | Meaning | Rank |
-| ----- | ------- | ---- |
-| `open` | Filed, nobody working it yet | 0 |
-| `in_progress` | An IT person is actively on it | 1 |
-| `resolved` | Fix delivered, awaiting confirmation | 2 |
-| `closed` | Terminal | 3 |
+The array order is the persisted `statusRank`, so "sort by status" follows this table.
 
-`rank` is persisted as `statusRank` and exists only so SQLite can sort by lifecycle order instead of alphabetically. It is derived — never accept it from a client, and always set it through `applyTicketRanks()`.
+| Rank | Value | Lane | Meaning | Who usually moves it here |
+| ---- | ----- | ---- | ------- | ------------------------- |
+| 0 | `backlog` | plan | Captured, not yet planned. **Default for new tasks.** | anyone |
+| 1 | `needs_refinement` | plan | Too vague to start: missing detail, scope, or acceptance criteria | agent triage, human |
+| 2 | `todo` | plan | Ready to work: has acceptance criteria | human, agent after refining |
+| 3 | `in_progress` | doing | Being worked; has a live claim | agent via `next` / `claim` |
+| 4 | `blocked` | waiting | Waiting on other tasks (`blockedBy`) or an external reason | agent |
+| 5 | `needs_user_decision` | waiting | An agent asked a question with options and cannot proceed without an answer | agent |
+| 6 | `needs_user_action` | waiting | A human must do something manual (credentials, a console click, a purchase) | agent |
+| 7 | `needs_qa` | doing | Work done; a human (or QA agent) verifies it | agent |
+| 8 | `done` | closed | Verified complete. **Agents cannot move here** unless `AGENTS_MAY_COMPLETE=true` | human |
+| 9 | `deferred` | closed | Parked on purpose — the fallback when no other status applies, always with a reason | anyone |
+
+`needs_user_decision`, `needs_user_action`, and `needs_qa` make up the **inbox** (`HUMAN_ATTENTION_STATUSES`); `GET /tasks/stats` reports their total as `needsAttention`.
 
 ## Transitions
 
-```
-open ──────► in_progress ──────► resolved ──────► closed
- │                 │                  │              │
- │                 └──────────────────┴──────────────┘
- │                        (reopen ► open / in_progress)
- └──────────────────────────────────────────────► closed
-```
+**There is no from→to table.** Any status may move to any other. The helpdesk this grew out of had one; for an agent workflow the useful gate is not *where a task came from* but *what the mover knows*, so each target status declares the payload it needs and the contract's discriminated union enforces it. A missing field is an ordinary `VALIDATION_ERROR` naming that field.
 
-| From | Allowed to |
-| ---- | ---------- |
-| `open` | `in_progress`, `resolved`, `closed` |
-| `in_progress` | `open`, `resolved`, `closed` |
-| `resolved` | `in_progress`, `closed`, `open` (reopen) |
-| `closed` | `open`, `in_progress` (reopen) |
+| To | Payload | Checked against the stored task |
+| -- | ------- | -------------------------------- |
+| `backlog` | `reason?` | — |
+| `needs_refinement` | **`reason`** (what is unclear) | — |
+| `todo` | `acceptanceCriteria?`, `reason?` | the task must end up with acceptance criteria (supplied now or already stored) |
+| `in_progress` | `reason?` | takes the claim; another live claim blocks agents (`TASK_ALREADY_CLAIMED`) |
+| `blocked` | `reason` and/or **`blockedBy: taskId[]`** (at least one) | each `blockedBy` is added as a dependency: must exist, not self, no cycle |
+| `needs_user_decision` | **`decision`**: `question`, `options` (2–6 unique labels), `recommendedOption?` (one of the labels), `context?` | creates a `Decision`; withdraws any older open one |
+| `needs_user_action` | **`instructions`** | — |
+| `needs_qa` | **`summary`**, `links?` | links are appended to the task's links, de-duplicated by URL |
+| `done` | `reason?` | agent actors → `ACTOR_NOT_PERMITTED` (403) unless `AGENTS_MAY_COMPLETE` |
+| `deferred` | **`reason`** | — |
 
-Every transition is legal except `closed → resolved`, which is rejected with `INVALID_STATUS_TRANSITION` (409): a closed ticket reopens to active work, it does not slide back into "awaiting confirmation".
+Every transition body also accepts `expectedVersion` (→ `VERSION_CONFLICT` on mismatch).
 
-The guard is deliberately permissive — this is a helpdesk, not an approval workflow, and an over-strict table produces support tickets about the ticket system.
+`PATCH /tasks/:taskId` does not accept `status` at all; sending it returns a `VALIDATION_ERROR` on `status` that points at the transition endpoint.
 
-### Setting the status it already has
+### Same-status transitions
 
-`X → X` is a **success that performs no write**. The service compares before updating and returns the existing row untouched.
+`blocked → blocked` with a new reason is allowed and **does** write: it is how a blocker is updated. This differs from the helpdesk's "same status is a no-op" rule, which existed because PATCH carried status alongside other fields; the transition endpoint carries nothing else, so a same-status call always means "update the note".
 
-This matters because of `@updatedAt`: if a same-status PATCH reached Prisma, `updatedAt` would move and the ticket would jump to the top of an `updatedAt` sort without anything having changed. "No-op" has to mean no write, not a write of identical values.
+### Other ways a status changes
 
-(A PATCH containing status *and* a genuinely changed field still writes — the short-circuit is per-field, applied when status is the only difference.)
+| Path | Result |
+| ---- | ------ |
+| `POST /tasks/next`, `POST /tasks/:id/claim` | → `in_progress`, claimed |
+| `POST /tasks/:id/release` | `in_progress` → `todo`, claim cleared |
+| `POST /tasks/:id/decision/answer` | `needs_user_decision` → `todo` (criteria gate skipped — the task was already in flight) |
+| Auto-unblock (server, as `system:taskmanager`) | `blocked` → `todo` once every dependency is `done` — after a blocker reaches `done`, is deleted, or a dependency is removed |
 
 ## Side effects
 
-Applied in `applyStatusSideEffects()`, inside the same write:
+Applied in the same write as the status:
 
-| Transition | Effect |
-| ---------- | ------ |
-| → `resolved` | `resolvedAt = now` (only if currently null) |
-| → `closed` | `closedAt = now`; `resolvedAt ??= now` |
-| `resolved` or `closed` → `open` or `in_progress` | `resolvedAt = null`, `closedAt = null` |
+| Effect | When |
+| ------ | ---- |
+| `statusNote` replaced | Every transition: `reason` / `instructions` / `summary` / the decision's question, or `null` |
+| `statusRank` recomputed | Every status write, via `applyTaskRanks()` — the only writer |
+| `startedAt = now` | First entry into `in_progress` only; never cleared |
+| `completedAt = now` | → `done` |
+| `completedAt = null` | `done` → anything else (reopened) |
+| claim set / cleared | set on → `in_progress`, cleared on any other target |
+| open decision withdrawn | any transition while one is open (a new question replaces the old one) |
+| `version + 1` | every write to the task row |
+| event(s) recorded | `task.status_changed` always; `task.claimed`, `decision.requested`, `decision.withdrawn`, `dependency.added` as applicable |
 
-The third row is stated as an explicit pair of source states, not "from a terminal state" — only `closed` is terminal, so that phrasing left `resolved → in_progress` undefined and would have stranded a stale `resolvedAt` on a ticket that is demonstrably not resolved. **Reopening from either state clears both timestamps.**
-
-`closed` backfilling `resolvedAt` means a ticket closed straight from `open` reports a resolution time it never really had. That is deliberate — it keeps "closed implies resolved" true for any consumer — but worth knowing before computing time-to-resolution from this data.
-
-`updatedAt` is Prisma-managed and moves on every write that actually happens.
+`deferred` does **not** satisfy a dependency: a task waiting on something that was parked keeps waiting.
 
 ## UI mapping
 
-| Status | Badge | Notes |
-| ------ | ----- | ----- |
-| `open` | slate / neutral | Default filter chip on the list page |
-| `in_progress` | blue | |
-| `resolved` | green | |
-| `closed` | muted grey, lower contrast text | Visually recedes so active work reads first |
+Badges always render the text label; colour never carries the meaning alone ([../engineering/UI_DESIGN_GUIDELINES.md](../engineering/UI_DESIGN_GUIDELINES.md)). The board groups columns by lane (Plan, Doing, Waiting, Closed; Closed collapsed by default). Dropping a card on a status that needs payload opens the transition dialog; cancelling it puts the card back.
 
-Color alone never carries the meaning — the badge always renders the text label too. See [../engineering/UI_DESIGN_GUIDELINES.md](../engineering/UI_DESIGN_GUIDELINES.md).
-
-On the board there is no badge at all: the column heading names the status, and repeating it on every card would spend that screen's one strong colour on information the card's position already carries.
-
-**No client holds a copy of the transition table** — not the detail page's picker, and not the board, which offers every column to every card and lets a `closed → resolved` drop fail. The guard above is deliberately permissive and has been loosened before; a client-side table would forbid something the server allows, with nothing failing anywhere to say so. Rejections are rendered from the server's own `details.allowed` (`apps/web/src/lib/statusTransition.ts`).
+No client keeps its own copy of these rules beyond the shared contract: the web dialog asks for the fields `transitionInputSchema` requires for the target status, and server `VALIDATION_ERROR` details map back onto them.
 
 ## Error codes
 
 | Code | Status | When |
 | ---- | ------ | ---- |
-| `INVALID_STATUS_TRANSITION` | 409 | `closed → resolved`. `details` carries `{ from, to, allowed: [...] }` |
-| `VALIDATION_ERROR` | 422 | Status string not in the enum |
+| `VALIDATION_ERROR` | 422 | Missing/invalid payload for the target status; `todo` without criteria; bad `blockedBy` |
+| `VERSION_CONFLICT` | 409 | `expectedVersion` mismatch |
+| `TASK_ALREADY_CLAIMED` | 409 | An agent writing a task someone else holds a live claim on |
+| `DEPENDENCY_CYCLE` | 409 | A `blockedBy` entry would close a loop |
+| `ACTOR_NOT_PERMITTED` | 403 | An agent moving a task to `done` without `AGENTS_MAY_COMPLETE` |
+| `TASK_NOT_FOUND` | 404 | No such task |
 
-## Related pages
+## Related
 
-- [../pages/Ticket_Detail.md](../pages/Ticket_Detail.md) — inline status change
-- [../pages/Tickets_Board.md](../pages/Tickets_Board.md) — status change by drag and drop
-- [../pages/Ticket_Edit.md](../pages/Ticket_Edit.md) — status in the edit form
-- [Tickets.md](./Tickets.md)
+- [Task_Workflow_API.md](./Task_Workflow_API.md) — every endpoint and the cross-cutting rules
+- [Actors.md](./Actors.md) — who counts as an agent
+- [../pages/Tasks_Board.md](../pages/Tasks_Board.md), [../pages/Inbox.md](../pages/Inbox.md)

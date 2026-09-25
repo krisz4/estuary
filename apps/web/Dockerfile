@@ -25,6 +25,7 @@ COPY packages/tsconfig/package.json packages/tsconfig/
 COPY packages/contracts/package.json packages/contracts/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY apps/mcp/package.json apps/mcp/
 
 # `@helpdesk/web...` pulls in contracts and tsconfig and skips apps/api — which
 # also means Prisma never installs here, and Prisma is ~57% of the tree (P1).

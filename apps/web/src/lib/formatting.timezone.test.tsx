@@ -26,8 +26,8 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 vi.stubEnv("TZ", "America/New_York");
 
 const { formatDate, formatDateOnly } = await import("@/lib/formatting");
-const { TicketFilterBar } = await import("@/features/tickets/TicketFilterBar");
-const { DEFAULT_TICKET_LIST_PARAMS } = await import("@/pages/tickets-list/useTicketListParams");
+const { TaskFilterBar } = await import("@/features/tasks/TaskFilterBar");
+const { DEFAULT_TASK_LIST_PARAMS } = await import("@/pages/tasks-list/useTaskListParams");
 
 afterAll(() => {
   vi.unstubAllEnvs();
@@ -60,8 +60,8 @@ describe("date-only formatting west of UTC", () => {
 
   it("shows the right day on the rendered chip, not just in the helper", () => {
     render(
-      <TicketFilterBar
-        params={{ ...DEFAULT_TICKET_LIST_PARAMS, createdFrom: "2026-08-01" }}
+      <TaskFilterBar
+        params={{ ...DEFAULT_TASK_LIST_PARAMS, createdFrom: "2026-08-01" }}
         facets={undefined}
         onFiltersChange={() => undefined}
         onSortChange={() => undefined}

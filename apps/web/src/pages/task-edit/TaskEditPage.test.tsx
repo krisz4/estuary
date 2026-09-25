@@ -2,20 +2,35 @@ import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/api/queryKeys";
-import { diffTicketPatch, TicketEditPage, toFormValues } from "@/pages/ticket-edit/TicketEditPage";
-import { makeQueryClient, makeTicket, renderRoute, mockApi } from "@/test/harness";
+import { diffTaskPatch, TaskEditPage, toFormValues } from "@/pages/task-edit/TaskEditPage";
+import {
+  makeQueryClient,
+  makeTask,
+  renderRoute,
+  mockApi as mockHandlers,
+  type RouteHandler,
+} from "@/test/harness";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 
+/** The page asks for facets (project suggestions) alongside the task. */
+const mockApi = (handlers: Record<string, RouteHandler>) =>
+  mockHandlers({
+    "GET /tasks/facets": () => ({ body: { assignees: [], projects: [], creators: [] } }),
+    ...handlers,
+  });
+
 const routes = [
-  { path: "/tickets/:ticketId/edit", element: <TicketEditPage /> },
-  { path: "/tickets/:ticketId", element: <div>Detail page</div> },
-  { path: "/tickets", element: <div>Tickets list</div> },
+  { path: "/tasks/:taskId/edit", element: <TaskEditPage /> },
+  { path: "/tasks/:taskId", element: <div>Detail page</div> },
+  { path: "/tasks", element: <div>Tasks list</div> },
 ];
 
 const renderEdit = (queryClient = makeQueryClient()) =>
-  renderRoute({ routes, initialEntries: ["/tickets/42/edit"], queryClient });
+  renderRoute({ routes, initialEntries: ["/tasks/42/edit"], queryClient });
+
+const TITLE = "Add rate limiting to the export endpoint";
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.unstubAllGlobals());
@@ -24,54 +39,72 @@ afterEach(() => vi.unstubAllGlobals());
  * The diff, as a unit
  * ------------------------------------------------------------------ */
 
-describe("diffTicketPatch", () => {
-  const ticket = makeTicket({ assignee: "Marcus Feld", category: "hardware" });
+describe("diffTaskPatch", () => {
+  const task = makeTask({
+    assignee: "Marcus Feld",
+    links: [{ label: "PR", url: "https://example.com/pr/1" }],
+  });
 
   it("is empty when nothing moved", () => {
-    // Comparing the schema's *output* for the untouched ticket, which is what
+    // Comparing the schema's *output* for the untouched task, which is what
     // the form hands in — not the raw control values.
     expect(
-      diffTicketPatch(
+      diffTaskPatch(
         {
-          title: ticket.title,
-          description: ticket.description,
-          status: ticket.status,
-          priority: ticket.priority,
-          category: ticket.category,
-          requesterName: ticket.requesterName,
-          requesterEmail: ticket.requesterEmail,
-          assignee: ticket.assignee,
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          project: task.project,
+          assignee: task.assignee,
+          acceptanceCriteria: task.acceptanceCriteria,
+          // A fresh array with the same contents — what the resolver produces.
+          links: [{ label: "PR", url: "https://example.com/pr/1" }],
+          parentId: task.parentId,
         },
-        ticket,
+        task,
       ),
     ).toEqual({});
   });
 
   it("carries only the changed keys", () => {
-    expect(diffTicketPatch({ title: "New title", priority: ticket.priority }, ticket)).toEqual({
+    expect(diffTaskPatch({ title: "New title", priority: task.priority }, task)).toEqual({
       title: "New title",
     });
   });
 
+  it("compares links by value, and sends the whole list when one changed", () => {
+    const links = [
+      { label: "PR", url: "https://example.com/pr/1" },
+      { label: "Branch", url: "https://example.com/tree/x" },
+    ];
+    expect(diffTaskPatch({ links }, task)).toEqual({ links });
+  });
+
   it("sends null — not an empty string — for a cleared optional", () => {
-    expect(diffTicketPatch({ assignee: null, category: null }, ticket)).toEqual({
+    expect(diffTaskPatch({ assignee: null, project: null }, task)).toEqual({
       assignee: null,
-      category: null,
+      project: null,
     });
   });
 
   it("does not treat null === null as a change", () => {
-    const unassigned = makeTicket({ assignee: null });
-    expect(diffTicketPatch({ assignee: null }, unassigned)).toEqual({});
+    const unassigned = makeTask({ assignee: null });
+    expect(diffTaskPatch({ assignee: null }, unassigned)).toEqual({});
   });
 });
 
 describe("toFormValues", () => {
-  it("maps a null optional to the empty string the controls hold", () => {
-    expect(toFormValues(makeTicket({ assignee: null, category: null }))).toMatchObject({
+  it("maps nulls to the empty strings the controls hold, and has no status", () => {
+    const values = toFormValues(
+      makeTask({ assignee: null, project: null, acceptanceCriteria: null, parentId: 7 }),
+    );
+    expect(values).toMatchObject({
       assignee: "",
-      category: "",
+      project: "",
+      acceptanceCriteria: "",
+      parentId: "7",
     });
+    expect(values).not.toHaveProperty("status");
   });
 });
 
@@ -79,67 +112,80 @@ describe("toFormValues", () => {
  * The page
  * ------------------------------------------------------------------ */
 
-describe("TicketEditPage", () => {
-  it("prefills from the loaded ticket", async () => {
-    mockApi({ "GET /tickets/42": () => ({ body: makeTicket() }) });
+describe("TaskEditPage", () => {
+  it("prefills from the loaded task", async () => {
+    mockApi({ "GET /tasks/42": () => ({ body: makeTask({ assignee: "Marcus Feld" }) }) });
     renderEdit();
 
-    await waitFor(() =>
-      expect(screen.getByLabelText(/^title/i)).toHaveValue("Projector shows no signal"),
-    );
+    await waitFor(() => expect(screen.getByLabelText(/^title/i)).toHaveValue(TITLE));
     expect(screen.getByLabelText(/assignee/i)).toHaveValue("Marcus Feld");
+    expect(screen.getByLabelText(/^project/i)).toHaveValue("helpdesk");
+    expect(screen.getByLabelText(/^acceptance criteria/i)).toHaveValue(
+      "Requests over 10/min get a 429.",
+    );
   });
 
-  it("PATCHes only the fields that changed", async () => {
+  /*
+    Status moves by transition, from the detail page — never through this form.
+  */
+  it("has no status control", async () => {
+    mockApi({ "GET /tasks/42": () => ({ body: makeTask() }) });
+    renderEdit();
+
+    await screen.findByDisplayValue(TITLE);
+    expect(screen.queryByRole("combobox", { name: /status/i })).not.toBeInTheDocument();
+  });
+
+  it("PATCHes only the fields that changed, with the version it loaded", async () => {
     const user = userEvent.setup();
     const { requests } = mockApi({
-      "GET /tickets/42": () => ({ body: makeTicket() }),
-      "PATCH /tickets/42": () => ({ body: makeTicket({ title: "Projector is dead" }) }),
+      "GET /tasks/42": () => ({ body: makeTask({ version: 3 }) }),
+      "PATCH /tasks/42": () => ({ body: makeTask({ title: "Rate-limit exports" }) }),
     });
 
     renderEdit();
-    await screen.findByDisplayValue("Projector shows no signal");
+    await screen.findByDisplayValue(TITLE);
 
     await user.clear(screen.getByLabelText(/^title/i));
-    await user.type(screen.getByLabelText(/^title/i), "Projector is dead");
+    await user.type(screen.getByLabelText(/^title/i), "Rate-limit exports");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(requests.some((r) => r.method === "PATCH")).toBe(true));
     expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({
-      title: "Projector is dead",
+      title: "Rate-limit exports",
+      expectedVersion: 3,
     });
     expect(toast.success).toHaveBeenCalledWith("Changes saved");
   });
 
   /**
    * The diff exists to stop a save from clobbering a field the user never
-   * touched. It can only do that if it compares against the ticket the form was
+   * touched. It can only do that if it compares against the task the form was
    * **initialised from** — react-hook-form reads `defaultValues` once, so a
-   * refetch that lands after mount moves only one side of the comparison.
+   * refetch (or a poll) that lands after mount moves only one side of the
+   * comparison.
    *
-   * Here the form mounts with `assignee: null` (so the control holds `""`) and
-   * somebody else assigns the ticket while the user is typing a title. Diffing
-   * against live query data sees `"" → null` against `"Marcus Feld"` and PATCHes
-   * `assignee: null`, silently undoing their edit.
+   * And `expectedVersion` must be the *loaded* version for the same reason: the
+   * live one has already moved past the agent's write the server should catch.
    */
-  it("does not PATCH a field the user never touched after a concurrent change lands", async () => {
+  it("diffs and versions against what it loaded, not what a poll brought in", async () => {
     const user = userEvent.setup();
     const queryClient = makeQueryClient();
     const { requests } = mockApi({
-      "GET /tickets/42": () => ({ body: makeTicket({ assignee: null }) }),
-      "PATCH /tickets/42": () => ({ body: makeTicket({ title: "Projector is dead" }) }),
+      "GET /tasks/42": () => ({ body: makeTask({ assignee: null, version: 3 }) }),
+      "PATCH /tasks/42": () => ({ body: makeTask({ title: "Rate-limit exports" }) }),
     });
 
     renderEdit(queryClient);
-    await screen.findByDisplayValue("Projector shows no signal");
+    await screen.findByDisplayValue(TITLE);
     expect(screen.getByLabelText(/assignee/i)).toHaveValue("");
 
-    // Somebody else assigns it. This is what a refetch returning a changed row
-    // does to the cache; writing it directly makes the race deterministic.
+    // An agent assigns it. This is what a poll returning a changed row does to
+    // the cache; writing it directly makes the race deterministic.
     act(() => {
       queryClient.setQueryData(
-        queryKeys.tickets.detail(42),
-        makeTicket({ assignee: "Marcus Feld" }),
+        queryKeys.tasks.detail(42),
+        makeTask({ assignee: "claude-code", version: 4 }),
       );
     });
 
@@ -147,20 +193,21 @@ describe("TicketEditPage", () => {
     expect(screen.getByLabelText(/assignee/i)).toHaveValue("");
 
     await user.clear(screen.getByLabelText(/^title/i));
-    await user.type(screen.getByLabelText(/^title/i), "Projector is dead");
+    await user.type(screen.getByLabelText(/^title/i), "Rate-limit exports");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(requests.some((r) => r.method === "PATCH")).toBe(true));
-    const patch = requests.find((r) => r.method === "PATCH")?.body as Record<string, unknown>;
-    expect(patch).toEqual({ title: "Projector is dead" });
-    expect(Object.keys(patch)).not.toContain("assignee");
+    expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({
+      title: "Rate-limit exports",
+      expectedVersion: 3,
+    });
   });
 
   it("clears an assignee to null rather than an empty string", async () => {
     const user = userEvent.setup();
     const { requests } = mockApi({
-      "GET /tickets/42": () => ({ body: makeTicket() }),
-      "PATCH /tickets/42": () => ({ body: makeTicket({ assignee: null }) }),
+      "GET /tasks/42": () => ({ body: makeTask({ assignee: "Marcus Feld" }) }),
+      "PATCH /tasks/42": () => ({ body: makeTask({ assignee: null }) }),
     });
 
     renderEdit();
@@ -170,12 +217,15 @@ describe("TicketEditPage", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(requests.some((r) => r.method === "PATCH")).toBe(true));
-    expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({ assignee: null });
+    expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({
+      assignee: null,
+      expectedVersion: 3,
+    });
   });
 
   it("short-circuits an unchanged save without calling the API", async () => {
     const user = userEvent.setup();
-    const { requests } = mockApi({ "GET /tickets/42": () => ({ body: makeTicket() }) });
+    const { requests } = mockApi({ "GET /tasks/42": () => ({ body: makeTask() }) });
 
     renderEdit();
     await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
@@ -186,124 +236,80 @@ describe("TicketEditPage", () => {
     expect(requests.some((r) => r.method === "PATCH")).toBe(false);
   });
 
-  it("puts a 409 on the status field and keeps the other edits", async () => {
-    const user = userEvent.setup();
-    mockApi({
-      "GET /tickets/42": () => ({ body: makeTicket({ status: "closed" }) }),
-      "PATCH /tickets/42": () => ({
-        status: 409,
-        body: {
-          error: {
-            code: "INVALID_STATUS_TRANSITION",
-            message: "no",
-            details: { from: "closed", to: "resolved", allowed: ["open", "in_progress"] },
-            requestId: "r1",
-          },
+  describe("on VERSION_CONFLICT", () => {
+    const conflict = () => ({
+      status: 409,
+      body: {
+        error: {
+          code: "VERSION_CONFLICT",
+          message: "stale",
+          details: { expected: 3, current: 4 },
+          requestId: "r1",
         },
-      }),
+      },
     });
 
-    renderEdit();
-    await screen.findByDisplayValue("Projector shows no signal");
+    it("says so, keeps every typed value, and does not toast", async () => {
+      const user = userEvent.setup();
+      mockApi({
+        "GET /tasks/42": () => ({ body: makeTask() }),
+        "PATCH /tasks/42": conflict,
+      });
 
-    await user.type(screen.getByLabelText(/assignee/i), " Jr");
-    await user.click(screen.getByRole("combobox", { name: /^status/i }));
-    await user.click(await screen.findByRole("option", { name: "Resolved" }));
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
+      renderEdit();
+      await screen.findByDisplayValue(TITLE);
 
-    expect(
-      await screen.findByText(
-        "Not allowed from here. You can move it to Open or In progress instead.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText(/assignee/i)).toHaveValue("Marcus Feld Jr");
-    expect(toast.error).not.toHaveBeenCalled();
-  });
+      await user.type(screen.getByLabelText(/assignee/i), "Marcus");
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-  /**
-   * The selects are driven by `setValue` and never `register()`ed, so nothing
-   * re-runs validation for them unless `setValue` is asked to. Without
-   * `shouldValidate`, the 409 message stayed under a status the user had
-   * already corrected until the next submit.
-   */
-  it("clears the 409 message when the user picks a different status", async () => {
-    const user = userEvent.setup();
-    mockApi({
-      "GET /tickets/42": () => ({ body: makeTicket({ status: "closed" }) }),
-      "PATCH /tickets/42": () => ({
-        status: 409,
-        body: {
-          error: {
-            code: "INVALID_STATUS_TRANSITION",
-            message: "no",
-            details: { from: "closed", to: "resolved", allowed: ["open", "in_progress"] },
-            requestId: "r1",
-          },
-        },
-      }),
-    });
-
-    renderEdit();
-    await screen.findByDisplayValue("Projector shows no signal");
-
-    await user.click(screen.getByRole("combobox", { name: /^status/i }));
-    await user.click(await screen.findByRole("option", { name: "Resolved" }));
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const message = await screen.findByText(
-      "Not allowed from here. You can move it to Open or In progress instead.",
-    );
-    expect(message).toBeInTheDocument();
-
-    await user.click(screen.getByRole("combobox", { name: /^status/i }));
-    await user.click(await screen.findByRole("option", { name: "Open" }));
-
-    await waitFor(() =>
       expect(
-        screen.queryByText(
-          "Not allowed from here. You can move it to Open or In progress instead.",
+        await screen.findByText(
+          /Someone — possibly an agent — changed this task; reload to see their changes/,
         ),
-      ).not.toBeInTheDocument(),
-    );
-    expect(screen.getByRole("combobox", { name: /^status/i })).not.toHaveAttribute("aria-invalid");
-  });
-
-  /**
-   * `setError`'s `shouldFocus` is a no-op for the selects — they have no
-   * registered input ref — so a 409 on `status` used to move focus nowhere at
-   * all. The form focuses the first rendered `aria-invalid` instead, which the
-   * Radix trigger (a `button`) satisfies.
-   */
-  it("moves focus to the status control after a 409", async () => {
-    const user = userEvent.setup();
-    mockApi({
-      "GET /tickets/42": () => ({ body: makeTicket({ status: "closed" }) }),
-      "PATCH /tickets/42": () => ({
-        status: 409,
-        body: {
-          error: {
-            code: "INVALID_STATUS_TRANSITION",
-            message: "no",
-            details: { from: "closed", to: "resolved", allowed: ["open"] },
-            requestId: "r1",
-          },
-        },
-      }),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText(/assignee/i)).toHaveValue("Marcus");
+      expect(toast.error).not.toHaveBeenCalled();
     });
 
-    renderEdit();
-    await screen.findByDisplayValue("Projector shows no signal");
+    it("reloads the task into the form when asked, at the new version", async () => {
+      const user = userEvent.setup();
+      let version = 3;
+      const { requests } = mockApi({
+        "GET /tasks/42": () => ({
+          body: makeTask({ version, assignee: version > 3 ? "claude-code" : null }),
+        }),
+        "PATCH /tasks/42": ({ body }) =>
+          (body as { expectedVersion: number }).expectedVersion === 4
+            ? { body: makeTask({ version: 5 }) }
+            : conflict(),
+      });
 
-    await user.click(screen.getByRole("combobox", { name: /^status/i }));
-    await user.click(await screen.findByRole("option", { name: "Resolved" }));
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
+      renderEdit();
+      await screen.findByDisplayValue(TITLE);
 
-    await waitFor(() => expect(screen.getByRole("combobox", { name: /^status/i })).toHaveFocus());
+      await user.type(screen.getByLabelText(/^description/i), " Soon.");
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+      await screen.findByRole("button", { name: "Reload task" });
+
+      // The agent's write the conflict was about.
+      version = 4;
+      await user.click(screen.getByRole("button", { name: "Reload task" }));
+
+      await waitFor(() => expect(screen.getByLabelText(/assignee/i)).toHaveValue("claude-code"));
+      expect(screen.queryByRole("button", { name: "Reload task" })).not.toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/^description/i), " Soon.");
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+      await waitFor(() => expect(screen.getByText("Detail page")).toBeInTheDocument());
+      const patches = requests.filter((r) => r.method === "PATCH");
+      expect(patches.at(-1)?.body).toMatchObject({ expectedVersion: 4 });
+    });
   });
 
   /**
    * Cancel must **replace**, not push. Pushing leaves the form in the stack, so
-   * from `/tickets/42` → Edit → Cancel the history reads
+   * from `/tasks/42` → Edit → Cancel the history reads
    * `[list, detail, edit, detail]` and one Back press drops the user back inside
    * the form they just abandoned — with a second press needed to reach the
    * detail page they were already looking at.
@@ -313,13 +319,13 @@ describe("TicketEditPage", () => {
    */
   it("replaces the form's history entry on Cancel, so Back does not reopen it", async () => {
     const user = userEvent.setup();
-    mockApi({ "GET /tickets/42": () => ({ body: makeTicket() }) });
+    mockApi({ "GET /tasks/42": () => ({ body: makeTask() }) });
 
     const { router } = renderRoute({
       routes,
-      initialEntries: ["/tickets", "/tickets/42", "/tickets/42/edit"],
+      initialEntries: ["/tasks", "/tasks/42", "/tasks/42/edit"],
     });
-    await screen.findByDisplayValue("Projector shows no signal");
+    await screen.findByDisplayValue(TITLE);
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.getByText("Detail page")).toBeInTheDocument());
@@ -328,19 +334,19 @@ describe("TicketEditPage", () => {
       await router.navigate(-1);
     });
 
-    expect(router.state.location.pathname).toBe("/tickets/42");
+    expect(router.state.location.pathname).toBe("/tasks/42");
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
   });
 
-  it("shows the not-found state for a ticket deleted elsewhere", async () => {
+  it("shows the not-found state for a task deleted elsewhere", async () => {
     mockApi({
-      "GET /tickets/42": () => ({
+      "GET /tasks/42": () => ({
         status: 404,
-        body: { error: { code: "TICKET_NOT_FOUND", message: "gone", requestId: "r1" } },
+        body: { error: { code: "TASK_NOT_FOUND", message: "gone", requestId: "r1" } },
       }),
     });
 
     renderEdit();
-    expect(await screen.findByText("This ticket doesn't exist")).toBeInTheDocument();
+    expect(await screen.findByText("This task doesn't exist")).toBeInTheDocument();
   });
 });

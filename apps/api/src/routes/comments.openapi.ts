@@ -1,46 +1,45 @@
 import {
   commentIdParamSchema,
   createCommentInputSchema,
-  ticketIdParamSchema,
+  taskIdParamSchema,
 } from "@helpdesk/contracts";
 import { z } from "zod";
 
 import {
+  ACTOR_422_NOTE,
   CommentComponent,
-  INTERNAL_ERROR_RESPONSE,
   bodyParserResponses,
-  defaultErrorResponse,
   errorResponse,
-  registry,
+  registerV1Path,
 } from "../lib/openapi.js";
 
 /**
  * OpenAPI definitions for `routes/comments.route.ts`.
  *
  * The resource is deliberately thin: append and remove, no edit and no list.
- * The thread ships with its ticket, so a `GET` here would be a second read path
+ * The thread ships with its task, so a `GET` here would be a second read path
  * with its own ordering and paging rules to keep in step — and there is no
  * `PATCH`/`PUT` because comments are append-only.
  *
  * Registration is a function rather than an import side effect, for the reason
- * given at the top of `tickets.openapi.ts`: nothing in the spec layer may run
+ * given at the top of `tasks.openapi.ts`: nothing in the spec layer may run
  * while `app.ts` is still loading its import graph.
  */
 
-const ticketIdParam = () =>
-  ticketIdParamSchema.meta({ description: "Id of the parent ticket.", example: 42 });
+const taskIdParam = () =>
+  taskIdParamSchema.meta({ description: "Id of the parent task.", example: 42 });
 
 /** Registers both comment operations. Called once, by `getOpenApiDocument()`. */
 export function registerCommentPaths(): void {
-  registry.registerPath({
+  registerV1Path({
     method: "post",
-    path: "/api/v1/tickets/{ticketId}/comments",
+    path: "/api/v1/tasks/{taskId}/comments",
     tags: ["Comments"],
     summary: "Add a comment",
     description:
-      "The body is validated **before** the parent ticket is looked up, so a bad payload against a missing ticket is a 422 rather than a 404. Adding a comment does not touch the ticket's updatedAt.",
+      "`author` is the X-Actor header. Comments are open to every actor, even on a task another agent has claimed — and a comment from the claim holder renews its lease. Otherwise adding a comment touches neither the task's version nor its updatedAt. The body is validated **before** the parent task is looked up, so a bad payload against a missing task is a 422 rather than a 404.",
     request: {
-      params: z.object({ ticketId: ticketIdParam() }),
+      params: z.object({ taskId: taskIdParam() }),
       body: {
         required: true,
         content: { "application/json": { schema: createCommentInputSchema } },
@@ -52,36 +51,35 @@ export function registerCommentPaths(): void {
         headers: {
           Location: {
             description: "URL of the created comment.",
-            schema: { type: "string", example: "/api/v1/tickets/42/comments/191" },
+            schema: { type: "string", example: "/api/v1/tasks/42/comments/191" },
           },
         },
         content: { "application/json": { schema: CommentComponent } },
       },
       ...bodyParserResponses(),
       404: errorResponse(
-        "No such parent ticket. Checked explicitly rather than left to the foreign key, which would surface as a 500.",
-        ["TICKET_NOT_FOUND"],
+        "No such parent task. Checked explicitly rather than left to the foreign key, which would surface as a 500.",
+        ["TASK_NOT_FOUND"],
       ),
-      422: errorResponse("A field failed validation. `details` maps field name to messages.", [
-        "VALIDATION_ERROR",
-      ]),
-      500: INTERNAL_ERROR_RESPONSE,
-      default: defaultErrorResponse,
+      422: errorResponse(
+        `A field failed validation. \`details\` maps field name to messages. ${ACTOR_422_NOTE}`,
+        ["VALIDATION_ERROR"],
+      ),
     },
   });
 
-  registry.registerPath({
+  registerV1Path({
     method: "delete",
-    path: "/api/v1/tickets/{ticketId}/comments/{commentId}",
+    path: "/api/v1/tasks/{taskId}/comments/{commentId}",
     tags: ["Comments"],
     summary: "Delete a comment",
     description:
-      "Scoped by both ids. A comment belonging to a different ticket is a 404, identical to one that does not exist — so this path cannot be walked to enumerate another ticket's comment ids.",
+      "Scoped by both ids. A comment belonging to a different task is a 404, identical to one that does not exist — so this path cannot be walked to enumerate another task's comment ids.",
     request: {
       params: z.object({
-        ticketId: ticketIdParam(),
+        taskId: taskIdParam(),
         commentId: commentIdParamSchema.meta({
-          description: "Id of the comment, which must belong to this ticket.",
+          description: "Id of the comment, which must belong to this task.",
           example: 191,
         }),
       }),
@@ -89,11 +87,12 @@ export function registerCommentPaths(): void {
     responses: {
       204: { description: "Deleted. No body." },
       404: errorResponse(
-        "No such comment, the comment belongs to another ticket, or no such ticket — all three are the same 404 on purpose.",
+        "No such comment, the comment belongs to another task, or no such task — all three are the same 404 on purpose.",
         ["COMMENT_NOT_FOUND"],
       ),
-      500: INTERNAL_ERROR_RESPONSE,
-      default: defaultErrorResponse,
+      422: errorResponse(`Only the X-Actor header can fail here. ${ACTOR_422_NOTE}`, [
+        "VALIDATION_ERROR",
+      ]),
     },
   });
 }

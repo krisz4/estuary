@@ -9,8 +9,9 @@
 # origin, so the browser issues no cross-origin request and no CORS preflight.
 # Port 4000 is published anyway, for curl and for direct use of Swagger UI.
 #
-# Both published ports are bound to 127.0.0.1: this app has no authentication,
-# so the default all-interfaces binding would hand ticket CRUD to the LAN.
+# Both published ports are bound to 127.0.0.1: without API_TOKEN the API has no
+# access control, so the default all-interfaces binding would hand task CRUD to
+# the LAN.
 
 name: helpdesk
 
@@ -21,10 +22,10 @@ services:
       dockerfile: apps/api/Dockerfile
     image: helpdesk-api:local
     ports:
-      # **Bound to loopback, not to every interface.** This app has no
-      # authentication by design, which is why `apps/api/env.example` ships
+      # **Bound to loopback, not to every interface.** Without API_TOKEN this
+      # API has no access control, which is why `apps/api/env.example` ships
       # `HOST=127.0.0.1` for local development — a bare `"4000:4000"` undoes
-      # exactly that, publishing full ticket CRUD (including DELETE) to everyone
+      # exactly that, publishing full task CRUD (including DELETE) to everyone
       # on the network. Every documented use is from this machine: the browser,
       # curl, Swagger UI. To reach the stack from another device, change this
       # deliberately and know what is being exposed.
@@ -48,11 +49,21 @@ services:
       # both ports (dev 5173, preview 4173) are listed: they are four distinct
       # origins to a browser.
       ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
-      # Demo data on a clean volume. The entrypoint checks the ticket table is
+      # Demo data on a clean volume. The entrypoint checks the task table is
       # empty first, so restarting never wipes what a reviewer added.
       SEED_ON_START: "true"
       LOG_LEVEL: info
       DOCS_ENABLED: "true"
+      # Passed through from the shell (or a `.env` beside this file) so a
+      # self-hoster can set them without editing the file. Empty means "use the
+      # default" — lib/env.ts treats a blank value as absent. See
+      # docs/engineering/ENVIRONMENT_VARIABLES.md.
+      #   API_TOKEN            optional bearer gate on /api/v1 (min 16 chars)
+      #   AGENTS_MAY_COMPLETE  let agent: actors move tasks to done (default false)
+      #   CLAIM_LEASE_MINUTES  claim lease length (default 30)
+      API_TOKEN: ${API_TOKEN:-}
+      AGENTS_MAY_COMPLETE: ${AGENTS_MAY_COMPLETE:-}
+      CLAIM_LEASE_MINUTES: ${CLAIM_LEASE_MINUTES:-}
     volumes:
       # Named, so the database survives `docker compose down`. `down -v` is the
       # documented way to start over.
@@ -62,7 +73,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-      # Migrate + seed runs before the port is bound; 63 tickets and ~180
+      # Migrate + seed runs before the port is bound; 63 tasks and ~180
       # comments on a cold SQLite file is well under this, and a start_period
       # means the attempts made during it do not count toward `retries`.
       start_period: 30s

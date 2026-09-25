@@ -1,48 +1,38 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type PaginatedTickets, type TicketSummary } from "@helpdesk/contracts";
+import { type PaginatedTasks, type TaskSummary } from "@helpdesk/contracts";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import { setViewportWidth } from "../../../vitest.setup";
-import { TicketsListPage } from "@/pages/tickets-list/TicketsListPage";
-import { mockApi } from "@/test/harness";
+import { TasksListPage } from "@/pages/tasks-list/TasksListPage";
+import { makeSummary, mockApi } from "@/test/harness";
 
 /* ------------------------------------------------------------------ *
  * Harness
  *
  * The network is mocked, not the query hooks: a test that mocks
- * `useTicketsQuery` proves the page renders whatever it is handed and says
+ * `useTasksQuery` proves the page renders whatever it is handed and says
  * nothing about the URL → request → render path, which is the entire subject of
  * these tests. Stage 13 moved this file off its own private `fetch` stub and
  * onto the shared MSW seam in `src/test/harness.tsx`.
  * ------------------------------------------------------------------ */
 
-const makeTicket = (id: number, overrides: Partial<TicketSummary> = {}): TicketSummary => ({
-  id,
-  reference: `HD-${String(id).padStart(6, "0")}`,
-  title: `Ticket ${id}`,
-  description: "Something is broken.",
-  status: "open",
-  priority: "medium",
-  category: "hardware",
-  requesterName: "Dana Reyes",
-  requesterEmail: "dana@example.com",
-  assignee: null,
-  createdAt: "2026-08-01T10:00:00.000Z",
-  updatedAt: "2026-08-01T10:00:00.000Z",
-  resolvedAt: null,
-  closedAt: null,
-  commentCount: 0,
-  ...overrides,
-});
+const makeTask = (id: number, overrides: Partial<TaskSummary> = {}): TaskSummary =>
+  makeSummary({
+    id,
+    reference: `TASK-${String(id).padStart(6, "0")}`,
+    title: `Task ${id}`,
+    status: "todo",
+    ...overrides,
+  });
 
-const page = (tickets: TicketSummary[], meta: Partial<PaginatedTickets["meta"]> = {}) => ({
-  data: tickets,
+const page = (tasks: TaskSummary[], meta: Partial<PaginatedTasks["meta"]> = {}) => ({
+  data: tasks,
   meta: {
     page: 1,
     pageSize: 20,
-    total: tickets.length,
+    total: tasks.length,
     totalPages: 1,
     hasNextPage: false,
     hasPrevPage: false,
@@ -82,34 +72,34 @@ const stubApi = ({ list }: FetchStub = {}) => {
   listGate = null;
 
   // Key order is load-bearing: the harness matches by path *suffix* and takes
-  // the first hit, and `/api/v1/tickets/facets` ends with `/tickets/facets`
+  // the first hit, and `/api/v1/tasks/facets` ends with `/tasks/facets`
   // before it ends with anything else. Declaring the list first would answer
-  // every facets request with a page of tickets. Same trap as the API's own
-  // route ordering (stage 8: facets before `:ticketId`).
+  // every facets request with a page of tasks. Same trap as the API's own
+  // route ordering (stage 8: facets before `:taskId`).
   const { requests } = mockApi({
-    "GET /tickets/facets": () => ({
-      body: { assignees: ["Alice Chen"], categories: ["hardware"] },
+    "GET /tasks/facets": () => ({
+      body: { assignees: ["Alice Chen"], projects: ["helpdesk"], creators: ["agent:claude-code"] },
     }),
-    "GET /tickets": async ({ url }) => {
+    "GET /tasks": async ({ url }) => {
       listRequests.push(url.searchParams);
       if (listGate !== null) await listGate.promise;
-      return list?.(url.searchParams) ?? { body: page([makeTicket(1)]) };
+      return list?.(url.searchParams) ?? { body: page([makeTask(1)]) };
     },
   });
 
   return requests;
 };
 
-const renderPage = (entry = "/tickets") => {
+const renderPage = (entry = "/tasks") => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
   });
 
   const router = createMemoryRouter(
     [
-      { path: "/tickets", element: <TicketsListPage /> },
-      { path: "/tickets/new", element: <p>Create page</p> },
-      { path: "/tickets/:ticketId", element: <p>Detail page</p> },
+      { path: "/tasks", element: <TasksListPage /> },
+      { path: "/tasks/new", element: <p>Create page</p> },
+      { path: "/tasks/:taskId", element: <p>Detail page</p> },
     ],
     { initialEntries: [entry] },
   );
@@ -131,24 +121,24 @@ beforeEach(() => {
  * States
  * ------------------------------------------------------------------ */
 
-describe("TicketsListPage states", () => {
+describe("TasksListPage states", () => {
   it("shows a skeleton before the first response, not a blank page", async () => {
     stubApi();
     renderPage();
 
-    expect(screen.getByRole("table", { name: /loading tickets/i })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: /loading tasks/i })).toBeInTheDocument();
     await screen.findByRole("table", { name: /sorted by/i });
   });
 
   it("renders the rows and the count once loaded", async () => {
-    stubApi({ list: () => ({ body: page([makeTicket(1), makeTicket(2)], { total: 2 }) }) });
+    stubApi({ list: () => ({ body: page([makeTask(1), makeTask(2)], { total: 2 }) }) });
     renderPage();
 
-    expect(await screen.findByRole("link", { name: "HD-000001" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "TASK-000001" })).toHaveAttribute(
       "href",
-      "/tickets/1",
+      "/tasks/1",
     );
-    expect(screen.getByText("Showing 1–2 of 2 tickets")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–2 of 2 tasks")).toBeInTheDocument();
   });
 
   it("shows an error panel with a working retry", async () => {
@@ -174,25 +164,25 @@ describe("TicketsListPage states", () => {
     stubApi({ list: () => ({ body: page([]) }) });
     renderPage();
 
-    expect(await screen.findByText("No tickets yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /create the first ticket/i })).toBeInTheDocument();
+    expect(await screen.findByText("No tasks yet")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /create the first task/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /clear filters/i })).not.toBeInTheDocument();
   });
 
   it("offers 'clear filters' when a filter matched nothing", async () => {
     stubApi({ list: () => ({ body: page([]) }) });
-    renderPage("/tickets?status=closed");
+    renderPage("/tasks?status=done");
 
-    expect(await screen.findByText("No tickets match these filters")).toBeInTheDocument();
+    expect(await screen.findByText("No tasks match these filters")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument();
-    expect(screen.queryByText("No tickets yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No tasks yet")).not.toBeInTheDocument();
   });
 
   it("offers 'back to page 1' past the end of a non-empty result", async () => {
     stubApi({
       list: () => ({ body: page([], { page: 9, total: 63, totalPages: 4, hasPrevPage: true }) }),
     });
-    renderPage("/tickets?page=9");
+    renderPage("/tasks?page=9");
 
     expect(await screen.findByText("Nothing on this page")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back to page 1" })).toBeInTheDocument();
@@ -201,7 +191,7 @@ describe("TicketsListPage states", () => {
   it("dims and marks busy while refetching instead of blanking", async () => {
     stubApi({
       list: (query) => ({
-        body: page([makeTicket(Number(query.get("page") ?? 1))], {
+        body: page([makeTask(Number(query.get("page") ?? 1))], {
           page: Number(query.get("page") ?? 1),
           total: 63,
           totalPages: 4,
@@ -211,7 +201,7 @@ describe("TicketsListPage states", () => {
     });
     renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
+    await screen.findByRole("link", { name: "TASK-000001" });
 
     const release = holdListResponses();
     await userEvent.click(screen.getByRole("button", { name: "Next page" }));
@@ -225,10 +215,10 @@ describe("TicketsListPage states", () => {
     // The previous page's rows are still mounted inside the busy container —
     // dimmed, not replaced by a skeleton.
     expect(within(busy).getByRole("table")).toBeInTheDocument();
-    expect(within(busy).getByRole("link", { name: "HD-000001" })).toBeInTheDocument();
+    expect(within(busy).getByRole("link", { name: "TASK-000001" })).toBeInTheDocument();
 
     release();
-    await screen.findByRole("link", { name: "HD-000002" });
+    await screen.findByRole("link", { name: "TASK-000002" });
   });
 });
 
@@ -236,19 +226,19 @@ describe("TicketsListPage states", () => {
  * The URL rules
  * ------------------------------------------------------------------ */
 
-describe("TicketsListPage URL behaviour", () => {
+describe("TasksListPage URL behaviour", () => {
   it("resets page to 1 when a filter changes", async () => {
     stubApi({
       list: (query) => ({
-        body: page([makeTicket(1)], { page: Number(query.get("page") ?? 1), total: 63 }),
+        body: page([makeTask(1)], { page: Number(query.get("page") ?? 1), total: 63 }),
       }),
     });
-    const router = renderPage("/tickets?page=3");
+    const router = renderPage("/tasks?page=3");
 
-    await screen.findByRole("link", { name: "HD-000001" });
-    await userEvent.click(screen.getByRole("checkbox", { name: "Open" }));
+    await screen.findByRole("link", { name: "TASK-000001" });
+    await userEvent.click(screen.getByRole("checkbox", { name: "To do" }));
 
-    await waitFor(() => expect(router.state.location.search).toContain("status=open"));
+    await waitFor(() => expect(router.state.location.search).toContain("status=todo"));
     expect(router.state.location.search).not.toContain("page=3");
     // The claim is about the *request*, not only the URL: an empty page 3 of a
     // 1-page result is what this rule exists to prevent.
@@ -258,7 +248,7 @@ describe("TicketsListPage URL behaviour", () => {
   it("keeps the filters when only the page changes", async () => {
     stubApi({
       list: (query) => ({
-        body: page([makeTicket(1)], {
+        body: page([makeTask(1)], {
           page: Number(query.get("page") ?? 1),
           total: 63,
           totalPages: 4,
@@ -266,21 +256,21 @@ describe("TicketsListPage URL behaviour", () => {
         }),
       }),
     });
-    const router = renderPage("/tickets?status=open");
+    const router = renderPage("/tasks?status=todo");
 
-    await screen.findByRole("link", { name: "HD-000001" });
+    await screen.findByRole("link", { name: "TASK-000001" });
     await userEvent.click(screen.getByRole("button", { name: "Next page" }));
 
     await waitFor(() => expect(router.state.location.search).toContain("page=2"));
-    expect(router.state.location.search).toContain("status=open");
-    expect(listRequests.at(-1)?.getAll("status")).toEqual(["open"]);
+    expect(router.state.location.search).toContain("status=todo");
+    expect(listRequests.at(-1)?.getAll("status")).toEqual(["todo"]);
   });
 
   it("sorts through the URL when a column header is clicked", async () => {
     stubApi();
     const router = renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
+    await screen.findByRole("link", { name: "TASK-000001" });
     await userEvent.click(screen.getByRole("button", { name: /sort by priority/i }));
 
     await waitFor(() => expect(router.state.location.search).toContain("sort=priority%3Adesc"));
@@ -289,21 +279,21 @@ describe("TicketsListPage URL behaviour", () => {
 
   it("never forwards an unknown parameter to the API", async () => {
     stubApi();
-    renderPage("/tickets?utm_source=slack&status=open");
+    renderPage("/tasks?utm_source=slack&status=todo");
 
-    await screen.findByRole("link", { name: "HD-000001" });
+    await screen.findByRole("link", { name: "TASK-000001" });
 
     const request = listRequests.at(-1);
     expect(request?.get("utm_source")).toBeNull();
-    expect(request?.getAll("status")).toEqual(["open"]);
+    expect(request?.getAll("status")).toEqual(["todo"]);
   });
 
   it("does not rewrite the box when the user types a trailing space", async () => {
     stubApi();
     renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
-    const box = screen.getByRole("searchbox", { name: /search tickets/i });
+    await screen.findByRole("link", { name: "TASK-000001" });
+    const box = screen.getByRole("searchbox", { name: /search tasks/i });
 
     // Commit a value that differs from its trimmed form, let it land in the URL,
     // then keep typing. Recording the untrimmed text as "what we committed" made
@@ -323,8 +313,8 @@ describe("TicketsListPage URL behaviour", () => {
     stubApi();
     const router = renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
-    const open = screen.getByRole("checkbox", { name: "Open" });
+    await screen.findByRole("link", { name: "TASK-000001" });
+    const open = screen.getByRole("checkbox", { name: "To do" });
     const urgent = screen.getByRole("checkbox", { name: "Urgent" });
 
     // Dispatched without awaiting a commit in between, so both handlers run
@@ -335,35 +325,35 @@ describe("TicketsListPage URL behaviour", () => {
     });
 
     await waitFor(() => expect(router.state.location.search).toContain("priority=urgent"));
-    expect(router.state.location.search).toContain("status=open");
+    expect(router.state.location.search).toContain("status=todo");
   });
 
   it("keeps both values when two chips in the *same* group are clicked in one frame", async () => {
     stubApi();
     const router = renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
+    await screen.findByRole("link", { name: "TASK-000001" });
 
     // Two chips in one group is the case the previous test cannot see: with two
     // different groups, each write touches a different field and a stale base
     // still produces the right merge. Within one group both writes target
     // `status`, so a chip that computes the next array from its render-time
-    // props sends ["open"] and then ["closed"] — and the first disappears.
+    // props sends ["todo"] and then ["done"] — and the first disappears.
     act(() => {
-      fireEvent.click(screen.getByRole("checkbox", { name: "Open" }));
-      fireEvent.click(screen.getByRole("checkbox", { name: "Closed" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "To do" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Done" }));
     });
 
-    await waitFor(() => expect(router.state.location.search).toContain("status=closed"));
-    expect(listRequests.at(-1)?.getAll("status")).toEqual(["open", "closed"]);
+    await waitFor(() => expect(router.state.location.search).toContain("status=done"));
+    expect(listRequests.at(-1)?.getAll("status")).toEqual(["todo", "done"]);
   });
 
   it("debounces the search box, so seven keystrokes are one request", async () => {
     stubApi();
     renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
-    await userEvent.type(screen.getByRole("searchbox", { name: /search tickets/i }), "printer");
+    await screen.findByRole("link", { name: "TASK-000001" });
+    await userEvent.type(screen.getByRole("searchbox", { name: /search tasks/i }), "printer");
 
     await waitFor(() => expect(listRequests.at(-1)?.get("q")).toBe("printer"));
 
@@ -381,13 +371,13 @@ describe("TicketsListPage URL behaviour", () => {
  * Responsive
  * ------------------------------------------------------------------ */
 
-describe("TicketsListPage responsive swap", () => {
+describe("TasksListPage responsive swap", () => {
   it("renders the table and no cards at 1280", async () => {
     stubApi();
     setViewportWidth(1280);
     renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
+    await screen.findByRole("link", { name: "TASK-000001" });
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
@@ -397,7 +387,7 @@ describe("TicketsListPage responsive swap", () => {
     setViewportWidth(768);
     renderPage();
 
-    await screen.findByRole("link", { name: "HD-000001" });
+    await screen.findByRole("link", { name: "TASK-000001" });
     expect(screen.getByRole("table")).toBeInTheDocument();
   });
 
@@ -406,23 +396,96 @@ describe("TicketsListPage responsive swap", () => {
     setViewportWidth(360);
     renderPage();
 
-    await screen.findByRole("link", { name: /HD-000001/ });
+    await screen.findByRole("link", { name: /TASK-000001/ });
     // Not "the table is hidden" — it is not in the document at all, so there is
-    // no second copy of every ticket link to keep in step.
+    // no second copy of every task link to keep in step.
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByRole("list")).toBeInTheDocument();
     // The whole card is the link, which is the tradeoff the table cannot make.
-    expect(screen.getByRole("link", { name: /HD-000001/ })).toHaveAttribute("href", "/tickets/1");
+    expect(screen.getByRole("link", { name: /TASK-000001/ })).toHaveAttribute("href", "/tasks/1");
   });
 
   it("puts the filters behind a sheet trigger below md and inline above it", async () => {
     stubApi();
     setViewportWidth(360);
-    renderPage("/tickets?status=open&priority=urgent");
+    renderPage("/tasks?status=todo&priority=urgent");
 
-    await screen.findByRole("link", { name: /HD-000001/ });
+    await screen.findByRole("link", { name: /TASK-000001/ });
     expect(screen.getByRole("button", { name: /filters, 2 active/i })).toBeInTheDocument();
     // The chip group lives in the sheet, so it is not rendered until it opens.
-    expect(screen.queryByRole("checkbox", { name: "Open" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "To do" })).not.toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Who and where: project and creator
+ * ------------------------------------------------------------------ */
+
+describe("TasksListPage — project and creator", () => {
+  it("forwards project and createdBy filters from the URL to the request", async () => {
+    stubApi();
+    renderPage("/tasks?project=helpdesk&project=mcp-server&createdBy=agent%3Aclaude-code");
+
+    await screen.findByRole("link", { name: "TASK-000001" });
+    expect(listRequests.at(-1)?.getAll("project")).toEqual(["helpdesk", "mcp-server"]);
+    expect(listRequests.at(-1)?.get("createdBy")).toBe("agent:claude-code");
+  });
+
+  it("drops a project that is not a slug and a creator that is not an actor, keeping the rest", async () => {
+    stubApi();
+    renderPage("/tasks?project=Not%20A%20Slug&project=helpdesk&createdBy=claude&status=todo");
+
+    await screen.findByRole("link", { name: "TASK-000001" });
+    expect(listRequests.at(-1)?.getAll("project")).toEqual(["helpdesk"]);
+    expect(listRequests.at(-1)?.get("createdBy")).toBeNull();
+    expect(listRequests.at(-1)?.getAll("status")).toEqual(["todo"]);
+  });
+
+  it("shows each row's project and an agent/human creator in the table", async () => {
+    stubApi({
+      list: () => ({
+        body: page([
+          makeTask(1, { project: "helpdesk", createdBy: "agent:claude-code" }),
+          makeTask(2, { project: null, createdBy: "human:krisz" }),
+        ]),
+      }),
+    });
+    renderPage();
+
+    await screen.findByRole("link", { name: "TASK-000001" });
+    const [, first, second] = screen.getAllByRole("row");
+    expect(first).toHaveTextContent("helpdesk");
+    expect(first).toHaveTextContent("Agent claude-code");
+    expect(second).toHaveTextContent("Human krisz");
+  });
+
+  it("flags a claimed row and an open question under its title", async () => {
+    stubApi({
+      list: () => ({
+        body: page([
+          makeTask(1, {
+            claim: { actor: "agent:claude-code", expiresAt: "2099-01-01T00:00:00.000Z" },
+            openDependencyCount: 1,
+          }),
+        ]),
+      }),
+    });
+    renderPage();
+
+    await screen.findByRole("link", { name: "TASK-000001" });
+    const [, row] = screen.getAllByRole("row");
+    expect(row).toHaveTextContent("Claimed by claude-code");
+    expect(row).toHaveTextContent("Waits on 1 task");
+  });
+
+  it("shows the creator on the mobile card too", async () => {
+    stubApi({
+      list: () => ({ body: page([makeTask(1, { createdBy: "agent:claude-code" })]) }),
+    });
+    setViewportWidth(360);
+    renderPage();
+
+    const card = await screen.findByRole("link", { name: /TASK-000001/ });
+    expect(card).toHaveTextContent("Agent claude-code");
   });
 });

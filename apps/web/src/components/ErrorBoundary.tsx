@@ -65,20 +65,20 @@ export class ErrorBoundary extends Component<Props, State> {
         <h1 className="text-lg font-semibold text-foreground">This page stopped working</h1>
         <p className="text-sm text-muted-foreground">
           An unexpected error broke the screen. The rest of the app still works — try again, or go
-          back to the ticket list.
+          back to the task list.
         </p>
         <div className="flex flex-wrap gap-2 pt-1">
           <Button onClick={this.reset}>Try again</Button>
           <Button asChild variant="outline">
             {/*
               `onClick` resets as well as navigating. `resetKey` is the pathname,
-              so a crash *on* /tickets makes this link a same-path navigation —
+              so a crash *on* /tasks makes this link a same-path navigation —
               the key never changes, the boundary never clears, and the most
               prominent escape hatch does nothing. That is precisely the list
               page, which is where a crash is most likely.
             */}
-            <Link to="/tickets" onClick={this.reset}>
-              Back to tickets
+            <Link to="/tasks" onClick={this.reset}>
+              Back to tasks
             </Link>
           </Button>
         </div>

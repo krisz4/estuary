@@ -1,6 +1,12 @@
 # Implementation plan
 
-Build order for the helpdesk system, from an empty repo to a dockerised, tested, documented app.
+> **Historical.** This describes the original build order for the **helpdesk ticketing system** —
+> the code challenge this project started as, before the pivot to an AI task manager (agents via
+> MCP + humans). It is left unedited as a record of how the initial system was built; it does not
+> describe current behavior. For the system as it stands, start at [../AGENTS.md](../AGENTS.md) and
+> [../features/README.md](../features/README.md).
+
+Build order for the original helpdesk system, from an empty repo to a dockerised, tested, documented app.
 
 The specs in `docs/` describe the **finished** system; this file describes the **order** in which to reach it and the gate that closes each stage. Where the two disagree, the spec wins — this is a schedule, not a source of truth.
 
@@ -38,11 +44,11 @@ Turborepo task graph: `build` depends on `^build`, `typecheck` depends on `^buil
 
 | | |
 | --- | --- |
-| **Deliverables** | `src/errors.ts` (`ApiErrorCode` union, envelope schema), `src/pagination.ts` (`meta` shape), `src/ticket.ts` (enums, create/update/response schemas), `src/ticket-query.ts` (`ticketListQuerySchema`), `src/comment.ts`, `src/index.ts` barrel, plus `*.test.ts` for each |
+| **Deliverables** | `src/errors.ts` (`ApiErrorCode` union, envelope schema), `src/pagination.ts` (`meta` shape), `src/task.ts` (enums, create/update/response schemas), `src/task-query.ts` (`taskListQuerySchema`), `src/comment.ts`, `src/index.ts` barrel, plus `*.test.ts` for each |
 | **Depends on** | 1 |
 | **Gate** | `pnpm --filter @helpdesk/contracts test` green; package builds and imports cleanly from a scratch file in both a Node and a Vite context |
 
-Reference: [../features/Validation_And_Contracts.md](../features/Validation_And_Contracts.md), [../features/Tickets.md](../features/Tickets.md), [../features/Ticket_Query_Filter_Sort_Page.md](../features/Ticket_Query_Filter_Sort_Page.md).
+Reference: [../features/Validation_And_Contracts.md](../features/Validation_And_Contracts.md), [../features/Tasks.md](../features/Tasks.md), [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md).
 
 Build these four behaviors here, not later — every one of them is a downstream bug if deferred:
 
@@ -63,9 +69,9 @@ The `ApiErrorCode` union must match [API_ERROR_CONTRACT.md](./API_ERROR_CONTRACT
 
 | | |
 | --- | --- |
-| **Deliverables** | `apps/api/prisma/schema.prisma`, migration `init_ticket_and_comment`, `src/lib/prisma.ts`, `src/lib/env.ts` (zod-parsed, the only `process.env` reader), `apps/api/env.example` |
+| **Deliverables** | `apps/api/prisma/schema.prisma`, migration `init_task_and_comment`, `src/lib/prisma.ts`, `src/lib/env.ts` (zod-parsed, the only `process.env` reader), `apps/api/env.example` |
 | **Depends on** | 2 |
-| **Gate** | `db:migrate` applies to an empty file; `prisma generate` succeeds; a scratch script writes and reads a ticket |
+| **Gate** | `db:migrate` applies to an empty file; `prisma generate` succeeds; a scratch script writes and reads a task |
 
 Schema exactly as [DATABASE.md](./DATABASE.md) specifies — both rank columns and all seven indexes in the first migration, so no follow-up migration is needed to make sorting work.
 
@@ -88,13 +94,13 @@ the code. This line said the reverse until stage 4 proved it wrong.
 
 Handle the two body-parser failures **now**. They arrive as `entity.parse.failed` and `entity.too.large` on the error object rather than as anything route-shaped, and retrofitting them once routes exist means re-testing every endpoint. `GET /health` sits at the root, outside `/api/v1`, because Docker healthchecks it.
 
-`serialize.ts` owns `Date` → ISO conversion and computes `reference` (`HD-000042`). It is a single function so no route can forget it.
+`serialize.ts` owns `Date` → ISO conversion and computes `reference` (`TASK-000042`). It is a single function so no route can forget it.
 
 ### Stage 5 · Test harness
 
 | | |
 | --- | --- |
-| **Deliverables** | `apps/api/vitest.config.ts`, `vitest.setup.ts` (registered as `setupFiles`), `vitest.globalSetup.ts`, `src/test/factories.ts` (`makeTicket`, `makeComment`) |
+| **Deliverables** | `apps/api/vitest.config.ts`, `vitest.setup.ts` (registered as `setupFiles`), `vitest.globalSetup.ts`, `src/test/factories.ts` (`makeTask`, `makeComment`) |
 | **Depends on** | 4 |
 | **Gate** | A throwaway service test passes **and** `apps/api/prisma/data/helpdesk.db` has an unchanged mtime afterwards. Two test files running in parallel do not deadlock |
 
@@ -104,18 +110,18 @@ Each worker gets `${os.tmpdir()}/helpdesk-test-${VITEST_WORKER_ID}.db`, migrated
 
 Verify the mtime assertion by hand once. It is the only check that proves the isolation actually works, and it is cheap insurance against the failure mode that costs a developer their local data.
 
-### Stage 6 · Ticket service — CRUD, status lifecycle, ranks
+### Stage 6 · Task service — CRUD, status lifecycle, ranks
 
 | | |
 | --- | --- |
-| **Deliverables** | `services/ticket-status.ts` (`STATUS_RANK`, `PRIORITY_RANK`, `applyTicketRanks`, `assertTransition`, `applyStatusSideEffects`), `services/ticket.service.ts` (get / create / update / delete / facets), unit tests |
+| **Deliverables** | `services/task-status.ts` (`STATUS_RANK`, `PRIORITY_RANK`, `applyTaskRanks`, `assertTransition`, `applyStatusSideEffects`), `services/task.service.ts` (get / create / update / delete / facets), unit tests |
 | **Depends on** | 5 |
-| **Gate** | Every ticket + lifecycle case in [TESTING.md](./TESTING.md) passes at the service level |
+| **Gate** | Every task + lifecycle case in [TESTING.md](./TESTING.md) passes at the service level |
 
 The invariants that need tests written alongside the code, not after:
 
-- **`applyTicketRanks()` is the only writer of `statusRank` / `priorityRank`.** Assert it by *sorting*, never by reading the column — a test that reads the column passes even when a second write path bypasses the helper.
-- **Same-status PATCH performs no write.** Assert `updatedAt` is unchanged. "No-op" must mean no write, not a write of identical values, or `@updatedAt` bumps the ticket to the top of an `updatedAt` sort for free.
+- **`applyTaskRanks()` is the only writer of `statusRank` / `priorityRank`.** Assert it by *sorting*, never by reading the column — a test that reads the column passes even when a second write path bypasses the helper.
+- **Same-status PATCH performs no write.** Assert `updatedAt` is unchanged. "No-op" must mean no write, not a write of identical values, or `@updatedAt` bumps the task to the top of an `updatedAt` sort for free.
 - **Reopening from `resolved` *or* `closed` clears both timestamps.** `resolved → in_progress` is the case that gets missed and strands a stale `resolvedAt`.
 - **`closed → resolved` is the only illegal transition** → 409 with `details: { from, to, allowed }`.
 - **PATCH and DELETE check existence explicitly** before writing, rather than relying on Prisma `P2025`.
@@ -124,7 +130,7 @@ The invariants that need tests written alongside the code, not after:
 
 | | |
 | --- | --- |
-| **Deliverables** | `services/ticket-query.ts` (`buildWhere`, `buildOrderBy`, `parseReference`), paging via `prisma.$transaction([findMany, count])`, `lib/pagination.ts` |
+| **Deliverables** | `services/task-query.ts` (`buildWhere`, `buildOrderBy`, `parseReference`), paging via `prisma.$transaction([findMany, count])`, `lib/pagination.ts` |
 | **Depends on** | 6 |
 | **Gate** | The full "List query" section of [TESTING.md](./TESTING.md) passes — it is the longest list in that document for a reason |
 
@@ -132,10 +138,10 @@ The invariants that need tests written alongside the code, not after:
 
 | Trap | Symptom if wrong | The test that catches it |
 | ---- | ---------------- | ------------------------ |
-| `q` branches hoisted to the top-level `AND` | Search *widens* past the active filters | A ticket matching `q` but not the status filter is absent |
+| `q` branches hoisted to the top-level `AND` | Search *widens* past the active filters | A task matching `q` but not the status filter is absent |
 | Priority sorted as text | `high` before `urgent` | Sorting by priority puts `urgent` first |
 | No `id` tiebreaker on non-unique sorts | Rows repeat or vanish across pages | Page 1 ∪ page 2 ids are disjoint and cover the set |
-| `createdTo` as a naive `lte` | The named day is excluded — reads as off-by-one | `createdTo` = a ticket's own creation date includes it |
+| `createdTo` as a naive `lte` | The named day is excluded — reads as off-by-one | `createdTo` = a task's own creation date includes it |
 
 The `q` clause is **one `OR` group nested inside the top-level `AND`**. `createdTo` expands to exclusive-next-day. The `{ id: "desc" }` tiebreaker is appended except when `id` is already the sort field. `totalPages` is `Math.max(1, ceil(total / pageSize))` so the pager never renders "Page 1 of 0"; `hasNextPage` is `page < totalPages`, so it is `false` on an over-the-end page.
 
@@ -145,18 +151,18 @@ The `q` clause is **one `OR` group nested inside the top-level `AND`**. `created
 
 | | |
 | --- | --- |
-| **Deliverables** | `routes/tickets.route.ts`, `routes/comments.route.ts`, `services/comment.service.ts`, router mounting under `/api/v1`, integration tests |
+| **Deliverables** | `routes/tasks.route.ts`, `routes/comments.route.ts`, `services/comment.service.ts`, router mounting under `/api/v1`, integration tests |
 | **Depends on** | 7 |
 | **Gate** | Every error code in [API_ERROR_CONTRACT.md](./API_ERROR_CONTRACT.md) has a test that produces it. Routes contain no Prisma import; services contain no `req`/`res` |
 
 Two ordering rules that fail confusingly if missed:
 
-- **`/tickets/facets` is declared before `/tickets/:ticketId`**, or `facets` parses as an id, fails numeric coercion, and 404s.
-- **A non-numeric `:ticketId` returns 404, not 422.** A malformed id and a missing ticket are indistinguishable to a caller.
+- **`/tasks/facets` is declared before `/tasks/:taskId`**, or `facets` parses as an id, fails numeric coercion, and 404s.
+- **A non-numeric `:taskId` returns 404, not 422.** A malformed id and a missing task are indistinguishable to a caller.
 
-Comments: `POST` does an explicit `findUnique` on the parent first — a missing parent raises Prisma `P2003`, not `P2025`, so an unguarded insert surfaces as a 500 instead of the documented 404. `DELETE` scopes by both ids with `deleteMany({ where: { id, ticketId } })` and treats a zero count as `COMMENT_NOT_FOUND`, so the path cannot probe for other tickets' comment ids.
+Comments: `POST` does an explicit `findUnique` on the parent first — a missing parent raises Prisma `P2003`, not `P2025`, so an unguarded insert surfaces as a 500 instead of the documented 404. `DELETE` scopes by both ids with `deleteMany({ where: { id, taskId } })` and treats a zero count as `COMMENT_NOT_FOUND`, so the path cannot probe for other tasks' comment ids.
 
-`PUT` is deliberately not implemented. Comment writes do not touch `Ticket.updatedAt`.
+`PUT` is deliberately not implemented. Comment writes do not touch `Task.updatedAt`.
 
 ### Stage 9 · Seed + OpenAPI
 
@@ -164,11 +170,11 @@ Comments: `POST` does an explicit `findUnique` on the parent first — a missing
 | --- | --- |
 | **Deliverables** | `prisma/seed-data.ts` (fixture pools), `prisma/seed.ts`, `db:*` scripts, `lib/openapi.ts`, `openapi:gen` script, committed `openapi.json`, `/docs` Swagger UI behind `DOCS_ENABLED` |
 | **Depends on** | 8 |
-| **Gate** | `pnpm --filter @helpdesk/api db:reset` yields 63 tickets that page, filter, and sort correctly through the real API; `/docs` renders every endpoint |
+| **Gate** | `pnpm --filter @helpdesk/api db:reset` yields 63 tasks that page, filter, and sort correctly through the real API; `/docs` renders every endpoint |
 
 Seed lands before any UI work so the list page has realistic data from its first render. Per [../features/Seed_Data.md](../features/Seed_Data.md): fixed PRNG seed, idempotent (wipes first), guarded by `ALLOW_SEED` rather than `NODE_ENV`, ids left to autoincrement, `createdAt` spread over 90 days, ~30% unassigned, several comments deliberately colliding in the same millisecond.
 
-The seed writes ranks **through `applyTicketRanks()`**. Seeding around the helper produces data that sorts differently from data created through the API — a genuinely confusing bug to chase.
+The seed writes ranks **through `applyTaskRanks()`**. Seeding around the helper produces data that sorts differently from data created through the API — a genuinely confusing bug to chase.
 
 Tests never use the seed; that stays true from here on.
 
@@ -182,29 +188,29 @@ Tests never use the seed; that stays true from here on.
 | --- | --- |
 | **Deliverables** | Vite + React 19 + TS app, Tailwind config + tokens in `index.css`, `App.tsx` router, `components/layout/*` (header, skip link, landmarks), providers (QueryClient, Sonner, ErrorBoundary), `api/http.ts`, `api/queryKeys.ts`, `lib/cn.ts`, `lib/formatting.ts`, `lib/errorMessages.ts`, `apps/web/env.example` |
 | **Depends on** | 9 (needs a running API to develop against) |
-| **Gate** | `pnpm dev` serves web on 5173 against API on 4000 with no CORS error; a scratch component fetches `/tickets` and renders the count; dark mode toggles without an undefined token |
+| **Gate** | `pnpm dev` serves web on 5173 against API on 4000 with no CORS error; a scratch component fetches `/tasks` and renders the count; dark mode toggles without an undefined token |
 
-`/tickets/new` is declared **before** `/tickets/:ticketId` in the router. `http.ts` unwraps the envelope and turns any non-2xx into `ApiClientError { code, message, details, requestId, status }`; UI copy is keyed off `code` in `errorMessages.ts`, with an unrecognised code falling back to generic rather than rendering raw server text.
+`/tasks/new` is declared **before** `/tasks/:taskId` in the router. `http.ts` unwraps the envelope and turns any non-2xx into `ApiClientError { code, message, details, requestId, status }`; UI copy is keyed off `code` in `errorMessages.ts`, with an unrecognised code falling back to generic rather than rendering raw server text.
 
 Define both light and dark values for every token now. A color defined only in the light block looks wrong in dark, and finding those later means re-auditing every screen.
 
 Also build the `components/ui/` primitives here (Button, Input, Textarea, Select, Badge, Dialog, Skeleton) — every page in stages 11–12 consumes them, and building them per-page produces three slightly different buttons.
 
-### Stage 11 · Tickets list page
+### Stage 11 · Tasks list page
 
 | | |
 | --- | --- |
-| **Deliverables** | `pages/tickets-list/`, `useTicketListParams.ts`, `features/tickets/TicketFilterBar.tsx`, `TicketTable.tsx`, `TicketCardList.tsx`, `StatusBadge.tsx`, `PriorityBadge.tsx`, `Pagination.tsx`, `api/tickets.ts` hooks |
+| **Deliverables** | `pages/tasks-list/`, `useTaskListParams.ts`, `features/tasks/TaskFilterBar.tsx`, `TaskTable.tsx`, `TaskCardList.tsx`, `StatusBadge.tsx`, `PriorityBadge.tsx`, `Pagination.tsx`, `api/tasks.ts` hooks |
 | **Depends on** | 10 |
 | **Gate** | Filter, sort, and page all round-trip through the URL and survive reload and back/forward. Renders correctly at 360, 768, and 1280 |
 
 Built first among the pages because it exercises the URL-state helper, the query hooks, and the responsive rules that every other screen reuses.
 
-- **`useTicketListParams()` picks known keys** and validates them; it does **not** reuse the server's `.strict()` schema on raw params. A shared link carrying `?utm_source=slack` must not fail the parse and reset every filter. Invalid individual values fall back to that field's default.
+- **`useTaskListParams()` picks known keys** and validates them; it does **not** reuse the server's `.strict()` schema on raw params. A shared link carrying `?utm_source=slack` must not fail the parse and reset every filter. Invalid individual values fall back to that field's default.
 - **Changing any filter resets `page` to 1**; changing `page` never touches filters. Forgetting this lands users on an empty page 5 of a 1-page result — the most common bug on this screen.
 - `q` is debounced 300ms and written with `replace` so typing does not fill the history stack.
-- Assignee options come from `GET /tickets/facets`, which is what makes case-sensitive exact matching safe.
-- All four states wired, and the empty state **distinguishes "no tickets" from "no matches"** — "create" vs "clear filters".
+- Assignee options come from `GET /tasks/facets`, which is what makes case-sensitive exact matching safe.
+- All four states wired, and the empty state **distinguishes "no tasks" from "no matches"** — "create" vs "clear filters".
 - Below `md` the table is replaced by stacked cards. Row links are real `<a>` elements inside the row, not `onClick` on the `<tr>`.
 - Refetch keeps previous data visible at reduced opacity with `aria-busy` rather than blanking.
 
@@ -212,15 +218,15 @@ Built first among the pages because it exercises the URL-state helper, the query
 
 | | |
 | --- | --- |
-| **Deliverables** | `pages/ticket-detail/` (+ `features/comments/CommentThread.tsx`, `CommentComposer.tsx`, `StatusSelect.tsx`, `ConfirmDialog`), `pages/ticket-create/`, `pages/ticket-edit/`, shared `features/tickets/TicketForm.tsx`, `pages/not-found/` |
+| **Deliverables** | `pages/task-detail/` (+ `features/comments/CommentThread.tsx`, `CommentComposer.tsx`, `StatusSelect.tsx`, `ConfirmDialog`), `pages/task-create/`, `pages/task-edit/`, shared `features/tasks/TaskForm.tsx`, `pages/not-found/` |
 | **Depends on** | 11 |
 | **Gate** | Full CRUD works end to end in the browser: create → detail → comment → status change → edit → delete, each with its toast, each surviving reload |
 
-Order within the stage: **Detail, then Create, then Edit.** Detail is the landing target for create and the host for comments and delete; Create then establishes `TicketForm`, which Edit generalises to a partial PATCH. Building Edit first means writing the form twice.
+Order within the stage: **Detail, then Create, then Edit.** Detail is the landing target for create and the host for comments and delete; Create then establishes `TaskForm`, which Edit generalises to a partial PATCH. Building Edit first means writing the form twice.
 
 Forms use react-hook-form with the zod resolver from `packages/contracts` — the same schema the server enforces, never a second set of rules. A failed submit **keeps the typed values**, and a server `VALIDATION_ERROR` maps `details` onto the matching fields. The comment composer clears only on success.
 
-Mutations invalidate through `queryKeys` — `queryKeys.tickets.all` for list-affecting writes, `queryKeys.tickets.detail(id)` for comments — never inline key arrays. Delete confirms first and is irreversible.
+Mutations invalidate through `queryKeys` — `queryKeys.tasks.all` for list-affecting writes, `queryKeys.tasks.detail(id)` for comments — never inline key arrays. Delete confirms first and is irreversible.
 
 Descriptions and comment bodies render as escaped text nodes. No `dangerouslySetInnerHTML` anywhere.
 
@@ -228,7 +234,7 @@ Descriptions and comment bodies render as escaped text nodes. No `dangerouslySet
 
 | | |
 | --- | --- |
-| **Deliverables** | MSW handlers, tests for `TicketFilterBar`, `useTicketListParams`, `TicketForm`, the list page's three states, `ConfirmDialog` |
+| **Deliverables** | MSW handlers, tests for `TaskFilterBar`, `useTaskListParams`, `TaskForm`, the list page's three states, `ConfirmDialog` |
 | **Depends on** | 12 (write each test alongside its component, not batched after) |
 | **Gate** | `pnpm test:web` green |
 
@@ -246,7 +252,7 @@ MSW intercepts at the network layer so the real query hooks and fetch client are
 | **Depends on** | 9 for the API image; 12 for the web image |
 | **Gate** | `docker compose up` on a **clean volume** yields a working app with seeded data; `docker compose down && up` preserves the database |
 
-Entrypoint runs `prisma migrate deploy` — never `db push` — then seeds only when `SEED_ON_START=true` and the ticket table is empty. The DB file lives on a named volume so it survives `down`. `HOST=0.0.0.0` in the container. `VITE_API_BASE_URL` is the **browser-reachable** URL, not the compose service name: the request is made by the user's browser, not by the container. `ALLOWED_ORIGINS` lists both `localhost` and `127.0.0.1` — they are different origins to a browser.
+Entrypoint runs `prisma migrate deploy` — never `db push` — then seeds only when `SEED_ON_START=true` and the task table is empty. The DB file lives on a named volume so it survives `down`. `HOST=0.0.0.0` in the container. `VITE_API_BASE_URL` is the **browser-reachable** URL, not the compose service name: the request is made by the user's browser, not by the container. `ALLOWED_ORIGINS` lists both `localhost` and `127.0.0.1` — they are different origins to a browser.
 
 The clean-volume test is the one that matters. It is what catches a schema change that shipped without its migration.
 
@@ -260,7 +266,7 @@ The clean-volume test is the one that matters. It is what catches a schema chang
 
 A **third** database (`e2e/helpdesk-e2e.db`) — not the dev file, not the vitest temp files. `globalSetup` re-seeds from scratch each run so a crashed run never poisons the next.
 
-Because all specs share one database, **every mutating test creates its own ticket and acts on that one.** No spec may edit or delete a seeded ticket, or the run becomes order-dependent and fails only in CI. Running the suite shuffled is what proves this, which is why it is in the gate.
+Because all specs share one database, **every mutating test creates its own task and acts on that one.** No spec may edit or delete a seeded task, or the run becomes order-dependent and fails only in CI. Running the suite shuffled is what proves this, which is why it is in the gate.
 
 Spec 5 loads the list at 375px and asserts the card layout — the brief grades mobile explicitly.
 

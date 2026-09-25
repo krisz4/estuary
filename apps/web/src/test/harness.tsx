@@ -1,5 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type Comment, type Ticket } from "@helpdesk/contracts";
+import {
+  TASK_STATUSES,
+  type Comment,
+  type Decision,
+  type EventsResponse,
+  type PaginatedTasks,
+  type Task,
+  type TaskStats,
+  type TaskSummary,
+} from "@helpdesk/contracts";
 import { render, type RenderResult } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { type ReactNode } from "react";
@@ -9,7 +18,7 @@ import { harnessFaults, server } from "@/test/server";
 /**
  * Shared test scaffolding for the web screens.
  *
- * **The network is mocked, never the query hooks.** Mocking `useTicketQuery`
+ * **The network is mocked, never the query hooks.** Mocking `useTaskQuery`
  * would prove a component renders whatever it is handed and say nothing about
  * the request → cache → render path, which is most of what these screens do.
  *
@@ -26,33 +35,105 @@ import { harnessFaults, server } from "@/test/server";
  * throw at render, so the cheaper wrapper is not an option here.
  */
 
-export const makeTicket = (overrides: Partial<Ticket> = {}): Ticket => ({
+export const makeTask = (overrides: Partial<Task> = {}): Task => ({
   id: 42,
-  reference: "HD-000042",
-  title: "Projector shows no signal",
-  description: "Swapped the cable, still nothing.",
-  status: "open",
+  reference: "TASK-000042",
+  title: "Add rate limiting to the export endpoint",
+  description: "Exports time out under load; throttle per client.",
+  status: "todo",
+  statusNote: null,
   priority: "medium",
-  category: "hardware",
-  requesterName: "Dana Reyes",
-  requesterEmail: "dana@example.com",
-  assignee: "Marcus Feld",
+  project: "helpdesk",
+  assignee: null,
+  acceptanceCriteria: "Requests over 10/min get a 429.",
+  links: [],
+  parentId: null,
+  createdBy: "agent:claude-code",
+  claim: null,
+  version: 3,
+  openDependencyCount: 0,
+  openDecision: null,
   createdAt: "2026-08-01T10:00:00.000Z",
   updatedAt: "2026-08-01T10:00:00.000Z",
-  resolvedAt: null,
-  closedAt: null,
+  startedAt: null,
+  completedAt: null,
   commentCount: 0,
   comments: [],
+  decisions: [],
+  parent: null,
+  children: [],
+  dependencies: [],
+  dependents: [],
   ...overrides,
 });
 
+/** A list row: the task minus its thread and relations. */
+export const makeSummary = (overrides: Partial<TaskSummary> = {}): TaskSummary => {
+  const {
+    comments: _comments,
+    decisions: _decisions,
+    parent: _parent,
+    children: _children,
+    dependencies: _dependencies,
+    dependents: _dependents,
+    ...rest
+  } = makeTask();
+  return { ...rest, ...overrides };
+};
+
 export const makeComment = (overrides: Partial<Comment> = {}): Comment => ({
   id: 1,
-  ticketId: 42,
-  authorName: "Priya Nair",
+  taskId: 42,
+  author: "human:priya",
+  kind: "note",
   body: "Looking into it.",
   createdAt: "2026-08-01T11:00:00.000Z",
   ...overrides,
+});
+
+export const makeDecision = (overrides: Partial<Decision> = {}): Decision => ({
+  id: 7,
+  taskId: 42,
+  status: "open",
+  question: "Which limiter should we use?",
+  options: [
+    { label: "Token bucket", description: "Smooth, allows bursts." },
+    { label: "Fixed window" },
+  ],
+  recommendedOption: "Token bucket",
+  context: "Both are a day of work.",
+  requestedBy: "agent:claude-code",
+  choice: null,
+  note: null,
+  answeredBy: null,
+  createdAt: "2026-08-01T12:00:00.000Z",
+  answeredAt: null,
+  ...overrides,
+});
+
+export const makeStats = (overrides: Partial<TaskStats> = {}): TaskStats => ({
+  byStatus: Object.fromEntries(TASK_STATUSES.map((status) => [status, 0])) as TaskStats["byStatus"],
+  needsAttention: 0,
+  ...overrides,
+});
+
+/** `{ data, meta }` for a list handler, with `meta` consistent with `data`. */
+export const makePage = (data: TaskSummary[], pageSize = 20): PaginatedTasks => ({
+  data,
+  meta: {
+    page: 1,
+    pageSize,
+    total: data.length,
+    totalPages: Math.max(1, Math.ceil(data.length / pageSize)),
+    hasNextPage: false,
+    hasPrevPage: false,
+  },
+});
+
+/** An empty events feed — what every detail page asks for alongside the task. */
+export const emptyEvents = (): EventsResponse => ({
+  data: [],
+  meta: { nextAfter: 0, hasMore: false },
 });
 
 export type MockRequest = { method: string; url: URL; body: unknown };
@@ -65,7 +146,7 @@ export type RouteHandler = (request: MockRequest) => MockReply | Promise<MockRep
  * Installs MSW handlers for the API and returns the list of requests they saw.
  *
  * Handlers are keyed by `"<METHOD> <path-suffix>"` and matched by suffix, so a
- * test writes `"GET /tickets/42"` without repeating the base URL.
+ * test writes `"GET /tasks/42"` without repeating the base URL.
  *
  * One MSW handler is registered — `http.all("*")` — and the suffix dispatch
  * happens inside it, rather than translating each key into an MSW path pattern.
@@ -74,7 +155,7 @@ export type RouteHandler = (request: MockRequest) => MockReply | Promise<MockRep
  * what makes `requests` a complete record rather than a record of the requests
  * somebody remembered to declare.
  *
- * A handler may be async. `GET /tickets` awaiting a latch is how a test gets a
+ * A handler may be async. `GET /tasks` awaiting a latch is how a test gets a
  * window in which to observe the in-flight state.
  *
  * **An unmatched or ambiguous key fails the test**, via `harnessFaults` rather
@@ -82,18 +163,18 @@ export type RouteHandler = (request: MockRequest) => MockReply | Promise<MockRep
  * are test-authoring bugs and both used to be invisible:
  *
  * - *Unmatched.* Answering with a synthetic 404 made a mistyped key
- *   (`"GET /tickets/4"`, a stray space, the wrong method) look like a
+ *   (`"GET /tasks/4"`, a stray space, the wrong method) look like a
  *   well-formed not-found response, so a test would reach its asserted state
  *   for entirely the wrong reason — and it silently cancelled the
  *   `onUnhandledRequest: "error"` guarantee `server.ts` documents, because the
  *   catch-all means nothing is ever unhandled. A test that wants a 404 declares
  *   one.
  * - *Ambiguous.* Suffix matching genuinely can collide: `"POST /comments"` and
- *   `"POST /tickets/42/comments"` both match `POST /api/v1/tickets/42/comments`,
+ *   `"POST /tasks/42/comments"` both match `POST /api/v1/tasks/42/comments`,
  *   and **both spellings are in use across this suite**. First-match-wins would
  *   silently pick by object key order. (It does *not* collide for
- *   `/tickets` vs `/tickets/facets` — `"/api/v1/tickets/facets"` does not end
- *   with `"/tickets"` — so there is no route-ordering rule here, only this
+ *   `/tasks` vs `/tasks/facets` — `"/api/v1/tasks/facets"` does not end
+ *   with `"/tasks"` — so there is no route-ordering rule here, only this
  *   check.)
  */
 export const mockApi = (handlers: Record<string, RouteHandler>): { requests: MockRequest[] } => {

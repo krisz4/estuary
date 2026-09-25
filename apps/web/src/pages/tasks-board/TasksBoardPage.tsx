@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,35 +12,41 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  TICKET_STATUSES,
+  TASK_STATUS_LANES,
+  TASK_STATUSES,
   formatReference,
-  type TicketStatus,
-  type TicketSummary,
+  type TaskStatus,
+  type TaskStatusLane,
+  type TaskSummary,
+  type TransitionInput,
 } from "@helpdesk/contracts";
 import { toast } from "sonner";
-import { useMoveTicketStatusMutation, useTicketFacetsQuery } from "@/api/tickets";
-import { BoardCardOverlay } from "@/features/tickets/BoardCard";
-import { BoardColumn, statusFromDroppableId } from "@/features/tickets/BoardColumn";
-import { SortSelect } from "@/features/tickets/SortSelect";
-import { TicketFilterBar } from "@/features/tickets/TicketFilterBar";
-import { ViewSwitch } from "@/features/tickets/ViewSwitch";
-import { TICKET_STATUS_LABELS } from "@/lib/formatting";
+import { isApiClientError } from "@/api/http";
+import { useTaskFacetsQuery, useTaskStatsQuery, useTransitionTaskMutation } from "@/api/tasks";
+import { BoardCardOverlay } from "@/features/tasks/BoardCard";
+import { BoardColumn, statusFromDroppableId } from "@/features/tasks/BoardColumn";
+import { BoardLane } from "@/features/tasks/BoardLane";
+import { SortSelect } from "@/features/tasks/SortSelect";
+import { TaskFilterBar } from "@/features/tasks/TaskFilterBar";
+import { TransitionDialog } from "@/features/tasks/TransitionDialog";
+import { ViewSwitch } from "@/features/tasks/ViewSwitch";
+import { TASK_STATUS_LABELS } from "@/lib/formatting";
 import { errorCopy } from "@/lib/errorMessages";
-import { statusChangeErrorMessage } from "@/lib/statusTransition";
+import { statusChangeErrorMessage, transitionNeedsInput } from "@/lib/statusTransition";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
-import { useRememberTicketView } from "@/stores/ticketView";
-import { useTicketListParams } from "@/pages/tickets-list/useTicketListParams";
-import { useBoardTickets } from "@/pages/tickets-board/useBoardTickets";
+import { useRememberTaskView } from "@/stores/taskView";
+import { useTaskListParams } from "@/pages/tasks-list/useTaskListParams";
+import { useBoardTasks } from "@/pages/tasks-board/useBoardTasks";
 
 /**
- * `/tickets/board` — the same tickets as `/tickets`, arranged by status, with
- * drag-and-drop between columns. Spec: `docs/pages/Tickets_Board.md`.
+ * `/tasks/board` — the same tasks as `/tasks`, arranged by status in four
+ * lanes, with drag-and-drop between columns. Spec: `docs/pages/Tasks_Board.md`.
  *
  * ## It shares the list's URL state, and that is the whole design
  *
- * Search, priority, category, assignee, dates, and sort come from the same
- * `useTicketListParams` the list page uses, so a filtered view survives the
+ * Search, priority, project, creator, assignee, dates, and sort come from the
+ * same `useTaskListParams` the list page uses, so a filtered view survives the
  * switch between views in both directions and a shared board link carries the
  * filters the sender was looking at.
  *
@@ -50,73 +56,112 @@ import { useBoardTickets } from "@/pages/tickets-board/useBoardTickets";
  *   inside them. On a board the columns *are* the status filter, so a status
  *   chip that also removed rows would apply the same constraint twice and leave
  *   the user with columns that are empty for a reason nothing on screen
- *   explains. `?status=open&status=in_progress` is "show me the active half of
- *   the board", which is the thing people actually want from that control here.
+ *   explains. The "Needs you" preset is "show me the three inbox columns".
  * - **`page` is ignored.** A board pages per column, on its own "Load more"
- *   (`useBoardTickets`), because four queues fill at four different rates. The
+ *   (`useBoardTasks`), because ten queues fill at ten different rates. The
  *   key is left in the URL untouched so switching back to the list returns to
  *   the page you were on.
  *
- * ## The client does not know the transition table
+ * ## Lanes, and the closed one
  *
- * Every column accepts every card, including `closed → resolved`, which the
- * server rejects with `INVALID_STATUS_TRANSITION`. That is the rule in
- * `lib/statusTransition.ts`: the guard is deliberately permissive and has been
- * loosened before, so a client-side copy of it would forbid something the server
- * allows with nothing failing anywhere to say so. A rejected drop rolls the card
- * back and the toast quotes the server's own `details.allowed`.
+ * The ten columns are grouped into `TASK_STATUS_LANES` — Plan, Doing, Waiting,
+ * Closed. Closed starts collapsed and its columns are not fetched until it is
+ * opened: finished work is the pile that only grows, and it is the one lane
+ * nobody works *in*. A status filter that names a closed status opens it,
+ * because a filter that selects a hidden column would look like it did nothing.
+ * The open/closed toggle is local state: it is neither shareable (URL) nor a
+ * preference worth remembering (store).
+ *
+ * ## Moves that need words
+ *
+ * There is no transition table, but several targets need a payload — a reason
+ * for `blocked`, a question for `needs_user_decision`, a summary for
+ * `needs_qa` (`transitionNeedsInput`). Dropping a card on one of those moves the
+ * card *optimistically*, then opens `TransitionDialog`; cancelling it puts the
+ * card back, exactly as a server rejection does.
  */
-export const TicketsBoardPage = () => {
+export const TasksBoardPage = () => {
   useDocumentTitle("Board");
 
   /*
     Being here *is* the preference. Every screen that leaves the two views
     behind — detail, create, edit — reads it back out of the store to know which
     one to return to, because their own URLs cannot say. See
-    `stores/ticketView.ts`.
+    `stores/taskView.ts`.
   */
-  useRememberTicketView("board");
+  useRememberTaskView("board");
 
-  const { params, setSort, setFilters, clearFilters, activeFilterCount } = useTicketListParams();
+  const { params, setSort, setFilters, clearFilters, activeFilterCount } = useTaskListParams();
 
   const isWide = useMediaQuery(MD_BREAKPOINT_QUERY);
 
-  const facetsQuery = useTicketFacetsQuery();
-  const board = useBoardTickets(params);
-  const moveMutation = useMoveTicketStatusMutation();
+  const [closedToggled, setClosedToggled] = useState(false);
+  const closedLaneFiltered = params.status.some((status) =>
+    (TASK_STATUS_LANES.closed as readonly TaskStatus[]).includes(status),
+  );
+  const closedLaneOpen = closedToggled || closedLaneFiltered;
+
+  const facetsQuery = useTaskFacetsQuery();
+  const statsQuery = useTaskStatsQuery();
+  const board = useBoardTasks(params, { closedLaneOpen });
+  const transitionMutation = useTransitionTaskMutation();
 
   /** The card under the cursor, for the overlay. `null` when nothing is dragging. */
-  const [activeTicket, setActiveTicket] = useState<TicketSummary | null>(null);
+  const [activeTask, setActiveTask] = useState<TaskSummary | null>(null);
+
+  /** A move waiting on `TransitionDialog`. Its card is already shown in `target`. */
+  const [pending, setPending] = useState<{
+    task: TaskSummary;
+    target: TaskStatus;
+    initialError?: unknown;
+  } | null>(null);
+
+  /**
+   * Posts a move whose card is already in its new column. Resolves once the
+   * refetch `onSettled` awaits has landed, so dropping the optimistic entry
+   * cannot flash the card back to where it came from.
+   */
+  const commit = (task: TaskSummary, input: TransitionInput) =>
+    transitionMutation.mutateAsync({ taskId: task.id, input }).then(() => {
+      toast.success(`${formatReference(task.id)} moved to ${TASK_STATUS_LABELS[input.to]}`);
+    });
 
   /**
    * One path for both ways of moving a card — a drop and the card's status
    * select land here.
    *
-   * The optimistic entry is written before the request and removed when it
-   * settles, not on success: a rejected move has to give the card back, and a
-   * successful one has to hold the card in its new column until the refetch that
-   * `onSettled` awaits has actually landed.
+   * The optimistic entry is written before anything else and removed when the
+   * move settles, not on success: a rejected (or cancelled) move has to give
+   * the card back, and a successful one has to hold the card in its new column
+   * until the refetch has actually landed.
    */
-  const move = useCallback(
-    (ticketId: number, status: TicketStatus) => {
-      board.beginMove(ticketId, status);
+  const move = (taskId: number, target: TaskStatus) => {
+    const task = board.byId.get(taskId);
+    if (task === undefined) return;
 
-      moveMutation
-        .mutateAsync({ ticketId, status })
-        .then(() => {
-          toast.success(`${formatReference(ticketId)} moved to ${TICKET_STATUS_LABELS[status]}`);
-        })
-        .catch((error: unknown) => {
-          toast.error(errorCopy(error).title, {
-            // For a 409 this is the server's `details.allowed` rendered as
-            // "You can move it to Open or In progress instead."
-            description: statusChangeErrorMessage(error),
-          });
-        })
-        .finally(() => board.endMove(ticketId));
-    },
-    [board, moveMutation],
-  );
+    board.beginMove(taskId, target);
+
+    if (transitionNeedsInput(target, task)) {
+      setPending({ task, target });
+      return;
+    }
+
+    let reopened = false;
+    commit(task, { to: target } as TransitionInput)
+      .catch((error: unknown) => {
+        // The criteria the card said it had are gone — an agent cleared them a
+        // moment ago. Ask for them instead of only refusing; the card stays put.
+        if (isApiClientError(error) && error.code === "VALIDATION_ERROR") {
+          reopened = true;
+          setPending({ task, target, initialError: error });
+          return;
+        }
+        toast.error(errorCopy(error).title, { description: statusChangeErrorMessage(error) });
+      })
+      .finally(() => {
+        if (!reopened) board.endMove(taskId);
+      });
+  };
 
   /*
     `MouseSensor` + `TouchSensor` rather than the single `PointerSensor`, because
@@ -137,25 +182,25 @@ export const TicketsBoardPage = () => {
   );
 
   const handleDragStart = (event: DragStartEvent) => {
-    const ticket = board.byId.get(Number(event.active.id));
-    setActiveTicket(ticket ?? null);
+    const task = board.byId.get(Number(event.active.id));
+    setActiveTask(task ?? null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveTicket(null);
+    setActiveTask(null);
 
     const target = statusFromDroppableId(event.over?.id);
     if (target === undefined) return;
 
-    const ticket = board.byId.get(Number(event.active.id));
-    if (ticket === undefined) return;
+    const task = board.byId.get(Number(event.active.id));
+    if (task === undefined) return;
 
     // Dropping a card back on the column it started in is a no-op, not a PATCH
     // — the API treats `X → X` as a write-free success, but the round trip would
     // still flash the card's busy state for nothing.
-    if (board.effectiveStatus(ticket) === target) return;
+    if (board.effectiveStatus(task) === target) return;
 
-    move(ticket.id, target);
+    move(task.id, target);
   };
 
   /**
@@ -163,35 +208,64 @@ export const TicketsBoardPage = () => {
    *
    * dnd-kit's defaults announce ids ("Draggable item 42 was dropped over
    * droppable area column:resolved"), which is the internal vocabulary of the
-   * library rather than of the app. These name the ticket and the column.
+   * library rather than of the app. These name the task and the column.
    */
   const announcements: Announcements = {
-    onDragStart: ({ active }) => `Picked up ticket ${formatReference(Number(active.id))}.`,
+    onDragStart: ({ active }) => `Picked up task ${formatReference(Number(active.id))}.`,
     onDragOver: ({ over }) => {
       const status = statusFromDroppableId(over?.id);
-      return status === undefined ? "Not over a column." : `Over ${TICKET_STATUS_LABELS[status]}.`;
+      return status === undefined ? "Not over a column." : `Over ${TASK_STATUS_LABELS[status]}.`;
     },
     onDragEnd: ({ active, over }) => {
       const status = statusFromDroppableId(over?.id);
       return status === undefined
-        ? `Ticket ${formatReference(Number(active.id))} was dropped outside a column and did not move.`
-        : `Ticket ${formatReference(Number(active.id))} was moved to ${TICKET_STATUS_LABELS[status]}.`;
+        ? `Task ${formatReference(Number(active.id))} was dropped outside a column and did not move.`
+        : `Task ${formatReference(Number(active.id))} was moved to ${TASK_STATUS_LABELS[status]}.`;
     },
     onDragCancel: ({ active }) =>
-      `Moving ticket ${formatReference(Number(active.id))} was cancelled.`,
+      `Moving task ${formatReference(Number(active.id))} was cancelled.`,
   };
 
   /*
-    Which columns are on screen. Enum order, never the order the user happened to
-    click the chips in — a board whose columns reorder themselves as you filter
-    is unreadable.
+    Which columns are on screen. Enum order within a lane, never the order the
+    user happened to click the chips in — a board whose columns reorder
+    themselves as you filter is unreadable.
   */
-  const visibleStatuses =
+  const visibleStatuses: readonly TaskStatus[] =
     params.status.length === 0
-      ? TICKET_STATUSES
-      : TICKET_STATUSES.filter((status) => params.status.includes(status));
+      ? TASK_STATUSES
+      : TASK_STATUSES.filter((status) => params.status.includes(status));
 
-  const visibleColumns = board.columns.filter((column) => visibleStatuses.includes(column.status));
+  const lanes = (Object.keys(TASK_STATUS_LANES) as TaskStatusLane[])
+    .map((lane) => ({
+      lane,
+      columns: board.columns.filter(
+        (column) =>
+          (TASK_STATUS_LANES[lane] as readonly TaskStatus[]).includes(column.status) &&
+          visibleStatuses.includes(column.status),
+      ),
+    }))
+    .filter((lane) => lane.columns.length > 0);
+
+  const visibleColumns = lanes.flatMap((lane) =>
+    lane.lane === "closed" && !closedLaneOpen ? [] : lane.columns,
+  );
+
+  /*
+    The collapsed lane cannot count its own columns — they are not fetched. The
+    stats endpoint can, but only for the unfiltered board: it takes no filters
+    beyond `project`, so under any other filter its numbers would not describe
+    what opening the lane would show.
+  */
+  const closedSummary =
+    activeFilterCount === 0 && statsQuery.data !== undefined
+      ? TASK_STATUS_LANES.closed
+          .map(
+            (status) =>
+              `${statsQuery.data.byStatus[status]} ${TASK_STATUS_LABELS[status].toLowerCase()}`,
+          )
+          .join(", ")
+      : undefined;
 
   return (
     <div className="flex flex-col gap-4">
@@ -199,7 +273,7 @@ export const TicketsBoardPage = () => {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Board</h1>
           <p className="text-sm text-muted-foreground">
-            Drag a ticket between columns to change its status.
+            Drag a task between columns to change its status. Some moves ask for a reason first.
           </p>
         </div>
 
@@ -216,7 +290,7 @@ export const TicketsBoardPage = () => {
         </div>
       </header>
 
-      <TicketFilterBar
+      <TaskFilterBar
         params={params}
         facets={facetsQuery.data}
         onFiltersChange={setFilters}
@@ -237,8 +311,8 @@ export const TicketsBoardPage = () => {
           : visibleColumns
               .map(
                 (column) =>
-                  `${TICKET_STATUS_LABELS[column.status]}: ${column.total} ${
-                    column.total === 1 ? "ticket" : "tickets"
+                  `${TASK_STATUS_LABELS[column.status]}: ${column.total} ${
+                    column.total === 1 ? "task" : "tasks"
                   }`,
               )
               .join(", ")}
@@ -250,50 +324,44 @@ export const TicketsBoardPage = () => {
         accessibility={{ announcements }}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        onDragCancel={() => setActiveTicket(null)}
+        onDragCancel={() => setActiveTask(null)}
       >
         {/*
-          Four columns do not fit at 360px and must not be squeezed into it: the
-          board scrolls sideways with scroll-snap below `lg`, one column at a
-          time, and becomes four equal columns above it. This is the one place in
-          the app where horizontal scrolling is the right answer rather than the
-          failure — a kanban column is a queue, and a queue that reflows into a
-          stack is just the list page again.
+          Lanes stack; each lane's columns scroll sideways below `lg` — see
+          `BoardLane` for the two classes that keep that scroll inside the lane
+          at 360px rather than widening the whole document.
         */}
-        {/*
-          Two classes here are load-bearing rather than defensive, and both were
-          measured against the 375px spec in `e2e/board.spec.ts` rather than
-          reasoned about:
-
-          - **`min-w-0`.** This div is a flex *item* of the page's column, and a
-            flex item's default `min-width: auto` refuses to shrink below its
-            content — so `overflow-x-auto` had nothing to clip and the four
-            columns pushed the whole document 740px wide.
-          - **`relative`.** Even once the box clipped, the document still
-            scrolled sideways: the cards contain `sr-only` spans, which are
-            `position: absolute`, and an absolutely positioned element is only
-            clipped by an ancestor that is in its *containing block* chain.
-            With no positioned ancestor between them and the page, those 1px
-            spans resolved against the initial containing block and stretched the
-            document to the full width of all four columns — invisible, and a
-            sideways scroll on every phone. Making the scroller the containing
-            block puts them back inside the box that clips them.
-        */}
-        {/*
-          `items-start`: a column is as tall as its own queue. The default
-          `stretch` gave every column the height of the fullest one, so a board
-          with 40 open and 2 closed tickets drew a 2000px empty box next to a
-          full one. Each column keeps its own `min-h` floor, so the short ones
-          are still comfortable drop targets.
-        */}
-        <div className="relative -mx-1 flex min-w-0 snap-x snap-mandatory items-start gap-3 overflow-x-auto px-1 pb-2 lg:snap-none lg:overflow-x-visible">
-          {visibleColumns.map((column) => (
-            <BoardColumn
-              key={column.status}
-              column={column}
-              onMove={move}
-              pendingMoves={board.pendingMoves}
-            />
+        <div className="flex flex-col gap-6">
+          {lanes.map(({ lane, columns }) => (
+            <BoardLane
+              key={lane}
+              lane={lane}
+              total={
+                lane === "closed" && !closedLaneOpen
+                  ? undefined
+                  : columns.some((column) => column.isPending)
+                    ? undefined
+                    : columns.reduce((sum, column) => sum + column.total, 0)
+              }
+              collapsible={
+                lane === "closed" && !closedLaneFiltered
+                  ? {
+                      expanded: closedLaneOpen,
+                      onToggle: () => setClosedToggled((open) => !open),
+                      summary: closedSummary,
+                    }
+                  : undefined
+              }
+            >
+              {columns.map((column) => (
+                <BoardColumn
+                  key={column.status}
+                  column={column}
+                  onMove={move}
+                  pendingMoves={board.pendingMoves}
+                />
+              ))}
+            </BoardLane>
           ))}
         </div>
 
@@ -305,9 +373,28 @@ export const TicketsBoardPage = () => {
           dragging get cut in half on the way to the next one.
         */}
         <DragOverlay dropAnimation={null}>
-          {activeTicket === null ? null : <BoardCardOverlay ticket={activeTicket} />}
+          {activeTask === null ? null : <BoardCardOverlay task={activeTask} />}
         </DragOverlay>
       </DndContext>
+
+      {pending === null ? null : (
+        <TransitionDialog
+          key={`${pending.task.id}:${pending.target}`}
+          task={pending.task}
+          target={pending.target}
+          initialError={pending.initialError}
+          onSubmit={(input) =>
+            commit(pending.task, input).then(() => {
+              board.endMove(pending.task.id);
+              setPending(null);
+            })
+          }
+          onCancel={() => {
+            board.endMove(pending.task.id);
+            setPending(null);
+          }}
+        />
+      )}
     </div>
   );
 };

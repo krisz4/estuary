@@ -2,36 +2,35 @@ import { act, render } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import {
-  parseTicketListParams,
-  serializeTicketListParams,
-  useTicketListParams,
-  type TicketListParams,
-  type TicketListParamsApi,
-} from "@/pages/tickets-list/useTicketListParams";
+  parseTaskListParams,
+  serializeTaskListParams,
+  useTaskListParams,
+  type TaskListParams,
+  type TaskListParamsApi,
+} from "@/pages/tasks-list/useTaskListParams";
 
-const parse = (search: string): TicketListParams =>
-  parseTicketListParams(new URLSearchParams(search));
+const parse = (search: string): TaskListParams => parseTaskListParams(new URLSearchParams(search));
 
-describe("parseTicketListParams", () => {
+describe("parseTaskListParams", () => {
   it("picks the keys it knows and ignores the ones it does not", () => {
     // The regression this whole module exists for: feeding the raw params into
     // the server's `.strict()` schema fails on `utm_source` and resets
     // everything else to defaults.
-    const params = parse("?utm_source=slack&fbclid=xyz&status=open&priority=urgent&page=3");
+    const params = parse("?utm_source=slack&fbclid=xyz&status=todo&priority=urgent&page=3");
 
-    expect(params.status).toEqual(["open"]);
+    expect(params.status).toEqual(["todo"]);
     expect(params.priority).toEqual(["urgent"]);
     expect(params.page).toBe(3);
   });
 
   it("falls back per field, leaving valid neighbours alone", () => {
-    const params = parse("?page=abc&pageSize=999&sort=nonsense&status=open&q=printer");
+    const params = parse("?page=abc&pageSize=999&sort=nonsense&status=todo&q=printer");
 
     expect(params.page).toBe(1);
     expect(params.pageSize).toBe(20);
     expect(params.sort).toEqual({ field: "createdAt", direction: "desc" });
     // The point of "per field": these two survived the three failures above.
-    expect(params.status).toEqual(["open"]);
+    expect(params.status).toEqual(["todo"]);
     expect(params.q).toBe("printer");
   });
 
@@ -46,10 +45,32 @@ describe("parseTicketListParams", () => {
   });
 
   it("drops invalid enum members and de-duplicates the rest", () => {
-    expect(parse("?status=open&status=nope&status=open&status=closed").status).toEqual([
-      "open",
-      "closed",
+    expect(parse("?status=todo&status=nope&status=todo&status=done").status).toEqual([
+      "todo",
+      "done",
     ]);
+  });
+
+  it("keeps project slugs, lowercased and de-duplicated, and drops anything else", () => {
+    // Lowercased like the contract's `projectSchema` stores them: `HelpDesk`
+    // and `helpdesk` are one project, and the filter is an exact match.
+    expect(
+      parse("?project=HelpDesk&project=helpdesk&project=has%20space&project=mcp-server").project,
+    ).toEqual(["helpdesk", "mcp-server"]);
+  });
+
+  it("keeps a createdBy that is an actor, lowercased, and drops one that is not", () => {
+    expect(parse("?createdBy=Agent%3AClaude-Code").createdBy).toBe("agent:claude-code");
+    expect(parse("?createdBy=system%3Ataskmanager").createdBy).toBe("system:taskmanager");
+    expect(parse("?createdBy=claude").createdBy).toBeUndefined();
+    expect(parse("?createdBy=robot%3Ax").createdBy).toBeUndefined();
+  });
+
+  it("round-trips project and createdBy through the URL", () => {
+    const params = parse("?project=helpdesk&project=mcp-server&createdBy=human%3Akrisz");
+    expect(serializeTaskListParams(params).toString()).toBe(
+      "project=helpdesk&project=mcp-server&createdBy=human%3Akrisz",
+    );
   });
 
   it("never returns assignee and assigneeIsNull together", () => {
@@ -80,21 +101,21 @@ describe("parseTicketListParams", () => {
   });
 });
 
-describe("serializeTicketListParams", () => {
+describe("serializeTaskListParams", () => {
   const base = parse("");
 
   it("omits every value that equals its default", () => {
-    expect(serializeTicketListParams(base).toString()).toBe("");
+    expect(serializeTaskListParams(base).toString()).toBe("");
   });
 
   it("writes only what differs", () => {
-    const params: TicketListParams = { ...base, page: 3, status: ["open", "closed"] };
-    expect(serializeTicketListParams(params).toString()).toBe("page=3&status=open&status=closed");
+    const params: TaskListParams = { ...base, page: 3, status: ["todo", "done"] };
+    expect(serializeTaskListParams(params).toString()).toBe("page=3&status=todo&status=done");
   });
 
   it("carries unknown keys through untouched", () => {
     const previous = new URLSearchParams("?utm_source=slack&page=9");
-    const next = serializeTicketListParams({ ...base, page: 2 }, previous);
+    const next = serializeTaskListParams({ ...base, page: 2 }, previous);
 
     expect(next.get("page")).toBe("2");
     expect(next.get("utm_source")).toBe("slack");
@@ -105,7 +126,7 @@ describe("serializeTicketListParams", () => {
  * The hook
  * ------------------------------------------------------------------ */
 
-type Harness = { api: TicketListParamsApi; search: string };
+type Harness = { api: TaskListParamsApi; search: string };
 
 /**
  * Renders the hook inside a **real** router with real history, not a mocked
@@ -116,11 +137,11 @@ const renderParams = (initialEntry: string) => {
   const latest: { current: Harness | undefined } = { current: undefined };
 
   const Probe = () => {
-    latest.current = { api: useTicketListParams(), search: useLocation().search };
+    latest.current = { api: useTaskListParams(), search: useLocation().search };
     return null;
   };
 
-  const router = createMemoryRouter([{ path: "/tickets", element: <Probe /> }], {
+  const router = createMemoryRouter([{ path: "/tasks", element: <Probe /> }], {
     initialEntries: [initialEntry],
   });
 
@@ -135,9 +156,9 @@ const renderParams = (initialEntry: string) => {
   };
 };
 
-describe("useTicketListParams", () => {
+describe("useTaskListParams", () => {
   it("resets page to 1 when a filter changes", () => {
-    const h = renderParams("/tickets?page=5&status=open");
+    const h = renderParams("/tasks?page=5&status=todo");
 
     act(() => h.current.api.setFilters({ priority: ["urgent"] }));
 
@@ -147,7 +168,7 @@ describe("useTicketListParams", () => {
   });
 
   it("resets page to 1 when sort changes", () => {
-    const h = renderParams("/tickets?page=4");
+    const h = renderParams("/tasks?page=4");
 
     act(() => h.current.api.setSort({ field: "priority", direction: "desc" }));
 
@@ -156,7 +177,7 @@ describe("useTicketListParams", () => {
   });
 
   it("resets page to 1 when the page size changes", () => {
-    const h = renderParams("/tickets?page=4&pageSize=10");
+    const h = renderParams("/tasks?page=4&pageSize=10");
 
     act(() => h.current.api.setPageSize(50));
 
@@ -165,19 +186,19 @@ describe("useTicketListParams", () => {
   });
 
   it("leaves every filter alone when only the page changes", () => {
-    const h = renderParams("/tickets?status=open&priority=urgent&q=printer&sort=title:asc");
+    const h = renderParams("/tasks?status=todo&priority=urgent&q=printer&sort=title:asc");
 
     act(() => h.current.api.setPage(3));
 
     expect(h.current.api.params.page).toBe(3);
-    expect(h.current.api.params.status).toEqual(["open"]);
+    expect(h.current.api.params.status).toEqual(["todo"]);
     expect(h.current.api.params.priority).toEqual(["urgent"]);
     expect(h.current.api.params.q).toBe("printer");
     expect(h.current.api.params.sort).toEqual({ field: "title", direction: "asc" });
   });
 
   it("keeps sort and page size when filters are cleared", () => {
-    const h = renderParams("/tickets?status=open&pageSize=50&sort=title:asc&page=2");
+    const h = renderParams("/tasks?status=todo&pageSize=50&sort=title:asc&page=2");
 
     act(() => h.current.api.clearFilters());
 
@@ -188,7 +209,7 @@ describe("useTicketListParams", () => {
   });
 
   it("clears the other half of the assignee pair on a partial patch", () => {
-    const h = renderParams("/tickets?assigneeIsNull=true");
+    const h = renderParams("/tasks?assigneeIsNull=true");
 
     act(() => h.current.api.setFilters({ assignee: "Alice Chen" }));
 
@@ -199,7 +220,7 @@ describe("useTicketListParams", () => {
 
   /**
    * The direction above cannot fail, and that is worth saying out loud: three
-   * layers enforce this exclusion — the parser, `serializeTicketListParams`, and
+   * layers enforce this exclusion — the parser, `serializeTaskListParams`, and
    * `setFilters` — and **`assignee` wins in all three**. Setting `assignee` over
    * a live `assigneeIsNull` therefore comes out right even with `setFilters`'s
    * guard deleted, because serialize's `else if` already drops the loser.
@@ -211,7 +232,7 @@ describe("useTicketListParams", () => {
    * `?assignee=Alice+Chen` — the control visibly does nothing when clicked.
    */
   it("switches to unassigned over a live assignee filter, the direction serialize cannot rescue", () => {
-    const h = renderParams("/tickets?assignee=Alice%20Chen");
+    const h = renderParams("/tasks?assignee=Alice%20Chen");
 
     act(() => h.current.api.setFilters({ assigneeIsNull: true }));
 
@@ -222,13 +243,13 @@ describe("useTicketListParams", () => {
   });
 
   /**
-   * `serializeTicketListParams` carrying unknown keys is unit-tested as a pure
+   * `serializeTaskListParams` carrying unknown keys is unit-tested as a pure
    * function. Nothing pinned that the **hook** hands it the previous params at
    * all — drop the second argument at the call site and the pure test stays
    * green while every shared link loses its campaign tag on the first click.
    */
   it("keeps an unknown parameter in the URL across a real write", () => {
-    const h = renderParams("/tickets?utm_source=slack&status=open");
+    const h = renderParams("/tasks?utm_source=slack&status=todo");
 
     act(() => h.current.api.setFilters({ priority: ["urgent"] }));
 
@@ -237,7 +258,7 @@ describe("useTicketListParams", () => {
   });
 
   it("keeps both changes when two writes are issued before either commits", () => {
-    const h = renderParams("/tickets");
+    const h = renderParams("/tasks");
 
     // Both calls run inside one `act`, so React has not re-rendered — and
     // therefore not produced a new `searchParams` — between them. This is the
@@ -246,28 +267,28 @@ describe("useTicketListParams", () => {
     // old code the second write built on the pre-filter URL and dropped the
     // first. Navigation runs in a transition, so this window is frames wide.
     act(() => {
-      h.current.api.setFilters({ status: ["open"] });
+      h.current.api.setFilters({ status: ["todo"] });
       h.current.api.setFilters({ priority: ["urgent"] });
     });
 
-    expect(h.current.api.params.status).toEqual(["open"]);
+    expect(h.current.api.params.status).toEqual(["todo"]);
     expect(h.current.api.params.priority).toEqual(["urgent"]);
   });
 
   it("resolves a functional patch against the state at write time", () => {
-    const h = renderParams("/tickets?status=open");
+    const h = renderParams("/tasks?status=todo");
 
     act(() => {
-      h.current.api.setFilters((current) => ({ status: [...current.status, "closed"] }));
-      h.current.api.setFilters((current) => ({ status: [...current.status, "resolved"] }));
+      h.current.api.setFilters((current) => ({ status: [...current.status, "done"] }));
+      h.current.api.setFilters((current) => ({ status: [...current.status, "blocked"] }));
     });
 
     // Three, not two: the second patch saw the first one's result.
-    expect(h.current.api.params.status).toEqual(["open", "closed", "resolved"]);
+    expect(h.current.api.params.status).toEqual(["todo", "done", "blocked"]);
   });
 
   it("drags the far date bound along instead of dropping it", () => {
-    const h = renderParams("/tickets?createdTo=2026-08-01");
+    const h = renderParams("/tasks?createdTo=2026-08-01");
 
     act(() => h.current.api.setFilters({ createdFrom: "2026-09-01" }));
 
@@ -279,7 +300,7 @@ describe("useTicketListParams", () => {
   });
 
   it("drags the near bound down when the end date moves back past it", () => {
-    const h = renderParams("/tickets?createdFrom=2026-09-01");
+    const h = renderParams("/tasks?createdFrom=2026-09-01");
 
     act(() => h.current.api.setFilters({ createdTo: "2026-08-01" }));
 
@@ -288,23 +309,23 @@ describe("useTicketListParams", () => {
   });
 
   it("pushes a filter change so Back undoes it", async () => {
-    const h = renderParams("/tickets?status=open");
+    const h = renderParams("/tasks?status=todo");
 
-    act(() => h.current.api.setFilters({ status: ["closed"] }));
-    expect(h.current.api.params.status).toEqual(["closed"]);
+    act(() => h.current.api.setFilters({ status: ["done"] }));
+    expect(h.current.api.params.status).toEqual(["done"]);
 
     await act(async () => {
       await h.router.navigate(-1);
     });
-    expect(h.current.api.params.status).toEqual(["open"]);
+    expect(h.current.api.params.status).toEqual(["todo"]);
   });
 
   it("replaces rather than pushes when asked, so typing does not fill history", async () => {
-    const h = renderParams("/tickets");
+    const h = renderParams("/tasks");
 
     // One pushed entry to land on, then two replaced ones standing in for
     // keystrokes that each got past the debounce.
-    act(() => h.current.api.setFilters({ status: ["open"] }));
+    act(() => h.current.api.setFilters({ status: ["todo"] }));
     act(() => h.current.api.setFilters({ q: "pri" }, { replace: true }));
     act(() => h.current.api.setFilters({ q: "printer" }, { replace: true }));
     expect(h.current.api.params.q).toBe("printer");

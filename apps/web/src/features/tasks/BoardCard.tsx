@@ -1,6 +1,6 @@
-import { formatReference, type TicketStatus, type TicketSummary } from "@helpdesk/contracts";
+import { formatReference, type TaskStatus, type TaskSummary } from "@helpdesk/contracts";
 import { useDraggable } from "@dnd-kit/core";
-import { GripVertical, MessageSquare } from "lucide-react";
+import { CircleHelp, FolderGit2, GripVertical, Link2, MessageSquare } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Select, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -10,11 +10,12 @@ import {
   statusOptions,
   toDateTimeAttribute,
 } from "@/lib/formatting";
-import { PRIORITY_STRIPE, PriorityBadge } from "@/features/tickets/PriorityBadge";
-import { isTicketStatus } from "@/lib/statusTransition";
+import { ClaimIndicator } from "@/features/tasks/ClaimIndicator";
+import { PRIORITY_STRIPE, PriorityBadge } from "@/features/tasks/PriorityBadge";
+import { isTaskStatus } from "@/lib/statusTransition";
 
 /**
- * One ticket on the board.
+ * One task on the board.
  *
  * ## Two ways to move a card, and why both are here
  *
@@ -26,10 +27,11 @@ import { isTicketStatus } from "@/lib/statusTransition";
  * — an interaction that technically responds to the keyboard while being
  * unusable with one. A real `<select>` announces the four targets, commits in
  * two keystrokes, and goes through exactly the same `onMove` as a drop, so there
- * is one code path to be correct rather than two to keep in step.
+ * is one code path to be correct rather than two to keep in step — including
+ * the transition dialog a move to `blocked` or `needs_qa` opens.
  *
  * The select shows the card's *current* status rather than a "Move to…"
- * placeholder. It is a value control, not a menu: it reports where the ticket
+ * placeholder. It is a value control, not a menu: it reports where the task
  * is, and changing it is the move. A placeholder would leave a screen-reader
  * user with a control whose value never reflects what happened.
  *
@@ -39,13 +41,20 @@ import { isTicketStatus } from "@/lib/statusTransition";
  * one strong colour the design guidelines allow this screen on information the
  * card's position already carries. Priority keeps the coloured stripe and the
  * badge, exactly as on the mobile list card.
+ *
+ * ## What the card does say
+ *
+ * The things an agent-driven board changes that the column cannot: the
+ * project, **who holds the claim** (a bot icon and the agent's name), an open
+ * question waiting on a human, and how many unfinished tasks this one waits on.
+ * Each is text with a decorative icon, and each renders only when true.
  */
 
 export type BoardCardProps = {
-  ticket: TicketSummary;
-  /** Where the card is *shown* — during an in-flight move, not `ticket.status`. */
-  status: TicketStatus;
-  onMove: (ticketId: number, status: TicketStatus) => void;
+  task: TaskSummary;
+  /** Where the card is *shown* — during an in-flight move, not `task.status`. */
+  status: TaskStatus;
+  onMove: (taskId: number, status: TaskStatus) => void;
   /** A move is in flight for this card: dimmed, and the control is locked. */
   isMoving?: boolean;
 };
@@ -53,11 +62,11 @@ export type BoardCardProps = {
 const cardClassName =
   "flex flex-col gap-2 rounded-lg border border-l-4 border-border bg-card p-3 text-left shadow-xs";
 
-export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCardProps) => {
+export const BoardCard = ({ task, status, onMove, isMoving = false }: BoardCardProps) => {
   /*
     The search string the board is rendered under, carried into the detail page
-    so its "Back to tickets" link returns to this filtered board rather than to a
-    bare `/tickets`. Same contract as the table and the mobile card list.
+    so its "Back to tasks" link returns to this filtered board rather than to a
+    bare `/tasks`. Same contract as the table and the mobile card list.
   */
   const { search } = useLocation();
 
@@ -74,7 +83,7 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
     status select below, which is a real control.
   */
   const { listeners, setNodeRef, isDragging } = useDraggable({
-    id: ticket.id,
+    id: task.id,
     data: { status },
     disabled: isMoving,
   });
@@ -84,7 +93,7 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
       ref={setNodeRef}
       className={cn(
         cardClassName,
-        PRIORITY_STRIPE[ticket.priority],
+        PRIORITY_STRIPE[task.priority],
         /*
           `manipulation`, not `none`. dnd-kit asks for `touch-action: none` on a
           draggable, but the board scrolls in both axes on a phone — a column
@@ -112,7 +121,7 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
     >
       <div className="flex items-baseline justify-between gap-2">
         <Link
-          to={`/tickets/${ticket.id}`}
+          to={`/tasks/${task.id}`}
           state={{ from: search }}
           /*
             Browsers start their own native drag on an `<a>`, which fights the
@@ -121,43 +130,48 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
           draggable={false}
           className="font-mono text-xs text-primary hover:underline"
         >
-          {formatReference(ticket.id)}
+          {formatReference(task.id)}
         </Link>
 
         <div className="flex items-center gap-1.5">
           <time
-            dateTime={toDateTimeAttribute(ticket.createdAt)}
-            title={formatAbsolute(ticket.createdAt)}
+            dateTime={toDateTimeAttribute(task.createdAt)}
+            title={formatAbsolute(task.createdAt)}
             className="text-xs text-muted-foreground"
           >
-            {formatRelative(ticket.createdAt)}
+            {formatRelative(task.createdAt)}
           </time>
           <GripVertical className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
         </div>
       </div>
 
       <Link
-        to={`/tickets/${ticket.id}`}
+        to={`/tasks/${task.id}`}
         state={{ from: search }}
         draggable={false}
         className="text-sm font-medium text-foreground hover:underline"
       >
-        <span className="line-clamp-3">{ticket.title}</span>
+        <span className="line-clamp-3">{task.title}</span>
       </Link>
 
       <div className="flex flex-wrap items-center gap-2">
-        <PriorityBadge priority={ticket.priority} />
-        {ticket.commentCount > 0 ? (
+        <PriorityBadge priority={task.priority} />
+        {task.project === null ? null : (
+          <span className="inline-flex max-w-[9rem] items-center gap-1 truncate text-xs text-muted-foreground">
+            <FolderGit2 className="size-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">{task.project}</span>
+          </span>
+        )}
+        {task.commentCount > 0 ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <MessageSquare className="size-3" aria-hidden="true" />
-            {ticket.commentCount}
-            <span className="sr-only">{ticket.commentCount === 1 ? "comment" : "comments"}</span>
+            {task.commentCount}
+            <span className="sr-only">{task.commentCount === 1 ? "comment" : "comments"}</span>
           </span>
         ) : null}
-        <span className="ml-auto max-w-[9rem] truncate text-xs text-muted-foreground">
-          {ticket.assignee ?? "Unassigned"}
-        </span>
       </div>
+
+      <CardSignals task={task} />
 
       {/*
         `onPointerDown`/`onKeyDown` are stopped here, not on the card: the drag
@@ -168,7 +182,7 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <Select<TicketStatus>
+        <Select<TaskStatus>
           options={statusOptions}
           value={status}
           disabled={isMoving}
@@ -176,9 +190,9 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
             // Radix hands back a bare string, and it fires once on mount to
             // synchronise — `next !== status` is what stops that from posting a
             // PATCH nobody asked for.
-            if (isTicketStatus(next) && next !== status) onMove(ticket.id, next);
+            if (isTaskStatus(next) && next !== status) onMove(task.id, next);
           }}
-          aria-label={`Move ticket ${formatReference(ticket.id)} to another status`}
+          aria-label={`Move task ${formatReference(task.id)} to another status`}
           /*
             Drawn as a quiet line rather than a boxed field: 25 filled inputs
             stacked down a column read as a form, and the design guidelines allow
@@ -195,6 +209,32 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
   );
 };
 
+/** Claim, open question, open dependencies — each only when true. */
+const CardSignals = ({ task }: { task: TaskSummary }) => {
+  if (task.claim === null && task.openDecision === null && task.openDependencyCount === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      {task.claim === null ? null : <ClaimIndicator claim={task.claim} />}
+      {task.openDecision === null ? null : (
+        <span className="inline-flex items-center gap-1 font-medium text-primary-subtle-foreground">
+          <CircleHelp className="size-3.5" aria-hidden="true" />
+          Question open
+        </span>
+      )}
+      {task.openDependencyCount === 0 ? null : (
+        <span className="inline-flex items-center gap-1 text-destructive-subtle-foreground">
+          <Link2 className="size-3.5" aria-hidden="true" />
+          Waits on {task.openDependencyCount}
+          <span className="sr-only">{task.openDependencyCount === 1 ? " task" : " tasks"}</span>
+        </span>
+      )}
+    </div>
+  );
+};
+
 /**
  * The card that follows the cursor, rendered into `<DragOverlay>`.
  *
@@ -203,21 +243,21 @@ export const BoardCard = ({ ticket, status, onMove, isMoving = false }: BoardCar
  * the real one would duplicate both its links and its select — two elements with
  * the same accessible name, one of which is a ghost.
  */
-export const BoardCardOverlay = ({ ticket }: { ticket: TicketSummary }) => (
+export const BoardCardOverlay = ({ task }: { task: TaskSummary }) => (
   <div
     className={cn(
       cardClassName,
-      PRIORITY_STRIPE[ticket.priority],
+      PRIORITY_STRIPE[task.priority],
       "w-[17rem] rotate-2 shadow-lg ring-2 ring-primary",
     )}
     aria-hidden="true"
   >
     <div className="flex items-baseline justify-between gap-2">
-      <span className="font-mono text-xs text-primary">{formatReference(ticket.id)}</span>
+      <span className="font-mono text-xs text-primary">{formatReference(task.id)}</span>
       <GripVertical className="size-3.5 text-muted-foreground/60" />
     </div>
-    <span className="line-clamp-3 text-sm font-medium text-foreground">{ticket.title}</span>
-    <PriorityBadge priority={ticket.priority} />
+    <span className="line-clamp-3 text-sm font-medium text-foreground">{task.title}</span>
+    <PriorityBadge priority={task.priority} />
   </div>
 );
 

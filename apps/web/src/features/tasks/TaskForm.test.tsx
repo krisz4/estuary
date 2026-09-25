@@ -1,18 +1,14 @@
-import {
-  TICKET_TITLE_MIN,
-  type CreateTicketInput,
-  type UpdateTicketInput,
-} from "@helpdesk/contracts";
+import { TASK_TITLE_MIN, type CreateTaskInput, type UpdateTaskInput } from "@helpdesk/contracts";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "@/api/http";
 import {
-  emptyTicketFormValues,
-  TicketForm,
-  type TicketFormHelpers,
-  type TicketFormValues,
-} from "@/features/tickets/TicketForm";
+  emptyTaskFormValues,
+  TaskForm,
+  type TaskFormHelpers,
+  type TaskFormValues,
+} from "@/features/tasks/TaskForm";
 import { renderInProviders } from "@/test/harness";
 
 afterEach(() => {
@@ -20,32 +16,37 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const filled = (overrides: Partial<TicketFormValues> = {}): TicketFormValues => ({
-  ...emptyTicketFormValues(),
-  title: "Projector shows no signal",
-  description: "Swapped the cable and rebooted, still nothing at all.",
-  requesterName: "Dana Reyes",
-  requesterEmail: "Dana.Reyes@Example.COM",
+const filled = (overrides: Partial<TaskFormValues> = {}): TaskFormValues => ({
+  ...emptyTaskFormValues(),
+  title: "Add rate limiting to exports",
+  description: "Exports time out under load; throttle per client.",
+  project: "HelpDesk",
   ...overrides,
 });
 
-type Submitted = (CreateTicketInput | UpdateTicketInput)[];
+/** Edit mode's values: the same, minus `status`, which the edit form never holds. */
+const filledForEdit = (overrides: Partial<TaskFormValues> = {}): TaskFormValues => {
+  const { status: _status, ...rest } = filled(overrides);
+  return rest;
+};
 
-const renderForm = (props: Partial<Parameters<typeof TicketForm>[0]> = {}) => {
+type Submitted = (CreateTaskInput | UpdateTaskInput)[];
+
+const renderForm = (props: Partial<Parameters<typeof TaskForm>[0]> = {}) => {
   const submitted: Submitted = [];
-  let helpers: TicketFormHelpers | undefined;
+  let helpers: TaskFormHelpers | undefined;
 
-  const onSubmit = vi.fn((values, formHelpers: TicketFormHelpers) => {
+  const onSubmit = vi.fn((values, formHelpers: TaskFormHelpers) => {
     submitted.push(values);
     helpers = formHelpers;
   });
 
   renderInProviders(
-    <TicketForm
+    <TaskForm
       mode="create"
-      defaultValues={emptyTicketFormValues()}
+      defaultValues={emptyTaskFormValues()}
       isSubmitting={false}
-      submitLabel="Create ticket"
+      submitLabel="Create task"
       onSubmit={onSubmit}
       onCancel={vi.fn()}
       {...props}
@@ -55,92 +56,150 @@ const renderForm = (props: Partial<Parameters<typeof TicketForm>[0]> = {}) => {
   return { submitted, onSubmit, getHelpers: () => helpers };
 };
 
-describe("TicketForm — validation comes from the contract schema", () => {
+describe("TaskForm — validation comes from the contract schema", () => {
   it("shows the schema's own message for a too-short title", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderForm();
 
     await user.type(screen.getByLabelText(/^title/i), "abc");
-    await user.click(screen.getByRole("button", { name: "Create ticket" }));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
 
     // The literal is written out rather than derived from the schema: sharing
     // the source with the code under test is how a message assertion stops
     // being able to fail (BUILD_LOG, recurring shape 1).
     expect(
-      await screen.findByText(`Title must be at least ${TICKET_TITLE_MIN} characters`),
+      await screen.findByText(`Title must be at least ${TASK_TITLE_MIN} characters`),
     ).toBeInTheDocument();
     expect(await screen.findByText("Title must be at least 5 characters")).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("submits the schema's OUTPUT: email lowercased, empty optionals as null", async () => {
+  it("submits the schema's OUTPUT: project lowercased, empty optionals as null", async () => {
     const user = userEvent.setup();
     const { submitted } = renderForm({ defaultValues: filled() });
 
-    await user.click(screen.getByRole("button", { name: "Create ticket" }));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
 
     await waitFor(() => expect(submitted).toHaveLength(1));
     expect(submitted[0]).toEqual({
-      title: "Projector shows no signal",
-      description: "Swapped the cable and rebooted, still nothing at all.",
+      title: "Add rate limiting to exports",
+      description: "Exports time out under load; throttle per client.",
+      status: "backlog",
       priority: "medium",
-      category: null,
-      requesterName: "Dana Reyes",
-      requesterEmail: "dana.reyes@example.com",
+      project: "helpdesk",
       assignee: null,
+      acceptanceCriteria: null,
+      links: [],
+      parentId: null,
     });
   });
 
-  /**
-   * `createTicketInputSchema` is `.strict()`. A `status` key surviving into the
-   * parsed object is a client-side 422 on a form that looks complete.
-   */
-  it("never sends a status field in create mode", async () => {
+  it("turns a typed task number into a parent id", async () => {
     const user = userEvent.setup();
     const { submitted } = renderForm({ defaultValues: filled() });
 
-    expect(screen.queryByLabelText(/^status/i)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^parent task/i), "TASK-000012");
+    await user.click(screen.getByRole("button", { name: "Create task" }));
 
-    await user.click(screen.getByRole("button", { name: "Create ticket" }));
     await waitFor(() => expect(submitted).toHaveLength(1));
-    expect(Object.keys(submitted[0]!)).not.toContain("status");
+    expect(submitted[0]).toMatchObject({ parentId: 12 });
   });
 
-  it("renders the status field in edit mode and includes it in the parsed values", async () => {
+  it("refuses a parent that is not a task number", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm({ defaultValues: filled({ parentId: "the login one" }) });
+
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+
+    expect(
+      await screen.findByText("Enter a task number — 12, #12, or TASK-000012."),
+    ).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  /*
+    A blank row is an unused "Add link", not an invalid link — and an error on
+    a row *after* a blank one must land on that row, not on the row above it.
+  */
+  it("drops blank link rows and keeps row errors on the row they belong to", async () => {
+    const user = userEvent.setup();
+    const { onSubmit, submitted } = renderForm({
+      defaultValues: filled({
+        links: [
+          { label: "", url: "" },
+          { label: "PR", url: "not a url" },
+        ],
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+
+    expect(await screen.findByText("Enter a valid URL")).toBeInTheDocument();
+    expect(screen.getByLabelText("Link 2 URL")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Link 1 URL")).not.toHaveAttribute("aria-invalid");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText("Link 2 URL"));
+    await user.type(screen.getByLabelText("Link 2 URL"), "https://github.com/x/y/pull/1");
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted[0]).toMatchObject({
+      links: [{ label: "PR", url: "https://github.com/x/y/pull/1" }],
+    });
+  });
+
+  it("adds and removes link rows", async () => {
+    const user = userEvent.setup();
+    renderForm({ defaultValues: filled() });
+
+    await user.click(screen.getByRole("button", { name: "Add link" }));
+    expect(screen.getByLabelText("Link 1 label")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove link 1" }));
+    expect(screen.queryByLabelText("Link 1 label")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Status is a transition with its own payload after creation, so the edit
+   * form has no status control, and `updateTaskInputSchema` — `.strict()`,
+   * with no `status` key — would reject one.
+   */
+  it("has no status field in edit mode, and sends none", async () => {
     const user = userEvent.setup();
     const { submitted } = renderForm({
       mode: "edit",
       submitLabel: "Save changes",
-      defaultValues: filled({ status: "in_progress" }),
+      defaultValues: filledForEdit(),
     });
 
-    expect(screen.getByLabelText(/^status/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/status/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(submitted).toHaveLength(1));
-    expect(submitted[0]).toMatchObject({ status: "in_progress" });
+    expect(Object.keys(submitted[0]!)).not.toContain("status");
   });
 });
 
-describe("TicketForm — a failed submit keeps the typed values", () => {
+describe("TaskForm — a failed submit keeps the typed values", () => {
   it("preserves every field after applyServerError", async () => {
     const user = userEvent.setup();
     const { getHelpers } = renderForm({ defaultValues: filled() });
 
     await user.type(screen.getByLabelText(/assignee/i), "Marcus Feld");
-    await user.click(screen.getByRole("button", { name: "Create ticket" }));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
 
     await waitFor(() => expect(getHelpers()).toBeDefined());
     getHelpers()!.applyServerError(
       new Error("network"), // not even an ApiClientError — must still not clear
     );
 
-    expect(screen.getByLabelText(/^title/i)).toHaveValue("Projector shows no signal");
+    expect(screen.getByLabelText(/^title/i)).toHaveValue("Add rate limiting to exports");
     expect(screen.getByLabelText(/assignee/i)).toHaveValue("Marcus Feld");
   });
 });
 
-describe("TicketForm — server details are split, never mapped directly", () => {
+describe("TaskForm — server details are split, never mapped directly", () => {
   // Built through the real client error type so `validationDetails` — the
   // getter `splitValidationErrors` actually reads — is exercised rather than a
   // hand-faked shape that happens to satisfy the assertion.
@@ -151,28 +210,30 @@ describe("TicketForm — server details are split, never mapped directly", () =>
     const user = userEvent.setup();
     const { getHelpers } = renderForm({ defaultValues: filled() });
 
-    await user.click(screen.getByRole("button", { name: "Create ticket" }));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
     await waitFor(() => expect(getHelpers()).toBeDefined());
 
     getHelpers()!.applyServerError(
-      validationError({ requesterEmail: ["Enter a valid email address"] }),
+      validationError({ project: ["Project must be a slug: letters, digits, . _ -"] }),
     );
 
-    expect(await screen.findByText("Enter a valid email address")).toBeInTheDocument();
-    expect(screen.getByLabelText(/requester email/i)).toHaveAttribute("aria-invalid", "true");
+    expect(
+      await screen.findByText("Project must be a slug: letters, digits, . _ -"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/^project/i)).toHaveAttribute("aria-invalid", "true");
   });
 
   it("routes `_` and unrendered field names to the summary rather than dropping them", async () => {
     const user = userEvent.setup();
     const { getHelpers } = renderForm({ defaultValues: filled() });
 
-    await user.click(screen.getByRole("button", { name: "Create ticket" }));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
     await waitFor(() => expect(getHelpers()).toBeDefined());
 
     getHelpers()!.applyServerError(
       validationError({
         _: ['Unrecognized key: "createdAt"'],
-        resolvedAt: ["Not accepted from a client"],
+        createdBy: ["Not accepted from a client"],
       }),
     );
 
@@ -181,23 +242,22 @@ describe("TicketForm — server details are split, never mapped directly", () =>
     expect(summary).toHaveTextContent("Not accepted from a client");
   });
 
-  it("puts one message on the status field for the 409", async () => {
+  it("puts a server message on a link row the form renders", async () => {
     const user = userEvent.setup();
     const { getHelpers } = renderForm({
-      mode: "edit",
-      submitLabel: "Save changes",
-      defaultValues: filled({ status: "closed" }),
+      defaultValues: filled({ links: [{ label: "PR", url: "https://example.com/pr/1" }] }),
     });
 
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
     await waitFor(() => expect(getHelpers()).toBeDefined());
 
-    getHelpers()!.setFieldError("status", "Not allowed from here.");
-    expect(await screen.findByText("Not allowed from here.")).toBeInTheDocument();
+    getHelpers()!.applyServerError(validationError({ "links.0.url": ["Enter a valid URL"] }));
+    expect(await screen.findByText("Enter a valid URL")).toBeInTheDocument();
+    expect(screen.getByLabelText("Link 1 URL")).toHaveAttribute("aria-invalid", "true");
   });
 });
 
-describe("TicketForm — dirty reporting", () => {
+describe("TaskForm — dirty reporting", () => {
   it("reports dirty only after a real edit", async () => {
     const user = userEvent.setup();
     const onDirtyChange = vi.fn();

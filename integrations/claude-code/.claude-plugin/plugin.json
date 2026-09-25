@@ -1,0 +1,36 @@
+{
+  "name": "task-manager",
+  "displayName": "Task manager",
+  "version": "0.1.0",
+  "description": "Lets Claude Code agents claim, work, and hand off tasks in the self-hosted AI task manager: MCP tools over its REST API, the task-workflow skill, and a SessionStart hook that lists the tasks you still hold.",
+  "author": { "name": "helpdesk maintainers" },
+  "license": "UNLICENSED",
+  "keywords": ["tasks", "agents", "workflow", "mcp"],
+  "userConfig": {
+    "api_url": {
+      "type": "string",
+      "title": "Task manager API URL",
+      "description": "Base URL of the REST API, including /api/v1.",
+      "default": "http://localhost:4000/api/v1"
+    },
+    "actor": {
+      "type": "string",
+      "title": "Actor",
+      "description": "Who you act as, sent as X-Actor on every request: agent:<name>, lowercase.",
+      "default": "agent:claude-code"
+    },
+    "api_token": {
+      "type": "string",
+      "title": "API token",
+      "description": "Only if the server sets API_TOKEN (self-hosted deployments). Leave empty for a local API.",
+      "sensitive": true,
+      "default": ""
+    },
+    "server_path": {
+      "type": "string",
+      "title": "MCP server path",
+      "description": "Absolute path to apps/mcp/dist/index.js in your task manager checkout. Leave empty when the plugin is installed from that checkout's local marketplace.",
+      "default": ""
+    }
+  }
+}

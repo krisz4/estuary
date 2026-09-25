@@ -6,7 +6,7 @@ import { isApiClientError } from "@/api/http";
  *
  * Queries retry twice, **and only for failures a retry could fix**: a network
  * error or a 5xx. Retrying a 404 or a 422 costs the user three round trips to
- * see the same error, and on a detail page for a deleted ticket it turns an
+ * see the same error, and on a detail page for a deleted task it turns an
  * instant "not found" into a two-second stall.
  */
 const shouldRetryQuery = (failureCount: number, error: unknown): boolean => {
@@ -36,7 +36,7 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
     },
     mutations: {
-      /** Never. A retried `POST /tickets` creates two tickets. */
+      /** Never. A retried `POST /tasks` creates two tasks. */
       retry: 0,
     },
   },

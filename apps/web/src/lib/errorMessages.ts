@@ -41,9 +41,9 @@ const ERROR_COPY: Record<ApiClientErrorCode, ErrorCopy> = {
     description: "Change at least one field before saving.",
     retryable: false,
   },
-  TICKET_NOT_FOUND: {
-    title: "Ticket not found",
-    description: "This ticket does not exist, or it has been deleted.",
+  TASK_NOT_FOUND: {
+    title: "Task not found",
+    description: "This task does not exist, or it has been deleted.",
     retryable: false,
   },
   COMMENT_NOT_FOUND: {
@@ -51,9 +51,40 @@ const ERROR_COPY: Record<ApiClientErrorCode, ErrorCopy> = {
     description: "This comment has already been deleted.",
     retryable: false,
   },
-  INVALID_STATUS_TRANSITION: {
-    title: "That status change is not allowed",
-    description: "This ticket cannot move directly to the status you picked.",
+  UNAUTHORIZED: {
+    title: "This server needs an API token",
+    description: "Open “You” in the header and paste the token your admin gave you.",
+    retryable: true,
+  },
+  ACTOR_NOT_PERMITTED: {
+    title: "Not allowed for this actor",
+    description: "Agents hand finished work to Needs QA; a human marks it done.",
+    retryable: false,
+  },
+  VERSION_CONFLICT: {
+    title: "This task changed while you were editing",
+    description:
+      "Someone — possibly an agent — changed this task. Reload to see their changes, then try again.",
+    retryable: false,
+  },
+  TASK_ALREADY_CLAIMED: {
+    title: "Another agent is working on this",
+    description: "The task is claimed. Wait for the claim to expire, or release it first.",
+    retryable: false,
+  },
+  NOT_CLAIM_HOLDER: {
+    title: "You don't hold this task's claim",
+    description: "Only the actor working on the task can do that.",
+    retryable: false,
+  },
+  DEPENDENCY_CYCLE: {
+    title: "That would create a dependency loop",
+    description: "The task you picked already depends on this one, directly or indirectly.",
+    retryable: false,
+  },
+  NO_OPEN_DECISION: {
+    title: "This question was already answered",
+    description: "The decision is no longer open — someone answered or withdrew it. Reload to see.",
     retryable: false,
   },
   MALFORMED_JSON: {
@@ -105,16 +136,37 @@ export const errorRequestId = (error: unknown): string | undefined =>
   isApiClientError(error) ? error.requestId : undefined;
 
 /**
- * `details.allowed` for `INVALID_STATUS_TRANSITION`, so the status control can
- * say which targets are legal instead of only that this one is not.
+ * The copy's description, sharpened with the error's `details` where the
+ * contract gives them a documented shape — who holds a claim, which chain of
+ * tasks a new dependency would close into a loop.
+ *
+ * The details are read defensively (they are `unknown` on the wire) and only
+ * the *structured* values are rendered — never `message`. An unreadable
+ * `details` falls back to the plain description rather than to nothing.
  */
-export const allowedTransitionsFrom = (error: unknown): string[] | undefined => {
-  if (!isApiClientError(error) || error.code !== "INVALID_STATUS_TRANSITION") return undefined;
+export const errorDescription = (error: unknown): string => {
+  const copy = errorCopy(error);
+  if (!isApiClientError(error)) return copy.description;
+
   const details = error.details;
-  if (typeof details !== "object" || details === null) return undefined;
-  const allowed = (details as { allowed?: unknown }).allowed;
-  if (!Array.isArray(allowed) || !allowed.every((v) => typeof v === "string")) return undefined;
-  return allowed;
+  if (typeof details !== "object" || details === null) return copy.description;
+  const record = details as Record<string, unknown>;
+
+  if (error.code === "TASK_ALREADY_CLAIMED" || error.code === "NOT_CLAIM_HOLDER") {
+    const claimedBy = record.claimedBy;
+    if (typeof claimedBy === "string") {
+      return `${claimedBy} holds the claim. ${copy.description}`;
+    }
+  }
+
+  if (error.code === "DEPENDENCY_CYCLE") {
+    const path = record.path;
+    if (Array.isArray(path) && path.length > 1 && path.every((id) => typeof id === "number")) {
+      return `${copy.description} Loop: ${path.map((id) => `#${id}`).join(" → ")}.`;
+    }
+  }
+
+  return copy.description;
 };
 
 /* ------------------------------------------------------------------ *

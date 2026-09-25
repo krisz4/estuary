@@ -3,6 +3,7 @@ import {
   type ApiErrorCode,
   type ValidationErrorDetails,
 } from "@helpdesk/contracts";
+import { sessionHeaders, useSessionStore } from "@/stores/session";
 
 /* ------------------------------------------------------------------ *
  * Base URL
@@ -215,6 +216,10 @@ const request = async <TResponse>(
     headers: {
       Accept: "application/json",
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      // `X-Actor` and `Authorization`, each only when set — an absent name is
+      // the server's `human:anonymous`, and an empty `Bearer ` is a 401 on a
+      // server that has no token configured at all. See `stores/session.ts`.
+      ...sessionHeaders(),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -238,7 +243,15 @@ const request = async <TResponse>(
     });
   }
 
-  if (!response.ok) throw await errorFromResponse(response);
+  if (!response.ok) {
+    const error = await errorFromResponse(response);
+    // Raised here, for every caller at once, rather than in each screen's error
+    // branch: a 401 means the same thing wherever it happens — the token in the
+    // session dialog is missing or wrong — and the banner that says so lives
+    // in the app shell (`UnauthorizedBanner`).
+    if (error.code === "UNAUTHORIZED") useSessionStore.getState().reportUnauthorized();
+    throw error;
+  }
 
   // 204 on a successful DELETE, with no body. Parsing it as JSON throws.
   if (response.status === 204 || response.headers.get("content-length") === "0") {

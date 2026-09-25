@@ -12,16 +12,26 @@ import { z } from "zod";
  *
  * - `METHOD_NOT_ALLOWED` (405) — Express does not generate it; an unmatched verb
  *   falls through to the `notFound` middleware as a 404.
- * - `CONFLICT` (409) — the only unique columns are server-generated primary
- *   keys, so no client request can violate one. A Prisma `P2002` here is a
- *   server bug and correctly surfaces as `INTERNAL_ERROR`.
+ * - `CONFLICT` (409) — every 409 names *what* conflicted (`VERSION_CONFLICT`,
+ *   `TASK_ALREADY_CLAIMED`, …). The one client-supplied unique column,
+ *   `idempotencyKey`, never conflicts: a repeat returns the original task.
+ *
+ * `INVALID_STATUS_TRANSITION` was retired with the helpdesk lifecycle: there is
+ * no from→to table any more, and what a status requires is validated as the
+ * shape of the transition payload (`VALIDATION_ERROR`).
  */
 export const API_ERROR_CODES = [
   "VALIDATION_ERROR",
   "AT_LEAST_ONE_FIELD",
-  "TICKET_NOT_FOUND",
+  "UNAUTHORIZED",
+  "ACTOR_NOT_PERMITTED",
+  "TASK_NOT_FOUND",
   "COMMENT_NOT_FOUND",
-  "INVALID_STATUS_TRANSITION",
+  "VERSION_CONFLICT",
+  "TASK_ALREADY_CLAIMED",
+  "NOT_CLAIM_HOLDER",
+  "DEPENDENCY_CYCLE",
+  "NO_OPEN_DECISION",
   "MALFORMED_JSON",
   "PAYLOAD_TOO_LARGE",
   "NOT_FOUND",
@@ -39,9 +49,15 @@ export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 export const API_ERROR_STATUS = {
   VALIDATION_ERROR: 422,
   AT_LEAST_ONE_FIELD: 422,
-  TICKET_NOT_FOUND: 404,
+  UNAUTHORIZED: 401,
+  ACTOR_NOT_PERMITTED: 403,
+  TASK_NOT_FOUND: 404,
   COMMENT_NOT_FOUND: 404,
-  INVALID_STATUS_TRANSITION: 409,
+  VERSION_CONFLICT: 409,
+  TASK_ALREADY_CLAIMED: 409,
+  NOT_CLAIM_HOLDER: 409,
+  DEPENDENCY_CYCLE: 409,
+  NO_OPEN_DECISION: 409,
   MALFORMED_JSON: 400,
   PAYLOAD_TOO_LARGE: 413,
   NOT_FOUND: 404,
@@ -58,15 +74,31 @@ export const isApiErrorCode = (value: unknown): value is ApiErrorCode =>
 export const validationErrorDetailsSchema = z.record(z.string(), z.array(z.string()));
 export type ValidationErrorDetails = z.infer<typeof validationErrorDetailsSchema>;
 
-/** `details` for `INVALID_STATUS_TRANSITION`. */
-export const statusTransitionErrorDetailsSchema = z
+/** `details` for `VERSION_CONFLICT`: the version the caller should re-read at. */
+export const versionConflictDetailsSchema = z
   .object({
-    from: z.string(),
-    to: z.string(),
-    allowed: z.array(z.string()),
+    expected: z.number().int(),
+    current: z.number().int(),
   })
   .strict();
-export type StatusTransitionErrorDetails = z.infer<typeof statusTransitionErrorDetailsSchema>;
+export type VersionConflictDetails = z.infer<typeof versionConflictDetailsSchema>;
+
+/** `details` for `TASK_ALREADY_CLAIMED` / `NOT_CLAIM_HOLDER`: who holds it, until when. */
+export const claimConflictDetailsSchema = z
+  .object({
+    claimedBy: z.string(),
+    expiresAt: z.iso.datetime(),
+  })
+  .strict();
+export type ClaimConflictDetails = z.infer<typeof claimConflictDetailsSchema>;
+
+/** `details` for `DEPENDENCY_CYCLE`: the chain that would close the loop, as task ids. */
+export const dependencyCycleDetailsSchema = z
+  .object({
+    path: z.array(z.number().int()),
+  })
+  .strict();
+export type DependencyCycleDetails = z.infer<typeof dependencyCycleDetailsSchema>;
 
 /**
  * The error envelope. `details` is intentionally loose (`unknown`) — it carries a

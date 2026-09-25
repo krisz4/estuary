@@ -1,60 +1,67 @@
 import { pathToFileURL } from "node:url";
 
 import {
-  TICKET_PRIORITIES,
-  type TicketCategory,
-  type TicketPriority,
-  type TicketStatus,
+  actorKindOf,
+  actorNameOf,
+  type CommentKind,
+  type DecisionStatus,
+  type TaskEventType,
+  type TaskLink,
+  type TaskPriority,
+  type TaskStatus,
 } from "@helpdesk/contracts";
 
 import { env } from "../lib/env.js";
 import { logger } from "../lib/logger.js";
 import { prisma } from "../lib/prisma.js";
-import { applyTicketRanks } from "../services/ticket-status.js";
+import { applyTaskRanks } from "../services/task-status.js";
 import {
-  AGENT_COMMENTS,
-  ASSIGNEES,
-  COMMENT_COUNT_WEIGHTS,
-  PRIORITY_WEIGHTS,
+  DEFAULT_REVIEWER,
+  DEFAULT_WORKER,
+  GITHUB_ORG_URL,
+  PR_NUMBER_BASE,
   PRNG_SEED,
-  REQUESTERS,
-  REQUESTER_COMMENTS,
-  SEED_TICKET_COUNT,
+  PROGRESS_COUNT_WEIGHTS,
+  PROGRESS_NOTES,
+  SEED_TASK_COUNT,
   SEED_WINDOW_DAYS,
-  STATUS_WEIGHTS,
-  TICKET_TEMPLATES,
-  UNASSIGNED_SHARE,
+  TASK_TEMPLATES,
+  type SeedDecisionTemplate,
+  type SeedTaskTemplate,
   type Weighted,
 } from "./seed-data.js";
 
 /**
- * `db:seed` — 63 realistic tickets and their comment threads.
+ * `db:seed` — 62 software-development tasks across three projects, each with
+ * the comment thread, decisions, dependencies, and event trail it would have
+ * accumulated had it really been worked through the API.
  *
  * **It lives under `src/`, not under `prisma/`, and that is a build constraint
  * rather than a preference.** `tsconfig.build.json` has `rootDir: "src"`, and
  * `docs/operations/DOCKER.md` requires the seed to be *compiled* into the
  * runtime image — `tsx` is a devDependency and is not installed there. A file
- * outside `rootDir` cannot be added to the build at all, so the choice was
- * between moving it here and shipping a TypeScript runner into production.
- * `prisma/` keeps the schema and the migrations; the `prisma.seed` hook in
- * `package.json` names this file, which is all Prisma needs.
+ * outside `rootDir` cannot be added to the build at all. `prisma/` keeps the
+ * schema and the migrations; the `prisma.seed` hook in `package.json` names this
+ * file, which is all Prisma needs.
  *
- * Spec: `docs/features/Seed_Data.md`. The four rules that shape this file:
+ * Spec: `docs/features/Seed_Data.md`. The rules that shape this file:
  *
- * 1. **Reproducible.** One fixed PRNG seed drives every draw, and no draw reads
- *    the clock. Two developers running `db:seed` get the same 63 tickets, which
- *    is what makes a screenshot in a bug report worth anything.
+ * 1. **Reproducible.** One fixed PRNG seed drives every draw, and every time is
+ *    an offset from the `now` passed in. Two developers running `db:seed` get
+ *    the same tasks with the same numbers, which is what makes a screenshot in
+ *    a bug report worth anything.
  * 2. **Idempotent.** The script deletes everything first, `sqlite_sequence`
- *    included, so re-seeding produces the same ids rather than appending a
- *    second set with different ticket numbers.
+ *    included, so re-seeding produces the same ids rather than appending.
  * 3. **Guarded by `ALLOW_SEED`, not `NODE_ENV`.** The Docker image legitimately
  *    runs a production build *and* wants demo data.
- * 4. **Ranks are written through `applyTicketRanks()`** — see the block comment
- *    on `SeedTicketWrite` below, which is the mechanism rather than the promise.
- *
- * Tests never consume this data. They build their own fixtures against a temp
- * database (`docs/engineering/TESTING.md`); the tests in `src/seed/seed.test.ts`
- * are about the seed itself, which is a different thing.
+ * 4. **Written through Prisma, but as the services would have written it.** The
+ *    seed does not call the workflow service (which stamps `now()` on
+ *    everything); it replays each task's history itself. So every invariant the
+ *    services maintain — ranks, claims only on `in_progress`, one open decision
+ *    per `needs_user_decision` task, `statusNote` from the last transition, an
+ *    event for every write — is maintained here by construction, and asserted
+ *    in `seed.test.ts`.
+ * 5. **Ranks are written through `applyTaskRanks()`** — see `SeedTaskWrite`.
  */
 
 /* ------------------------------------------------------------------ *
@@ -62,50 +69,92 @@ import {
  * ------------------------------------------------------------------ */
 
 /**
- * **`statusRank` and `priorityRank` are deliberately absent from this type**,
- * exactly as they are absent from `TicketWriteData` in `services/ticket.service.ts`.
- *
- * The seed is the write path most likely to bypass `applyTicketRanks()`: it is
- * the one place that constructs a complete ticket row by hand, and Prisma would
- * happily accept `statusRank: 2` sitting next to `status: "resolved"`. Leaving
- * the fields off the type means the only way a rank reaches Prisma from here is
- * the helper adding it — enforced by the compiler, not by this comment.
- *
- * What it costs to get wrong is worse than a wrong sort order. Since stage 7 the
- * status and priority filters push the **rank** predicate as well as the text
- * one, so a row whose `statusRank` still holds the column default is matched by
- * no status filter at all: it disappears from every filtered list page and from
- * `meta.total`, while reading back perfectly over `GET /tickets/:id`.
+ * **`statusRank` and `priorityRank` are deliberately absent from this type.**
+ * The only way a rank reaches Prisma from here is `applyTaskRanks()` adding it
+ * — enforced by the compiler, not by this comment. A rank that disagrees with
+ * its status string makes the row invisible to every status filter while it
+ * still reads back perfectly over `GET /tasks/:id`.
  */
-export interface SeedTicketWrite {
+export interface SeedTaskWrite {
   title: string;
   description: string;
-  status: TicketStatus;
-  priority: TicketPriority;
-  category: TicketCategory | null;
-  requesterName: string;
-  requesterEmail: string;
+  acceptanceCriteria: string | null;
+  status: TaskStatus;
+  statusNote: string | null;
+  priority: TaskPriority;
+  project: string | null;
   assignee: string | null;
+  createdBy: string;
+  /** JSON `TaskLink[]`. */
+  links: string;
+  claimedBy: string | null;
+  claimExpiresAt: Date | null;
+  version: number;
+  idempotencyKey: string | null;
   createdAt: Date;
   /**
-   * Written explicitly even though the column is `@updatedAt`. Prisma stamps
-   * `now()` on create unless a value is supplied, which would leave all 63
-   * tickets sharing one `updatedAt` and make `?sort=updatedAt:desc` look broken.
+   * Written explicitly even though the column is `@updatedAt`: Prisma stamps
+   * `now()` on create unless a value is supplied, which would give every task
+   * the same `updatedAt` and make `?sort=updatedAt:desc` look broken. It is the
+   * time of the last write to the row — a transition, or a heartbeat.
    */
   updatedAt: Date;
-  resolvedAt: Date | null;
-  closedAt: Date | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
 }
 
 export interface SeedCommentWrite {
-  authorName: string;
+  author: string;
+  kind: CommentKind;
   body: string;
   createdAt: Date;
 }
 
-export interface SeedTicket {
-  ticket: SeedTicketWrite;
+export interface SeedDecisionWrite {
+  status: DecisionStatus;
+  question: string;
+  /** JSON `DecisionOption[]`. */
+  options: string;
+  recommendedOption: string | null;
+  context: string | null;
+  requestedBy: string;
+  choice: string | null;
+  note: string | null;
+  answeredBy: string | null;
+  createdAt: Date;
+  answeredAt: Date | null;
+}
+
+/**
+ * Ids an event payload needs but the generator cannot know: they are assigned
+ * by autoincrement at insert time and patched into the payload then.
+ */
+export type SeedEventRef =
+  | { comment: number } // index into this task's `comments`
+  | { decision: number } // index into this task's `decisions`
+  | { dependsOn: string }; // template key
+
+export interface SeedEventWrite {
+  type: TaskEventType;
+  actor: string;
+  payload: Record<string, unknown>;
+  ref?: SeedEventRef;
+  createdAt: Date;
+}
+
+export interface SeedDependencyWrite {
+  dependsOn: string;
+  createdAt: Date;
+}
+
+export interface SeedTask {
+  key: string;
+  parentKey: string | null;
+  dependencies: SeedDependencyWrite[];
+  task: SeedTaskWrite;
   comments: SeedCommentWrite[];
+  decisions: SeedDecisionWrite[];
+  events: SeedEventWrite[];
 }
 
 /* ------------------------------------------------------------------ *
@@ -130,8 +179,6 @@ export function createRandom(seed: number): () => number {
 
 const pick = <T>(random: () => number, values: readonly T[]): T => {
   const value = values[Math.floor(random() * values.length)];
-  // `noUncheckedIndexedAccess` is on; the index is in range by construction, but
-  // an empty pool would otherwise be `undefined` written into a NOT NULL column.
   if (value === undefined) throw new Error("Cannot pick from an empty pool");
   return value;
 };
@@ -150,138 +197,494 @@ const weightedPick = <T>(random: () => number, options: readonly Weighted<T>[]):
   return last.value;
 };
 
+/** Uniform in `[min, max)`. */
+const between = (random: () => number, min: number, max: number): number =>
+  min + random() * (max - min);
+
 /* ------------------------------------------------------------------ *
- * Generation
+ * Lifecycle plan
  * ------------------------------------------------------------------ */
 
-const MS_PER_DAY = 86_400_000;
-
-/** Raises a drawn priority to a template's floor. "Site-wide outage, low" reads as a bug. */
-const atLeast = (drawn: TicketPriority, floor: TicketPriority | undefined): TicketPriority => {
-  if (floor === undefined) return drawn;
-  return TICKET_PRIORITIES.indexOf(drawn) >= TICKET_PRIORITIES.indexOf(floor) ? drawn : floor;
-};
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 /**
- * The whole dataset, as plain objects. Pure: same `now` in, same rows out, and
- * nothing here touches Prisma — which is what lets the distribution be asserted
- * without a database.
- *
- * Rows come back **sorted by `createdAt` ascending**, so autoincrement hands out
- * ticket numbers in chronological order. `HD-000001` being the oldest ticket is
- * how a real system behaves, and it is free here.
- *
- * `seed` defaults to the shipped constant and exists so tests can assert the
- * *structural* invariants (a `closed` ticket carries both timestamps, no comment
- * predates its ticket) across many datasets rather than only the one that ships.
- * Production callers never pass it.
+ * One thing that happened to a task, before it has a time. A step with
+ * `write: true` is one write to the task row — one `version` bump — even when
+ * it produces several events (a claim is `task.status_changed` +
+ * `task.claimed`; a `blocked` transition carrying `blockedBy` adds its
+ * `dependency.added` events in the same write), exactly as the workflow service
+ * does it.
  */
-export function buildSeedTickets(now: Date, seed: number = PRNG_SEED): SeedTicket[] {
-  const random = createRandom(seed);
-  const nowMs = now.getTime();
-
-  const seeded = TICKET_TEMPLATES.map((template, index) => {
-    const status = weightedPick(random, STATUS_WEIGHTS);
-    const priority = atLeast(weightedPick(random, PRIORITY_WEIGHTS), template.minPriority);
-    const requester = pick(random, REQUESTERS);
-    const assignee = random() < UNASSIGNED_SHARE ? null : pick(random, ASSIGNEES);
-
-    // Spread across the window, never in the future, and never exactly `now` —
-    // a ticket created "0 ms ago" renders as an empty relative timestamp.
-    const ageMs = Math.floor(random() * SEED_WINDOW_DAYS * MS_PER_DAY) + 60_000;
-    const createdAt = new Date(nowMs - ageMs);
-
-    /* Lifecycle timestamps, mirroring what `applyStatusSideEffects` would have
-     * produced had the ticket walked the transitions through the API:
-     * `resolved` carries a `resolvedAt`; `closed` carries both, and its
-     * `resolvedAt` is never later than its `closedAt`. */
-    let resolvedAt: Date | null = null;
-    let closedAt: Date | null = null;
-
-    if (status === "resolved" || status === "closed") {
-      resolvedAt = new Date(createdAt.getTime() + Math.floor(random() * ageMs * 0.6) + 30_000);
-    }
-    if (status === "closed" && resolvedAt !== null) {
-      const remaining = nowMs - resolvedAt.getTime();
-      closedAt = new Date(resolvedAt.getTime() + Math.floor(random() * remaining * 0.8) + 30_000);
-    }
-
-    /* `updatedAt` is the last thing that happened to the *ticket*, so it is at
-     * least the newest lifecycle timestamp. Active tickets get an edit somewhere
-     * in their life, which keeps `?sort=updatedAt:desc` a different order from
-     * `?sort=createdAt:desc` rather than a copy of it. */
-    const lastLifecycle = closedAt ?? resolvedAt ?? createdAt;
-    const drift = Math.floor(random() * (nowMs - lastLifecycle.getTime()) * 0.4);
-    const updatedAt = new Date(lastLifecycle.getTime() + drift);
-
-    const ticket: SeedTicketWrite = {
-      title: template.title,
-      description: template.description,
-      status,
-      priority,
-      category: template.category,
-      requesterName: requester.name,
-      requesterEmail: requester.email,
-      assignee,
-      createdAt,
-      updatedAt,
-      resolvedAt,
-      closedAt,
-    };
-
-    return {
-      ticket,
-      comments: buildComments(random, index, ticket, nowMs),
-    };
-  });
-
-  return seeded.sort((a, b) => a.ticket.createdAt.getTime() - b.ticket.createdAt.getTime());
+interface Step {
+  actor: string;
+  write: boolean;
+  transition?: { from: TaskStatus; to: TaskStatus; note: string | null };
+  claim?: boolean;
+  dependencies?: readonly string[];
+  decisionRequest?: number;
+  decisionAnswer?: number;
+  comment?: { kind: CommentKind; body: string };
+  /** Lands in the same millisecond as the step before it. See `planSteps`. */
+  sameInstantAsPrevious?: boolean;
 }
 
 /**
- * A ticket's thread: 0–6 comments, oldest first, all after the ticket's own
- * `createdAt` and none in the future.
+ * The status a task was filed in. Only `backlog`, `needs_refinement`, and
+ * `todo` are creatable, and none of the others carry their required note on
+ * create, so:
  *
- * **Every third eligible thread has two comments landing in the same
- * millisecond, on purpose.** `createdAt` alone is not a total order over
- * comments, so the read path orders by `[createdAt asc, id asc]`; without a
- * collision in the data, dropping that `id` tiebreaker would break nothing
- * visible and the regression would ship. See `docs/features/Comments.md`.
+ * - an agent files work it has specified in `todo` directly (acceptance
+ *   criteria included);
+ * - everything else starts in `backlog` and gets where it is by transitions —
+ *   including `needs_refinement`, whose "what is unclear" note only a
+ *   transition can carry.
  */
-function buildComments(
+function creationStatusOf(template: SeedTaskTemplate): TaskStatus {
+  const passesThroughTodo = !["backlog", "needs_refinement", "deferred"].includes(template.status);
+  return actorKindOf(template.createdBy) === "agent" && passesThroughTodo ? "todo" : "backlog";
+}
+
+const decisionAnswerNote = (choice: string | undefined, note: string | undefined): string =>
+  // The same wording `answerDecision()` writes into `statusNote`.
+  `Decision: ${[choice, note].filter(Boolean).join(" — ")}`;
+
+/**
+ * The ordered history that ends in `template.status`, mirroring the workflow
+ * service's rules: claiming is a transition to `in_progress`; `done` is reached
+ * from `needs_qa` by a human (agents stop at `needs_qa`); answering a decision
+ * sends the task back to `todo`; a QA bounce goes back to `todo` for the agent
+ * to reclaim.
+ */
+function planSteps(
+  template: SeedTaskTemplate,
+  templateIndex: number,
   random: () => number,
-  ticketIndex: number,
-  ticket: SeedTicketWrite,
-  nowMs: number,
-): SeedCommentWrite[] {
-  const count = weightedPick(random, COMMENT_COUNT_WEIGHTS);
-  if (count === 0) return [];
+): Step[] {
+  const worker = template.worker ?? DEFAULT_WORKER;
+  const reviewer = template.reviewer ?? DEFAULT_REVIEWER;
+  const steps: Step[] = [];
+  let current = creationStatusOf(template);
 
-  const startMs = ticket.createdAt.getTime();
-  // Threads run out before the ticket goes quiet, not up to the current second.
-  const spanMs = Math.max(nowMs - startMs, 2 * 60_000) * 0.8;
+  const move = (to: TaskStatus, actor: string, note: string | null, extra: Partial<Step> = {}) => {
+    steps.push({ actor, write: true, transition: { from: current, to, note }, ...extra });
+    current = to;
+  };
 
-  const offsets = Array.from({ length: count }, () => Math.floor(random() * spanMs) + 60_000).sort(
-    (a, b) => a - b,
-  );
+  const comment = (actor: string, kind: CommentKind, body: string) =>
+    steps.push({ actor, write: false, comment: { kind, body } });
 
-  if (count >= 3 && ticketIndex % 3 === 0) {
-    // Two agents replying to the same thread in the same tick — rare in wall
-    // time, routine under a script, and the only thing that exercises the
-    // tiebreaker.
-    offsets[2] = offsets[1] ?? offsets[2] ?? 0;
+  /**
+   * A stretch of work: claim, then one to three working notes.
+   *
+   * **Every third task's two-note stretch lands both notes in the same
+   * millisecond, on purpose.** `createdAt` alone is not a total order over
+   * comments, so the read path orders by `[createdAt asc, id asc]`; without a
+   * collision in the data, dropping that `id` tiebreaker would break nothing
+   * visible and the regression would ship. See `docs/features/Comments.md`.
+   */
+  const work = () => {
+    move("in_progress", worker, null, { claim: true });
+    const count = weightedPick(random, PROGRESS_COUNT_WEIGHTS);
+    for (let n = 0; n < count; n += 1) {
+      steps.push({
+        actor: worker,
+        write: false,
+        comment: { kind: "progress", body: pick(random, PROGRESS_NOTES) },
+        sameInstantAsPrevious: n === 1 && templateIndex % 3 === 0,
+      });
+    }
+  };
+
+  const note = (): string => {
+    if (template.statusNote === undefined) {
+      throw new Error(`Seed template "${template.key}" (${template.status}) needs a statusNote`);
+    }
+    return template.statusNote;
+  };
+
+  for (const entry of template.comments ?? []) {
+    if (entry.at === "start") comment(entry.author, entry.kind, entry.body);
   }
 
-  const agent = ticket.assignee ?? pick(random, ASSIGNEES);
+  // Blockers of a `blocked` task arrive with the transition (`blockedBy`);
+  // anyone else's are added on their own, soon after filing.
+  if (template.dependsOn !== undefined && template.status !== "blocked") {
+    steps.push({ actor: template.createdBy, write: true, dependencies: template.dependsOn });
+  }
 
-  return offsets.map((offset, index) => {
-    // Alternating so a thread reads as a conversation; the agent opens it.
-    const fromAgent = index % 2 === 0;
-    return {
-      authorName: fromAgent ? agent : ticket.requesterName,
-      body: pick(random, fromAgent ? AGENT_COMMENTS : REQUESTER_COMMENTS),
-      createdAt: new Date(startMs + offset),
-    };
+  let decisionIndex = 0;
+
+  switch (template.status) {
+    case "backlog":
+      break;
+    case "needs_refinement":
+      move("needs_refinement", template.worker ?? DEFAULT_WORKER, note());
+      break;
+    case "deferred":
+      move("deferred", reviewer, note());
+      break;
+    default: {
+      if (current === "backlog") move("todo", template.createdBy, null);
+
+      const answered = template.answeredDecision;
+      if (answered !== undefined) {
+        work();
+        move("needs_user_decision", worker, answered.question, {
+          decisionRequest: decisionIndex,
+        });
+        move("todo", answered.answeredBy, decisionAnswerNote(answered.choice, answered.note), {
+          decisionAnswer: decisionIndex,
+        });
+        decisionIndex += 1;
+      }
+
+      if (template.status === "todo") break;
+      work();
+
+      switch (template.status) {
+        case "in_progress":
+          break;
+        case "blocked":
+          move("blocked", worker, note(), { dependencies: template.dependsOn ?? [] });
+          break;
+        case "needs_user_decision": {
+          const open = requireOpenDecision(template);
+          move("needs_user_decision", worker, open.question, { decisionRequest: decisionIndex });
+          break;
+        }
+        case "needs_user_action":
+        case "needs_qa":
+          move(template.status, worker, note());
+          break;
+        case "done": {
+          if (template.qaSummary === undefined) {
+            throw new Error(`Seed template "${template.key}" (done) needs a qaSummary`);
+          }
+          move("needs_qa", worker, template.qaSummary);
+          if (template.qaFeedback !== undefined) {
+            comment(reviewer, "qa_feedback", template.qaFeedback);
+            move("todo", reviewer, "Sent back from QA — see the qa_feedback comment.");
+            work();
+            move("needs_qa", worker, template.qaResubmit ?? template.qaSummary);
+          }
+          move("done", reviewer, template.statusNote ?? null);
+          break;
+        }
+        default:
+          throw new Error(`Seed template "${template.key}": unhandled status ${template.status}`);
+      }
+    }
+  }
+
+  for (const entry of template.comments ?? []) {
+    if (entry.at !== "start") comment(entry.author, entry.kind, entry.body);
+  }
+
+  if (current !== template.status) {
+    throw new Error(
+      `Seed template "${template.key}" planned to ${current}, not ${template.status}`,
+    );
+  }
+  return steps;
+}
+
+function requireOpenDecision(template: SeedTaskTemplate): SeedDecisionTemplate {
+  if (template.decision === undefined) {
+    throw new Error(`Seed template "${template.key}" (needs_user_decision) needs a decision`);
+  }
+  return template.decision;
+}
+
+/* ------------------------------------------------------------------ *
+ * Timeline
+ * ------------------------------------------------------------------ */
+
+export interface BuildSeedOptions {
+  /** Defaults to the shipped constant; tests vary it to check structure, not luck. */
+  seed?: number;
+  /** Lease length for claims. `seedDatabase` passes `CLAIM_LEASE_MINUTES`. */
+  leaseMinutes?: number;
+}
+
+/**
+ * The whole dataset, as plain objects. Pure: same `now` and options in, same
+ * rows out, and nothing here touches Prisma — which is what lets every
+ * invariant be asserted without a database.
+ *
+ * Rows come back **sorted by `createdAt` ascending**, so autoincrement hands out
+ * task numbers in chronological order. Parents and blockers are always older
+ * than the tasks that point at them (checked here), which also makes the
+ * dependency graph acyclic by construction.
+ */
+export function buildSeedTasks(now: Date, options: BuildSeedOptions = {}): SeedTask[] {
+  const random = createRandom(options.seed ?? PRNG_SEED);
+  const leaseMs = (options.leaseMinutes ?? 30) * MINUTE;
+  const nowMs = now.getTime();
+
+  const rows = TASK_TEMPLATES.map((template, index) =>
+    buildTask(template, index, random, nowMs, leaseMs),
+  ).sort((a, b) => a.task.createdAt.getTime() - b.task.createdAt.getTime());
+
+  assertReferences(rows);
+  return rows;
+}
+
+function buildTask(
+  template: SeedTaskTemplate,
+  index: number,
+  random: () => number,
+  nowMs: number,
+  leaseMs: number,
+): SeedTask {
+  const worker = template.worker ?? DEFAULT_WORKER;
+  const creationStatus = creationStatusOf(template);
+  const steps = planSteps(template, index, random);
+
+  // Up to ±0.35 days of jitter keeps templates a day apart in order, and never
+  // lands a task in the future or "0 minutes ago".
+  const createdMs = Math.min(
+    Math.round(nowMs - template.daysAgo * DAY + between(random, -0.35, 0.35) * DAY),
+    nowMs - 2 * HOUR,
+  );
+
+  /* When did the task reach its current status (`finalMs`), and how long did
+   * the thread keep going after that (`tailEndMs`)? A live claim was taken in
+   * the last few hours and heartbeated minutes ago; an expired one belongs to
+   * an agent that went quiet days ago; everything else settled somewhere in
+   * its lifetime. */
+  const lastWrite = steps.reduce((last, step, n) => (step.write ? n : last), -1);
+  const live = template.status === "in_progress" && template.claim !== "expired";
+  const expired = template.status === "in_progress" && template.claim === "expired";
+
+  let finalMs: number;
+  let tailEndMs: number;
+  let heartbeatMs: number | null = null;
+
+  if (lastWrite === -1) {
+    finalMs = createdMs;
+    tailEndMs = createdMs + (nowMs - createdMs) * between(random, 0.3, 0.8);
+  } else if (live) {
+    finalMs = nowMs - between(random, 40, 240) * MINUTE;
+    heartbeatMs = nowMs - between(random, 0.5, Math.min(8, leaseMs / MINUTE / 2)) * MINUTE;
+    tailEndMs = heartbeatMs - 30_000;
+  } else if (expired) {
+    finalMs = nowMs - between(random, 1.5, 3.5) * DAY;
+    heartbeatMs = finalMs + between(random, 1, 3) * HOUR;
+    tailEndMs = heartbeatMs - 60_000;
+  } else {
+    finalMs = createdMs + (nowMs - createdMs) * between(random, 0.45, 0.85);
+    tailEndMs = finalMs + (nowMs - finalMs) * between(random, 0.25, 0.85);
+  }
+
+  if (lastWrite !== -1 && finalMs <= createdMs) {
+    throw new Error(`Seed template "${template.key}" is too young for its history`);
+  }
+
+  // History spread across (created, final); the last write at `final`; the
+  // tail spread across (final, tailEnd]. One slot per step keeps them ordered.
+  const times: number[] = [];
+  const slot = (from: number, to: number, count: number, n: number) =>
+    Math.round(from + ((to - from) * (n + 0.15 + 0.7 * random())) / count);
+
+  const historyCount = Math.max(lastWrite, 0);
+  const tailCount = steps.length - (lastWrite + 1);
+  steps.forEach((step, n) => {
+    let at: number;
+    if (n < lastWrite) at = slot(createdMs, finalMs, historyCount, n);
+    else if (n === lastWrite) at = Math.round(finalMs);
+    else at = slot(finalMs, tailEndMs, tailCount, n - lastWrite - 1);
+
+    const previous = times.at(-1);
+    times.push(step.sameInstantAsPrevious && previous !== undefined ? previous : at);
+  });
+
+  /* Replay the steps into rows and events. */
+  const comments: SeedCommentWrite[] = [];
+  const decisions: SeedDecisionWrite[] = [];
+  const dependencies: SeedDependencyWrite[] = [];
+  const events: SeedEventWrite[] = [
+    {
+      type: "task.created",
+      actor: template.createdBy,
+      payload: { status: creationStatus, title: template.title },
+      createdAt: new Date(createdMs),
+    },
+  ];
+
+  let status = creationStatus;
+  let statusNote: string | null = null;
+  let version = 1;
+  let lastWriteMs = createdMs;
+  let startedMs: number | null = null;
+  let completedMs: number | null = null;
+  let claimedBy: string | null = null;
+  let claimExpiresMs: number | null = null;
+
+  steps.forEach((step, n) => {
+    const atMs = times[n] ?? createdMs;
+    const at = new Date(atMs);
+    const event = (type: TaskEventType, payload: Record<string, unknown>, ref?: SeedEventRef) =>
+      events.push({ type, actor: step.actor, payload, createdAt: at, ...(ref ? { ref } : {}) });
+
+    for (const key of step.dependencies ?? []) {
+      dependencies.push({ dependsOn: key, createdAt: at });
+      event("dependency.added", {}, { dependsOn: key });
+    }
+
+    if (step.decisionAnswer !== undefined) {
+      const decision = decisions[step.decisionAnswer];
+      const answered = template.answeredDecision;
+      if (decision === undefined || answered === undefined) {
+        throw new Error(`Seed template "${template.key}": answer without a question`);
+      }
+      decision.status = "answered";
+      decision.choice = answered.choice ?? null;
+      decision.note = answered.note ?? null;
+      decision.answeredBy = step.actor;
+      decision.answeredAt = at;
+      event(
+        "decision.answered",
+        { choice: decision.choice, note: decision.note },
+        { decision: step.decisionAnswer },
+      );
+    }
+
+    if (step.transition !== undefined) {
+      const { from, to, note } = step.transition;
+      status = to;
+      statusNote = note;
+      event("task.status_changed", { from, to, note });
+
+      if (to === "in_progress" && startedMs === null) startedMs = atMs;
+      completedMs = to === "done" ? atMs : null;
+      // Taken on entering in_progress, dropped on leaving it.
+      claimedBy = step.claim ? step.actor : null;
+      claimExpiresMs = step.claim ? atMs + leaseMs : null;
+      if (step.claim) event("task.claimed", { expiresAt: new Date(atMs + leaseMs).toISOString() });
+    }
+
+    if (step.decisionRequest !== undefined) {
+      const source =
+        step.decisionRequest === 0 && template.answeredDecision !== undefined
+          ? template.answeredDecision
+          : requireOpenDecision(template);
+      decisions.push({
+        status: "open",
+        question: source.question,
+        options: JSON.stringify(source.options),
+        recommendedOption: source.recommendedOption ?? null,
+        context: source.context ?? null,
+        requestedBy: step.actor,
+        choice: null,
+        note: null,
+        answeredBy: null,
+        createdAt: at,
+        answeredAt: null,
+      });
+      event(
+        "decision.requested",
+        { question: source.question },
+        { decision: decisions.length - 1 },
+      );
+    }
+
+    if (step.comment !== undefined) {
+      comments.push({ author: step.actor, ...step.comment, createdAt: at });
+      event("comment.created", { kind: step.comment.kind }, { comment: comments.length - 1 });
+    }
+
+    if (step.write) {
+      version += 1;
+      lastWriteMs = atMs;
+    }
+  });
+
+  // A heartbeat extends the lease and touches `updatedAt` without a version bump.
+  if (heartbeatMs !== null) {
+    claimExpiresMs = heartbeatMs + leaseMs;
+    lastWriteMs = Math.max(lastWriteMs, heartbeatMs);
+  }
+
+  const everStarted = startedMs !== null;
+  const assignee =
+    template.assignee !== undefined ? template.assignee : everStarted ? worker : null;
+
+  const task: SeedTaskWrite = {
+    title: template.title,
+    description: template.description,
+    acceptanceCriteria: template.acceptanceCriteria ?? null,
+    status,
+    statusNote,
+    priority: template.priority,
+    project: template.project,
+    assignee,
+    createdBy: template.createdBy,
+    links: JSON.stringify(linksFor(template, index, worker)),
+    claimedBy,
+    claimExpiresAt: claimExpiresMs === null ? null : new Date(claimExpiresMs),
+    version,
+    idempotencyKey:
+      actorKindOf(template.createdBy) === "agent"
+        ? `${actorNameOf(template.createdBy)}:${template.project ?? "inbox"}:${template.key}`
+        : null,
+    createdAt: new Date(createdMs),
+    updatedAt: new Date(lastWriteMs),
+    startedAt: startedMs === null ? null : new Date(startedMs),
+    completedAt: completedMs === null ? null : new Date(completedMs),
+  };
+
+  return {
+    key: template.key,
+    parentKey: template.parent ?? null,
+    dependencies,
+    task,
+    comments,
+    decisions,
+    events,
+  };
+}
+
+/**
+ * Explicit links win. Otherwise work handed to QA carries the PR it was
+ * reviewed in and the branch it was built on — what the `needs_qa` transition's
+ * `links` would have appended.
+ */
+function linksFor(template: SeedTaskTemplate, index: number, worker: string): TaskLink[] {
+  if (template.links !== undefined) return template.links;
+  if (template.project === null) return [];
+  if (template.status !== "needs_qa" && template.status !== "done") return [];
+
+  const repo = `${GITHUB_ORG_URL}/${template.project}`;
+  const pr = PR_NUMBER_BASE[template.project] + index;
+  const branch = `${actorNameOf(worker)}/${template.key}`;
+  return [
+    { label: `PR #${pr}`, url: `${repo}/pull/${pr}` },
+    { label: `Branch ${branch}`, url: `${repo}/tree/${branch}` },
+  ];
+}
+
+/**
+ * Every `parent` and `dependsOn` names a real template **older** than the task
+ * pointing at it. Parents must be inserted first (the child's insert carries
+ * `parentId`), and edges that only ever point backwards in time cannot form a
+ * cycle — the same guarantee `DEPENDENCY_CYCLE` gives the API.
+ */
+function assertReferences(rows: SeedTask[]): void {
+  const position = new Map(rows.map((row, n) => [row.key, n]));
+  if (position.size !== rows.length) throw new Error("Seed template keys must be unique");
+
+  rows.forEach((row, n) => {
+    const targets = [
+      ...(row.parentKey === null ? [] : [row.parentKey]),
+      ...row.dependencies.map((dep) => dep.dependsOn),
+    ];
+    for (const key of targets) {
+      const at = position.get(key);
+      if (at === undefined) throw new Error(`Seed task "${row.key}" references unknown "${key}"`);
+      if (at >= n) throw new Error(`Seed task "${row.key}" references newer task "${key}"`);
+    }
   });
 }
 
@@ -296,8 +699,7 @@ function buildComments(
  * **The switch is `ALLOW_SEED`, and `NODE_ENV` only decides the default.** A
  * production build is exactly what the Docker image runs, and that image ships
  * demo data — keying the refusal on `NODE_ENV=production` alone would make the
- * container unable to seed at all, and the workaround would be lying about
- * `NODE_ENV`, which turns off verbose errors as a side effect.
+ * container unable to seed at all.
  *
  * Pure and exported so this decision is testable without setting environment
  * variables in a worker that has already parsed them.
@@ -309,8 +711,8 @@ export class SeedNotAllowedError extends Error {
   constructor() {
     super(
       "Refusing to seed: NODE_ENV=production and ALLOW_SEED is not set. " +
-        "Seeding deletes every ticket and comment first. Set ALLOW_SEED=true to proceed " +
-        "(see docs/engineering/ENVIRONMENT_VARIABLES.md).",
+        "Seeding deletes every task, comment, decision, dependency and event first. " +
+        "Set ALLOW_SEED=true to proceed (see docs/engineering/ENVIRONMENT_VARIABLES.md).",
     );
     this.name = "SeedNotAllowedError";
   }
@@ -321,53 +723,142 @@ export class SeedNotAllowedError extends Error {
  * ------------------------------------------------------------------ */
 
 export interface SeedResult {
-  tickets: number;
+  tasks: number;
   comments: number;
+  decisions: number;
+  dependencies: number;
+  events: number;
 }
 
+/** Autoincrement tables whose counters are reset, so a re-seed reuses ids from 1. */
+const SEQUENCED_TABLES = ["Task", "Comment", "Decision", "TaskEvent"];
+
 /**
- * Wipe, then insert.
+ * Wipe, then insert — in one transaction, so an interrupted seed cannot leave
+ * a half-populated database.
  *
- * `sqlite_sequence` is reset alongside the delete so a re-seed reuses ids 1–63
- * rather than continuing from 64. Without it "reproducible" would hold for the
- * *content* of the tickets and not for their numbers, and `HD-000042` would mean
- * a different ticket on every run — including in the screenshots the fixed PRNG
- * seed exists to make comparable.
+ * `sqlite_sequence` is reset alongside the delete so a re-seed reuses the same
+ * ids. Without it `TASK-000042` would mean a different task on every run.
  *
- * One transaction: 63 tickets with their nested threads either all land or none
- * do, so an interrupted seed cannot leave a half-populated database that looks
- * fine until someone pages to the end.
+ * Insert order is what makes ids chronological in every table: tasks oldest
+ * first; then comments, decisions, and events each sorted by time across
+ * *all* tasks (a stable sort, so same-millisecond rows keep their causal
+ * order). An events poller reading `after=<id>` therefore sees history in the
+ * order it happened.
  */
 export async function seedDatabase(options: { now?: Date } = {}): Promise<SeedResult> {
   if (!isSeedAllowed(env.NODE_ENV, env.ALLOW_SEED)) throw new SeedNotAllowedError();
 
-  const rows = buildSeedTickets(options.now ?? new Date());
+  const rows = buildSeedTasks(options.now ?? new Date(), {
+    leaseMinutes: env.CLAIM_LEASE_MINUTES,
+  });
 
   return prisma.$transaction(
     async (tx) => {
-      await tx.$executeRawUnsafe('DELETE FROM "Comment"');
-      await tx.$executeRawUnsafe('DELETE FROM "Ticket"');
-      await tx.$executeRawUnsafe(`DELETE FROM sqlite_sequence WHERE name IN ('Ticket', 'Comment')`);
+      // TaskEvent has no foreign key (it outlives its task), so the cascade
+      // from Task would not clear it; the others are cleared explicitly too
+      // rather than trusting the cascade to do it.
+      for (const table of ["TaskEvent", "Decision", "TaskDependency", "Comment", "Task"]) {
+        await tx.$executeRawUnsafe(`DELETE FROM "${table}"`);
+      }
+      await tx.$executeRawUnsafe(
+        `DELETE FROM sqlite_sequence WHERE name IN (${SEQUENCED_TABLES.map((t) => `'${t}'`).join(", ")})`,
+      );
 
-      let comments = 0;
+      /* Tasks, oldest first. Parents are older than their children, so a
+       * parent's id is always known by the time a child needs it. */
+      const idByKey = new Map<string, number>();
+      const idOf = (key: string): number => {
+        const id = idByKey.get(key);
+        if (id === undefined) throw new Error(`Seed: task "${key}" not inserted yet`);
+        return id;
+      };
 
       for (const row of rows) {
-        await tx.ticket.create({
+        const { id } = await tx.task.create({
           data: {
-            // The only route a rank takes into this insert. See `SeedTicketWrite`.
-            ...applyTicketRanks(row.ticket),
-            comments: { create: row.comments },
+            // The only route a rank takes into this insert. See `SeedTaskWrite`.
+            ...applyTaskRanks(row.task),
+            parentId: row.parentKey === null ? null : idOf(row.parentKey),
           },
           select: { id: true },
         });
-        comments += row.comments.length;
+        idByKey.set(row.key, id);
       }
 
-      return { tickets: rows.length, comments };
+      const dependencies = rows.flatMap((row) =>
+        row.dependencies.map((dep) => ({
+          taskId: idOf(row.key),
+          dependsOnId: idOf(dep.dependsOn),
+          createdAt: dep.createdAt,
+        })),
+      );
+      await tx.taskDependency.createMany({ data: dependencies });
+
+      /* Comments and decisions, chronological across all tasks, one insert at a
+       * time so each id can be recorded for the events that reference it. */
+      const byTime = <T extends { at: Date }>(items: T[]): T[] =>
+        items.sort((a, b) => a.at.getTime() - b.at.getTime());
+
+      const commentIds = rows.map(() => [] as number[]);
+      const comments = byTime(
+        rows.flatMap((row, r) =>
+          row.comments.map((comment, c) => ({ r, c, comment, at: comment.createdAt })),
+        ),
+      );
+      for (const { r, c, comment } of comments) {
+        const { id } = await tx.comment.create({
+          data: { ...comment, taskId: idOf(rows[r]!.key) },
+          select: { id: true },
+        });
+        commentIds[r]![c] = id;
+      }
+
+      const decisionIds = rows.map(() => [] as number[]);
+      const decisions = byTime(
+        rows.flatMap((row, r) =>
+          row.decisions.map((decision, d) => ({ r, d, decision, at: decision.createdAt })),
+        ),
+      );
+      for (const { r, d, decision } of decisions) {
+        const { id } = await tx.decision.create({
+          data: { ...decision, taskId: idOf(rows[r]!.key) },
+          select: { id: true },
+        });
+        decisionIds[r]![d] = id;
+      }
+
+      /* Events, chronological across all tasks. `createMany` inserts in array
+       * order, so ids follow time. */
+      const resolve = (r: number, ref: SeedEventRef | undefined): Record<string, number> => {
+        if (ref === undefined) return {};
+        if ("comment" in ref) return { commentId: commentIds[r]![ref.comment]! };
+        if ("decision" in ref) return { decisionId: decisionIds[r]![ref.decision]! };
+        return { dependsOnId: idOf(ref.dependsOn) };
+      };
+
+      const events = byTime(
+        rows.flatMap((row, r) => row.events.map((event) => ({ r, event, at: event.createdAt }))),
+      ).map(({ r, event }) => ({
+        taskId: idOf(rows[r]!.key),
+        type: event.type,
+        actor: event.actor,
+        payload: JSON.stringify({ ...resolve(r, event.ref), ...event.payload }),
+        createdAt: event.createdAt,
+      }));
+      await tx.taskEvent.createMany({ data: events });
+
+      return {
+        tasks: rows.length,
+        comments: comments.length,
+        decisions: decisions.length,
+        dependencies: dependencies.length,
+        events: events.length,
+      };
     },
-    // 63 inserts plus ~190 nested ones on a cold SQLite file comfortably fits,
-    // but the default 5 s interactive timeout is tight enough on a loaded CI box
-    // to be worth not thinking about again.
+    // ~200 single-row inserts plus three bulk ones on a cold SQLite file fits
+    // easily, but the default 5 s interactive timeout is tight enough on a
+    // loaded CI box to be worth not thinking about again.
     { timeout: 30_000 },
   );
 }
@@ -391,7 +882,8 @@ if (isEntrypoint) {
     const result = await seedDatabase();
     logger.info("Seed complete", {
       ...result,
-      expectedTickets: SEED_TICKET_COUNT,
+      expectedTasks: SEED_TASK_COUNT,
+      windowDays: SEED_WINDOW_DAYS,
       durationMs: Date.now() - startedAt,
       database: env.DATABASE_URL,
     });

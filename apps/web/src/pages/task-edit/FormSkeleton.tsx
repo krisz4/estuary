@@ -1,8 +1,8 @@
 import { Skeleton } from "@/components/ui";
 
-/** Loading placeholder shaped like `TicketForm`, so the page does not jump. */
+/** Loading placeholder shaped like `TaskForm`, so the page does not jump. */
 export const FormSkeleton = () => (
-  <div className="flex max-w-2xl flex-col gap-5" aria-busy="true" aria-label="Loading ticket">
+  <div className="flex max-w-2xl flex-col gap-5" aria-busy="true" aria-label="Loading task">
     <FieldSkeleton />
     <div className="flex flex-col gap-1.5">
       <Skeleton className="h-4 w-24" />

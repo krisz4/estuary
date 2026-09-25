@@ -1,27 +1,32 @@
 import { expect, test } from "@playwright/test";
 
-import { columnTexts, PRIORITY_LABEL_RANK, rowReferences, tableRows } from "./helpers";
+import {
+  columnTexts,
+  OPEN_STATUS_LABELS,
+  PRIORITY_LABEL_RANK,
+  rowReferences,
+  tableRows,
+} from "./helpers";
 
 /**
- * Spec 2 — filter by status, sort by priority, page forward; the URL reflects
- * every step and survives a reload.
+ * Filter to open work, sort by priority, page forward; the URL reflects every
+ * step and survives a reload.
  *
  * Read-only by design: it touches nothing, so it can run in any position
  * relative to the mutating specs. It is also the one spec that legitimately
- * wants the seed — 63 rows is what makes a second page exist at all — and it
- * asserts *relationships* (all rows open, priorities non-increasing, page 2
- * disjoint from page 1) rather than particular seeded ticket numbers, so
- * re-rolling the seed does not break it.
+ * wants the seed — a second page of open work exists only because the seed
+ * makes one — and it asserts *relationships* (every row open, priorities
+ * non-increasing across a page boundary, page 2 disjoint from page 1) rather
+ * than particular seeded task numbers, so re-rolling the seed does not break it.
  *
- * The reload is the point. `docs/features/Ticket_Query_Filter_Sort_Page.md`
+ * The reload is the point. `docs/features/Task_Query_Filter_Sort_Page.md`
  * makes the URL the single source of list state; a filter kept in React state
  * would pass every step of this spec until the reload, and then serve an
  * unfiltered page 1 from an address that says otherwise.
  *
  * **Every read of the rows goes through `expect.poll`.** The list deliberately
  * keeps the previous rows on screen while the next query is in flight, so a
- * one-shot read after a click is a race — and it is the race that failed this
- * file's first run, against an implementation that was behaving correctly.
+ * one-shot read after a click is a race.
  */
 
 const STATUS_COLUMN = 3;
@@ -30,32 +35,33 @@ const PRIORITY_COLUMN = 4;
 test("filters, sorts, and pages the list through the URL, and survives a reload", async ({
   page,
 }) => {
-  await page.goto("/tickets");
+  await page.goto("/tasks");
   await expect(tableRows(page).first()).toBeVisible();
 
   /* ---------------- Filter ---------------- */
 
   /*
-    The chip's own `<input type="checkbox">` is `sr-only` — a 1px box under the
-    styled `<span>` that is the visible control — so `.check()` on it is a click
-    the label intercepts. Clicking the label's text is both what a user does and
-    what actually toggles the input, and scoping it to the `Status` fieldset (a
-    `group` named by its legend) keeps it off the identically-labelled chips in
-    the priority and category groups.
+    "Open work" is a preset beside the Status legend: every status except Done
+    and Deferred, in one click. It writes the same repeated `status` param the
+    individual chips do, so the chips light up with it.
   */
   const statusFilter = page.getByRole("group", { name: "Status" });
-  await statusFilter.getByText("Open", { exact: true }).click();
-  await expect(statusFilter.getByRole("checkbox", { name: "Open", exact: true })).toBeChecked();
+  const openWork = statusFilter.getByRole("button", { name: "Open work" });
+  await openWork.click();
+  await expect(openWork).toHaveAttribute("aria-pressed", "true");
+  await expect(statusFilter.getByRole("checkbox", { name: "Backlog", exact: true })).toBeChecked();
+  await expect(statusFilter.getByRole("checkbox", { name: "Done", exact: true })).not.toBeChecked();
 
-  await expect(page).toHaveURL(/[?&]status=open(&|$)/);
-  await expect(page.getByRole("button", { name: "Remove filter: Status: Open" })).toBeVisible();
+  await expect(page).toHaveURL(/[?&]status=backlog(&|$)/);
+  await expect(page).toHaveURL(/[?&]status=needs_qa(&|$)/);
+  await expect(page).not.toHaveURL(/[?&]status=(done|deferred)(&|$)/);
 
   await expect
     .poll(async () => {
       const statuses = await columnTexts(page, STATUS_COLUMN);
       // `[]` would satisfy "every row is open" vacuously, so the emptiness is
       // folded into the polled value rather than asserted separately after it.
-      return statuses.length > 0 && statuses.every((status) => status === "Open");
+      return statuses.length > 0 && statuses.every((status) => OPEN_STATUS_LABELS.includes(status));
     })
     .toBe(true);
 
@@ -65,7 +71,7 @@ test("filters, sorts, and pages the list through the URL, and survives a reload"
 
   await expect(page).toHaveURL(/[?&]sort=priority%3Adesc(&|$)/);
   // Sorting resets to page 1 — a filter or sort change may shrink the result
-  // set below the current page (`useTicketListParams`).
+  // set below the current page (`useTaskListParams`).
   await expect(page).not.toHaveURL(/[?&]page=/);
 
   // Highest first, which is what "Priority: high to low" promises and what
@@ -101,13 +107,10 @@ test("filters, sorts, and pages the list through the URL, and survives a reload"
     `priorityRank` column: sorted as text, the order is urgent, medium, low,
     high — `high` last, not second.
 
-    **Asserted across both pages, not within page 1**, and that is not thoroughness
-    for its own sake. Checked on page 1 alone this assertion does not
-    discriminate: with the seeded data the open subset is 3 urgent / 6 high /
-    11 medium / 6 low, so a text sort fills page 1 with urgent, medium, and low
-    — a sequence that is *already* non-increasing by rank — and puts every
-    `high` row on page 2. Swapping `priorityRank` for `priority` in the API's
-    sort map was a live probe that passed the page-1 version of this check.
+    **Asserted across both pages, not within page 1.** On one page a text sort
+    can happen to produce a sequence that is already non-increasing by rank
+    (urgent, medium, low — with every `high` row pushed to page 2); only the
+    boundary between pages shows the difference.
   */
   const priorities = [...firstPagePriorities, ...(await columnTexts(page, PRIORITY_COLUMN))];
   const ranks = priorities.map((label) => {

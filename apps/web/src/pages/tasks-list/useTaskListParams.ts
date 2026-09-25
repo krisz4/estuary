@@ -3,26 +3,24 @@ import { useSearchParams } from "react-router-dom";
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
-  DEFAULT_TICKET_SORT_DIRECTION,
-  DEFAULT_TICKET_SORT_FIELD,
+  DEFAULT_TASK_SORT_DIRECTION,
+  DEFAULT_TASK_SORT_FIELD,
   MAX_PAGE,
   MAX_PAGE_SIZE,
   MIN_PAGE_SIZE,
   SORT_DIRECTIONS,
-  TICKET_ASSIGNEE_MAX,
-  TICKET_CATEGORIES,
-  TICKET_EMAIL_MAX,
-  TICKET_PRIORITIES,
-  TICKET_Q_MAX,
-  TICKET_SORT_FIELDS,
-  TICKET_STATUSES,
-  formatTicketSort,
+  TASK_ASSIGNEE_MAX,
+  TASK_PRIORITIES,
+  TASK_PROJECT_MAX,
+  TASK_Q_MAX,
+  TASK_SORT_FIELDS,
+  TASK_STATUSES,
+  formatTaskSort,
   type SortDirection,
-  type TicketCategory,
-  type TicketPriority,
-  type TicketSort,
-  type TicketSortField,
-  type TicketStatus,
+  type TaskPriority,
+  type TaskSort,
+  type TaskSortField,
+  type TaskStatus,
 } from "@helpdesk/contracts";
 
 /**
@@ -31,7 +29,7 @@ import {
  * Two rules govern this module, and both are bugs the moment they are relaxed:
  *
  * 1. **It picks the keys it knows and validates them one at a time.** It does
- *    *not* feed `useSearchParams()` into `ticketListQuerySchema`, which is
+ *    *not* feed `useSearchParams()` into `taskListQuerySchema`, which is
  *    `.strict()` and server-side by design: a link shared through Slack arrives
  *    carrying `?utm_source=slack`, the whole parse fails, and every filter the
  *    sender meant the recipient to see is silently replaced by defaults. An
@@ -50,56 +48,58 @@ import {
  * ------------------------------------------------------------------ */
 
 /** Every key this module owns. Anything else in the URL is left untouched. */
-export const TICKET_LIST_PARAM_KEYS = [
+export const TASK_LIST_PARAM_KEYS = [
   "page",
   "pageSize",
   "sort",
   "status",
   "priority",
-  "category",
+  "project",
   "assignee",
   "assigneeIsNull",
-  "requesterEmail",
+  "createdBy",
   "q",
   "createdFrom",
   "createdTo",
 ] as const;
 
-export type TicketListParamKey = (typeof TICKET_LIST_PARAM_KEYS)[number];
+export type TaskListParamKey = (typeof TASK_LIST_PARAM_KEYS)[number];
 
-export type TicketListParams = {
+export type TaskListParams = {
   page: number;
   pageSize: number;
-  sort: TicketSort;
-  status: TicketStatus[];
-  priority: TicketPriority[];
-  category: TicketCategory[];
+  sort: TaskSort;
+  status: TaskStatus[];
+  priority: TaskPriority[];
+  /** Project slugs, OR-ed together. Values come from `GET /tasks/facets`. */
+  project: string[];
   assignee: string | undefined;
   assigneeIsNull: boolean | undefined;
-  requesterEmail: string | undefined;
+  /** One exact actor, e.g. `agent:claude-code`. Values come from facets `creators`. */
+  createdBy: string | undefined;
   q: string | undefined;
   createdFrom: string | undefined;
   createdTo: string | undefined;
 };
 
 /** The filter subset — everything a change to which resets `page`. */
-export type TicketListFilters = Omit<TicketListParams, "page" | "pageSize" | "sort">;
+export type TaskListFilters = Omit<TaskListParams, "page" | "pageSize" | "sort">;
 
-export const DEFAULT_SORT: TicketSort = {
-  field: DEFAULT_TICKET_SORT_FIELD,
-  direction: DEFAULT_TICKET_SORT_DIRECTION,
+export const DEFAULT_SORT: TaskSort = {
+  field: DEFAULT_TASK_SORT_FIELD,
+  direction: DEFAULT_TASK_SORT_DIRECTION,
 };
 
-export const DEFAULT_TICKET_LIST_PARAMS: TicketListParams = {
+export const DEFAULT_TASK_LIST_PARAMS: TaskListParams = {
   page: DEFAULT_PAGE,
   pageSize: DEFAULT_PAGE_SIZE,
   sort: DEFAULT_SORT,
   status: [],
   priority: [],
-  category: [],
+  project: [],
   assignee: undefined,
   assigneeIsNull: undefined,
-  requesterEmail: undefined,
+  createdBy: undefined,
   q: undefined,
   createdFrom: undefined,
   createdTo: undefined,
@@ -130,7 +130,7 @@ const oneOf = <T extends string>(allowed: readonly T[], raw: string): T | undefi
   (allowed as readonly string[]).includes(raw) ? (raw as T) : undefined;
 
 /**
- * `?status=open&status=nonsense&status=open` → `["open"]`. Invalid entries are
+ * `?status=todo&status=nonsense&status=todo` → `["todo"]`. Invalid entries are
  * dropped individually and duplicates collapse, so the value we send is always
  * one the server accepts.
  */
@@ -143,12 +143,12 @@ const parseEnumList = <T extends string>(allowed: readonly T[], raw: string[]): 
   return [...seen];
 };
 
-const parseSort = (raw: string | null): TicketSort => {
+const parseSort = (raw: string | null): TaskSort => {
   if (raw === null) return DEFAULT_SORT;
   const [field, direction, ...rest] = raw.trim().split(":");
   if (field === undefined || direction === undefined || rest.length > 0) return DEFAULT_SORT;
 
-  const sortField: TicketSortField | undefined = oneOf(TICKET_SORT_FIELDS, field);
+  const sortField: TaskSortField | undefined = oneOf(TASK_SORT_FIELDS, field);
   const sortDirection: SortDirection | undefined = oneOf(SORT_DIRECTIONS, direction);
   if (sortField === undefined || sortDirection === undefined) return DEFAULT_SORT;
 
@@ -184,12 +184,33 @@ const parseDate = (raw: string | null): string | undefined => {
   return parsed.toISOString().startsWith(value) ? value : undefined;
 };
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * The contract's project slug rule, lowercased the way `projectSchema` stores
+ * it. Written out rather than calling `projectSchema.safeParse` per entry only
+ * because the pattern is the whole of it; the bound is the contract's constant.
+ */
+const PROJECT_PATTERN = new RegExp(`^[a-z0-9][a-z0-9._-]{0,${TASK_PROJECT_MAX - 1}}$`);
 
-const parseEmail = (raw: string | null): string | undefined => {
-  const value = parseBoundedString(raw, TICKET_EMAIL_MAX)?.toLowerCase();
+const parseProjects = (raw: string[]): string[] => {
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    const value = entry.trim().toLowerCase();
+    if (PROJECT_PATTERN.test(value)) seen.add(value);
+  }
+  return [...seen];
+};
+
+/**
+ * `createdBy` — any stored actor (`human:`, `agent:`, `system:`), lowercased
+ * like the server's filter. The 80-character bound is the list query's own.
+ */
+const ACTOR_FILTER_MAX = 80;
+const ACTOR_FILTER_PATTERN = /^(human|agent|system):\S+$/;
+
+const parseActor = (raw: string | null): string | undefined => {
+  const value = parseBoundedString(raw, ACTOR_FILTER_MAX)?.toLowerCase();
   if (value === undefined) return undefined;
-  return EMAIL_PATTERN.test(value) ? value : undefined;
+  return ACTOR_FILTER_PATTERN.test(value) ? value : undefined;
 };
 
 /* ------------------------------------------------------------------ *
@@ -204,8 +225,8 @@ const parseEmail = (raw: string | null): string | undefined => {
  * server refuses together (`assignee` + `assigneeIsNull`, and an inverted date
  * range) are resolved here rather than sent and rejected.
  */
-export const parseTicketListParams = (searchParams: URLSearchParams): TicketListParams => {
-  const assignee = parseBoundedString(searchParams.get("assignee"), TICKET_ASSIGNEE_MAX);
+export const parseTaskListParams = (searchParams: URLSearchParams): TaskListParams => {
+  const assignee = parseBoundedString(searchParams.get("assignee"), TASK_ASSIGNEE_MAX);
   const assigneeIsNull = parseBoolean(searchParams.get("assigneeIsNull"));
 
   const createdFrom = parseDate(searchParams.get("createdFrom"));
@@ -221,40 +242,40 @@ export const parseTicketListParams = (searchParams: URLSearchParams): TicketList
       parseBoundedInt(searchParams.get("pageSize"), MIN_PAGE_SIZE, MAX_PAGE_SIZE) ??
       DEFAULT_PAGE_SIZE,
     sort: parseSort(searchParams.get("sort")),
-    status: parseEnumList(TICKET_STATUSES, searchParams.getAll("status")),
-    priority: parseEnumList(TICKET_PRIORITIES, searchParams.getAll("priority")),
-    category: parseEnumList(TICKET_CATEGORIES, searchParams.getAll("category")),
+    status: parseEnumList(TASK_STATUSES, searchParams.getAll("status")),
+    priority: parseEnumList(TASK_PRIORITIES, searchParams.getAll("priority")),
+    project: parseProjects(searchParams.getAll("project")),
     assignee,
     // Mutually exclusive on the wire. `assignee` wins because it is the more
     // specific of the two; the UI models both as one control, so this only ever
     // fires for a hand-edited URL.
     assigneeIsNull: assignee === undefined ? assigneeIsNull : undefined,
-    requesterEmail: parseEmail(searchParams.get("requesterEmail")),
-    q: parseBoundedString(searchParams.get("q"), TICKET_Q_MAX),
+    createdBy: parseActor(searchParams.get("createdBy")),
+    q: parseBoundedString(searchParams.get("q"), TASK_Q_MAX),
     createdFrom,
     createdTo: rangeIsValid ? createdTo : undefined,
   };
 };
 
 /** True when any filter (not paging, not sorting) is set. */
-export const hasActiveFilters = (params: TicketListParams): boolean =>
+export const hasActiveFilters = (params: TaskListParams): boolean =>
   params.status.length > 0 ||
   params.priority.length > 0 ||
-  params.category.length > 0 ||
+  params.project.length > 0 ||
   params.assignee !== undefined ||
   params.assigneeIsNull !== undefined ||
-  params.requesterEmail !== undefined ||
+  params.createdBy !== undefined ||
   params.q !== undefined ||
   params.createdFrom !== undefined ||
   params.createdTo !== undefined;
 
 /** How many filter *controls* are active — the count on the mobile Filters button. */
-export const activeFilterCount = (params: TicketListParams): number =>
+export const activeFilterCount = (params: TaskListParams): number =>
   (params.status.length > 0 ? 1 : 0) +
   (params.priority.length > 0 ? 1 : 0) +
-  (params.category.length > 0 ? 1 : 0) +
+  (params.project.length > 0 ? 1 : 0) +
   (params.assignee !== undefined || params.assigneeIsNull !== undefined ? 1 : 0) +
-  (params.requesterEmail !== undefined ? 1 : 0) +
+  (params.createdBy !== undefined ? 1 : 0) +
   (params.q !== undefined ? 1 : 0) +
   (params.createdFrom !== undefined ? 1 : 0) +
   (params.createdTo !== undefined ? 1 : 0);
@@ -268,10 +289,10 @@ export const activeFilterCount = (params: TicketListParams): number =>
  * own.
  *
  * Values equal to their default are omitted, so the landing URL is a bare
- * `/tickets` rather than `/tickets?page=1&pageSize=20&sort=createdAt%3Adesc`.
+ * `/tasks` rather than `/tasks?page=1&pageSize=20&sort=createdAt%3Adesc`.
  */
-export const serializeTicketListParams = (
-  params: TicketListParams,
+export const serializeTaskListParams = (
+  params: TaskListParams,
   previous?: URLSearchParams,
 ): URLSearchParams => {
   const next = new URLSearchParams();
@@ -282,19 +303,19 @@ export const serializeTicketListParams = (
     params.sort.field !== DEFAULT_SORT.field ||
     params.sort.direction !== DEFAULT_SORT.direction
   ) {
-    next.set("sort", formatTicketSort(params.sort));
+    next.set("sort", formatTaskSort(params.sort));
   }
 
   for (const value of params.status) next.append("status", value);
   for (const value of params.priority) next.append("priority", value);
-  for (const value of params.category) next.append("category", value);
+  for (const value of params.project) next.append("project", value);
 
   if (params.assignee !== undefined) next.set("assignee", params.assignee);
   else if (params.assigneeIsNull !== undefined) {
     next.set("assigneeIsNull", String(params.assigneeIsNull));
   }
 
-  if (params.requesterEmail !== undefined) next.set("requesterEmail", params.requesterEmail);
+  if (params.createdBy !== undefined) next.set("createdBy", params.createdBy);
   if (params.q !== undefined) next.set("q", params.q);
   if (params.createdFrom !== undefined) next.set("createdFrom", params.createdFrom);
   if (params.createdTo !== undefined) next.set("createdTo", params.createdTo);
@@ -302,7 +323,7 @@ export const serializeTicketListParams = (
   // Anything we do not own rides along untouched — a campaign tag on a shared
   // link survives the recipient clicking "next page".
   if (previous !== undefined) {
-    const owned = new Set<string>(TICKET_LIST_PARAM_KEYS);
+    const owned = new Set<string>(TASK_LIST_PARAM_KEYS);
     for (const [key, value] of previous.entries()) {
       if (!owned.has(key)) next.append(key, value);
     }
@@ -324,17 +345,17 @@ export const serializeTicketListParams = (
  * closes over its render-time array and hands back a whole new array silently
  * discards any change that landed in between.
  */
-export type TicketListFilterPatch =
-  Partial<TicketListFilters> | ((current: TicketListParams) => Partial<TicketListFilters>);
+export type TaskListFilterPatch =
+  Partial<TaskListFilters> | ((current: TaskListParams) => Partial<TaskListFilters>);
 
-export type TicketListParamsApi = {
-  params: TicketListParams;
+export type TaskListParamsApi = {
+  params: TaskListParams;
   /** Page only. Filters and sort are untouched — this is the other half of the rule. */
   setPage: (page: number) => void;
   /** Resets `page` to 1: a smaller page size can put the current page past the end. */
   setPageSize: (pageSize: number) => void;
   /** Resets `page` to 1. */
-  setSort: (sort: TicketSort) => void;
+  setSort: (sort: TaskSort) => void;
   /**
    * Merges a filter patch and resets `page` to 1.
    *
@@ -342,17 +363,17 @@ export type TicketListParamsApi = {
    * push seven history entries and the back button would walk them one keystroke
    * at a time.
    */
-  setFilters: (patch: TicketListFilterPatch, options?: { replace?: boolean }) => void;
+  setFilters: (patch: TaskListFilterPatch, options?: { replace?: boolean }) => void;
   /** Clears every filter. Keeps sort and page size — those are preferences, not filters. */
   clearFilters: () => void;
   hasActiveFilters: boolean;
   activeFilterCount: number;
 };
 
-export const useTicketListParams = (): TicketListParamsApi => {
+export const useTaskListParams = (): TaskListParamsApi => {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const params = useMemo(() => parseTicketListParams(searchParams), [searchParams]);
+  const params = useMemo(() => parseTaskListParams(searchParams), [searchParams]);
 
   /**
    * The base every mutation builds on, and the last committed URL we have seen.
@@ -404,12 +425,9 @@ export const useTicketListParams = (): TicketListParamsApi => {
   }, [setSearchParams]);
 
   const update = useCallback(
-    (
-      mutate: (current: TicketListParams) => TicketListParams,
-      options: { replace?: boolean } = {},
-    ) => {
+    (mutate: (current: TaskListParams) => TaskListParams, options: { replace?: boolean } = {}) => {
       const base = baseRef.current;
-      const next = serializeTicketListParams(mutate(parseTicketListParams(base)), base);
+      const next = serializeTaskListParams(mutate(parseTaskListParams(base)), base);
 
       // Advance the base before navigating, so a second write in the same frame
       // sees this one.
@@ -430,12 +448,12 @@ export const useTicketListParams = (): TicketListParamsApi => {
   );
 
   const setSort = useCallback(
-    (sort: TicketSort) => update((current) => ({ ...current, sort, page: DEFAULT_PAGE })),
+    (sort: TaskSort) => update((current) => ({ ...current, sort, page: DEFAULT_PAGE })),
     [update],
   );
 
   const setFilters = useCallback(
-    (patch: TicketListFilterPatch, options?: { replace?: boolean }) =>
+    (patch: TaskListFilterPatch, options?: { replace?: boolean }) =>
       update((current) => {
         // Resolved against the *current* state inside the update, which is the
         // whole point of allowing the function form.
@@ -479,7 +497,7 @@ export const useTicketListParams = (): TicketListParamsApi => {
   const clearFilters = useCallback(
     () =>
       update((current) => ({
-        ...DEFAULT_TICKET_LIST_PARAMS,
+        ...DEFAULT_TASK_LIST_PARAMS,
         // Sort and page size survive: a user who chose 50-per-page and sorted by
         // priority did not ask for that to be undone by "clear filters".
         pageSize: current.pageSize,

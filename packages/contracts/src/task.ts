@@ -1,65 +1,103 @@
 import { z } from "zod";
+import { storedActorSchema } from "./actor.js";
 import { commentSchema } from "./comment.js";
-import { TICKET_ID_MAX_DIGITS } from "./reference.js";
+import { decisionSchema } from "./decision.js";
+import { TASK_ID_MAX_DIGITS } from "./reference.js";
 
 /* ------------------------------------------------------------------ *
  * Enums
  *
- * SQLite has no enum type, so `status` / `priority` / `category` are
- * `String` columns. These zod enums are the real constraint: a service
- * must never write a value that did not come from the matching `.parse()`.
+ * SQLite has no enum type, so `status` / `priority` are `String` columns.
+ * These zod enums are the real constraint: a service must never write a value
+ * that did not come from the matching `.parse()`.
  * ------------------------------------------------------------------ */
 
-/** Lifecycle order. The index in this array is the persisted `statusRank`. */
-export const TICKET_STATUSES = ["open", "in_progress", "resolved", "closed"] as const;
-export const ticketStatusSchema = z.enum(TICKET_STATUSES);
-export type TicketStatus = z.infer<typeof ticketStatusSchema>;
-
-/** Severity order, ascending. The index in this array is the persisted `priorityRank`. */
-export const TICKET_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
-export const ticketPrioritySchema = z.enum(TICKET_PRIORITIES);
-export type TicketPriority = z.infer<typeof ticketPrioritySchema>;
+/**
+ * Lifecycle order. The index in this array is the persisted `statusRank`, so
+ * this order *is* the "sort by status" order. See
+ * `docs/features/Task_Status_Lifecycle.md` for what each one means and what a
+ * transition into it requires.
+ */
+export const TASK_STATUSES = [
+  "backlog",
+  "needs_refinement",
+  "todo",
+  "in_progress",
+  "blocked",
+  "needs_user_decision",
+  "needs_user_action",
+  "needs_qa",
+  "done",
+  "deferred",
+] as const;
+export const taskStatusSchema = z.enum(TASK_STATUSES);
+export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
 /**
- * Category is a closed enum rather than free text so exact-match filtering
- * works: SQLite's `equals` is case-sensitive and Prisma's SQLite connector has
- * no `mode: "insensitive"`, so free-text categories would make `?category=Network`
- * silently miss rows stored as `network`.
+ * The four lanes the board groups statuses into. Every status is in exactly one
+ * lane — `task.test.ts` asserts the partition.
  */
-export const TICKET_CATEGORIES = [
-  "hardware",
-  "software",
-  "network",
-  "access",
-  "email",
-  "other",
-] as const;
-export const ticketCategorySchema = z.enum(TICKET_CATEGORIES);
-export type TicketCategory = z.infer<typeof ticketCategorySchema>;
+export const TASK_STATUS_LANES = {
+  plan: ["backlog", "needs_refinement", "todo"],
+  doing: ["in_progress", "needs_qa"],
+  waiting: ["blocked", "needs_user_decision", "needs_user_action"],
+  closed: ["done", "deferred"],
+} as const satisfies Record<string, readonly TaskStatus[]>;
+export type TaskStatusLane = keyof typeof TASK_STATUS_LANES;
 
-export const DEFAULT_TICKET_STATUS: TicketStatus = "open";
-export const DEFAULT_TICKET_PRIORITY: TicketPriority = "medium";
+/** Statuses that are waiting on a human. They make up the inbox. */
+export const HUMAN_ATTENTION_STATUSES = [
+  "needs_user_decision",
+  "needs_user_action",
+  "needs_qa",
+] as const satisfies readonly TaskStatus[];
+
+/** Statuses a task may be created in. Everything else is reached by a transition. */
+export const CREATABLE_TASK_STATUSES = [
+  "backlog",
+  "needs_refinement",
+  "todo",
+] as const satisfies readonly TaskStatus[];
+export const creatableTaskStatusSchema = z.enum(CREATABLE_TASK_STATUSES);
+
+/**
+ * The closed lane: no further work is expected. Note the asymmetry — only `done`
+ * *satisfies* a dependency; a `deferred` blocker still blocks its dependents.
+ */
+export const TERMINAL_TASK_STATUSES = ["done", "deferred"] as const satisfies readonly TaskStatus[];
+
+/** Severity order, ascending. The index in this array is the persisted `priorityRank`. */
+export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+export const taskPrioritySchema = z.enum(TASK_PRIORITIES);
+export type TaskPriority = z.infer<typeof taskPrioritySchema>;
+
+export const DEFAULT_TASK_STATUS: TaskStatus = "backlog";
+export const DEFAULT_TASK_PRIORITY: TaskPriority = "medium";
 
 /* ------------------------------------------------------------------ *
  * Field bounds
  * ------------------------------------------------------------------ */
 
-export const TICKET_TITLE_MIN = 5;
-export const TICKET_TITLE_MAX = 120;
-export const TICKET_DESCRIPTION_MIN = 10;
-export const TICKET_DESCRIPTION_MAX = 5000;
-export const TICKET_REQUESTER_NAME_MIN = 2;
-export const TICKET_REQUESTER_NAME_MAX = 80;
-export const TICKET_ASSIGNEE_MIN = 2;
-export const TICKET_ASSIGNEE_MAX = 80;
-export const TICKET_EMAIL_MAX = 254;
+export const TASK_TITLE_MIN = 5;
+export const TASK_TITLE_MAX = 120;
+export const TASK_DESCRIPTION_MIN = 10;
+export const TASK_DESCRIPTION_MAX = 5000;
+export const TASK_ACCEPTANCE_CRITERIA_MAX = 5000;
+export const TASK_STATUS_NOTE_MAX = 5000;
+export const TASK_ASSIGNEE_MIN = 2;
+export const TASK_ASSIGNEE_MAX = 80;
+export const TASK_PROJECT_MAX = 64;
+export const TASK_LINKS_MAX = 20;
+export const TASK_LINK_LABEL_MAX = 80;
+export const TASK_LINK_URL_MAX = 2000;
+export const TASK_IDEMPOTENCY_KEY_MAX = 128;
 
 /**
  * Wraps an optional string-ish field so that an empty (or whitespace-only)
  * string becomes `null` rather than `""`.
  *
  * This is load-bearing, not cosmetic. Clearing a field in the edit form posts
- * `""`; stored as an empty string, that ticket then matches neither
+ * `""`; stored as an empty string, that task then matches neither
  * `assigneeIsNull=true` nor any name filter and disappears from every assignee
  * view. **Any new optional string field gets the same treatment.**
  *
@@ -76,177 +114,283 @@ export const emptyStringToNull = <TInner extends z.ZodType>(inner: TInner) =>
 export const assigneeInputSchema = emptyStringToNull(
   z
     .string()
-    .min(TICKET_ASSIGNEE_MIN, `Assignee must be at least ${TICKET_ASSIGNEE_MIN} characters`)
-    .max(TICKET_ASSIGNEE_MAX, `Assignee must be at most ${TICKET_ASSIGNEE_MAX} characters`)
+    .min(TASK_ASSIGNEE_MIN, `Assignee must be at least ${TASK_ASSIGNEE_MIN} characters`)
+    .max(TASK_ASSIGNEE_MAX, `Assignee must be at most ${TASK_ASSIGNEE_MAX} characters`)
     .nullable(),
 );
 
-export const categoryInputSchema = emptyStringToNull(ticketCategorySchema.nullable());
+/**
+ * `project` groups tasks by the codebase or effort they belong to — agents
+ * working in different repositories share one board and filter by it. It
+ * replaced the old IT `category` enum.
+ *
+ * A lowercase slug **canonicalised in the schema**: it is an exact-match filter,
+ * SQLite's `equals` is case-sensitive, and `Helpdesk` vs `helpdesk` must not be
+ * two projects.
+ */
+export const projectSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    new RegExp(`^[a-z0-9][a-z0-9._-]{0,${TASK_PROJECT_MAX - 1}}$`),
+    "Project must be a slug: letters, digits, . _ -",
+  );
+export const projectInputSchema = emptyStringToNull(projectSchema.nullable());
+
+export const acceptanceCriteriaInputSchema = emptyStringToNull(
+  z
+    .string()
+    .max(
+      TASK_ACCEPTANCE_CRITERIA_MAX,
+      `Acceptance criteria must be at most ${TASK_ACCEPTANCE_CRITERIA_MAX} characters`,
+    )
+    .nullable(),
+);
 
 export const titleInputSchema = z
   .string()
   .trim()
-  .min(TICKET_TITLE_MIN, `Title must be at least ${TICKET_TITLE_MIN} characters`)
-  .max(TICKET_TITLE_MAX, `Title must be at most ${TICKET_TITLE_MAX} characters`);
+  .min(TASK_TITLE_MIN, `Title must be at least ${TASK_TITLE_MIN} characters`)
+  .max(TASK_TITLE_MAX, `Title must be at most ${TASK_TITLE_MAX} characters`);
 
 export const descriptionInputSchema = z
   .string()
   .trim()
-  .min(TICKET_DESCRIPTION_MIN, `Description must be at least ${TICKET_DESCRIPTION_MIN} characters`)
-  .max(TICKET_DESCRIPTION_MAX, `Description must be at most ${TICKET_DESCRIPTION_MAX} characters`);
+  .min(TASK_DESCRIPTION_MIN, `Description must be at least ${TASK_DESCRIPTION_MIN} characters`)
+  .max(TASK_DESCRIPTION_MAX, `Description must be at most ${TASK_DESCRIPTION_MAX} characters`);
 
-export const requesterNameInputSchema = z
-  .string()
-  .trim()
-  .min(
-    TICKET_REQUESTER_NAME_MIN,
-    `Requester name must be at least ${TICKET_REQUESTER_NAME_MIN} characters`,
-  )
-  .max(
-    TICKET_REQUESTER_NAME_MAX,
-    `Requester name must be at most ${TICKET_REQUESTER_NAME_MAX} characters`,
-  );
+/** A pointer to where the work lives: a PR, a branch, a commit, a design doc. */
+export const taskLinkSchema = z
+  .object({
+    label: z
+      .string()
+      .trim()
+      .min(1, "Give the link a label")
+      .max(TASK_LINK_LABEL_MAX, `Label must be at most ${TASK_LINK_LABEL_MAX} characters`),
+    url: z.url("Enter a valid URL").max(TASK_LINK_URL_MAX),
+  })
+  .strict();
+export type TaskLink = z.infer<typeof taskLinkSchema>;
+
+export const taskLinksInputSchema = z
+  .array(taskLinkSchema)
+  .max(TASK_LINKS_MAX, `At most ${TASK_LINKS_MAX} links`);
 
 /**
- * Trimmed and lowercased **in the schema**, not in the service, so the API and
- * the client agree on the canonical value that case-sensitive exact-match
- * filtering compares against.
+ * `:taskId` — a non-numeric segment fails here and becomes 404, never 422.
+ *
+ * Decimal digits only, deliberately not `z.coerce.number()`: coercion accepts
+ * `"0x2a"`, `"1e3"`, and `" 12 "`, which would serve task 42 under three alias
+ * URLs. It would also disagree with `parseReference()`, the other entry point
+ * that turns user input into a task id. The `{1,15}` bound is shared with
+ * `parseReference` through `TASK_ID_MAX_DIGITS`; `comment.test.ts` compares all
+ * three parsers against one shared input table.
  */
-export const requesterEmailInputSchema = z
+export const taskIdParamSchema = z
   .string()
-  .trim()
-  .toLowerCase()
-  .pipe(z.email("Enter a valid email address").max(TICKET_EMAIL_MAX));
+  .regex(new RegExp(`^\\d{1,${TASK_ID_MAX_DIGITS}}$`))
+  .transform(Number)
+  .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
+
+/** A task id inside a JSON body (`parentId`, `blockedBy`, `dependsOnId`). */
+export const taskIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * Optimistic concurrency. Every task carries a `version` that increments on
+ * every write; a mutation that sends `expectedVersion` fails with
+ * `VERSION_CONFLICT` (409) if someone — usually an agent — wrote in between.
+ * Optional so a caller that does not care is not forced to read first.
+ */
+export const expectedVersionSchema = z.number().int().positive().optional();
 
 /* ------------------------------------------------------------------ *
  * Requests
  * ------------------------------------------------------------------ */
 
 /**
- * Client → server for `POST /tickets`.
+ * Client → server for `POST /tasks`.
  *
  * `.strict()` matters here: a payload containing a server-owned field (`id`,
- * `createdAt`, `status`, `resolvedAt`, …) is rejected with `VALIDATION_ERROR`
- * rather than silently stripped. Silent stripping hides client bugs — the
- * caller believes it set a field that was thrown away.
+ * `createdAt`, `createdBy`, `version`, …) is rejected with `VALIDATION_ERROR`
+ * rather than silently stripped.
  *
- * `status` is absent by design: a new ticket is always `open`.
+ * `status` is limited to `CREATABLE_TASK_STATUSES`; anything else carries
+ * requirements (a reason, a question, a summary) and is reached with
+ * `POST /tasks/:taskId/transition` after creating. `todo` needs
+ * `acceptanceCriteria` — enforced here so the error lands on the field.
+ *
+ * `idempotencyKey` makes a retried create safe: a second `POST` with the same key
+ * returns the task the first one made (200 instead of 201) instead of a
+ * duplicate. Agents should always send one.
  */
-export const createTicketInputSchema = z
+export const createTaskInputSchema = z
   .object({
     title: titleInputSchema,
     description: descriptionInputSchema,
-    priority: ticketPrioritySchema.default(DEFAULT_TICKET_PRIORITY),
-    category: categoryInputSchema.optional(),
-    requesterName: requesterNameInputSchema,
-    requesterEmail: requesterEmailInputSchema,
+    status: creatableTaskStatusSchema.default("backlog"),
+    priority: taskPrioritySchema.default(DEFAULT_TASK_PRIORITY),
+    project: projectInputSchema.optional(),
     assignee: assigneeInputSchema.optional(),
+    acceptanceCriteria: acceptanceCriteriaInputSchema.optional(),
+    links: taskLinksInputSchema.optional(),
+    parentId: taskIdSchema.nullable().optional(),
+    idempotencyKey: z.string().trim().min(1).max(TASK_IDEMPOTENCY_KEY_MAX).optional(),
   })
-  .strict();
-export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "todo" && !value.acceptanceCriteria) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["acceptanceCriteria"],
+        message: "Acceptance criteria are required before a task can be todo",
+      });
+    }
+  });
+export type CreateTaskInput = z.infer<typeof createTaskInputSchema>;
+export type CreateTaskInputRaw = z.input<typeof createTaskInputSchema>;
 
 /**
- * Client → server for `PATCH /tickets/:ticketId`. Every field optional.
+ * Client → server for `PATCH /tasks/:taskId`. Every field optional.
+ *
+ * **`status` is absent on purpose.** Status changes carry requirements (a reason
+ * for `blocked`, a question for `needs_user_decision`, …) and side effects
+ * (claims, decisions, unblocking dependents), so they go through
+ * `POST /tasks/:taskId/transition` and nowhere else. A PATCH carrying `status`
+ * is a `VALIDATION_ERROR` from `.strict()`.
  *
  * An **empty body is deliberately valid here.** `{}` must surface as
- * `AT_LEAST_ONE_FIELD` (422), which is its own error code with no field
- * details — enforcing it as a zod refinement would collapse it into
- * `VALIDATION_ERROR`. The route checks emptiness after parsing;
- * `hasAtLeastOneField()` below is that check.
- *
- * `resolvedAt` / `closedAt` are absent: they are derived by the status
- * transition logic and never accepted from a client.
+ * `AT_LEAST_ONE_FIELD` (422); `hasAtLeastOneField()` below is that check.
+ * `expectedVersion` alone does not count as a field.
  */
-export const updateTicketInputSchema = z
+export const updateTaskInputSchema = z
   .object({
     title: titleInputSchema.optional(),
     description: descriptionInputSchema.optional(),
-    status: ticketStatusSchema.optional(),
-    priority: ticketPrioritySchema.optional(),
-    category: categoryInputSchema.optional(),
-    requesterName: requesterNameInputSchema.optional(),
-    requesterEmail: requesterEmailInputSchema.optional(),
+    priority: taskPrioritySchema.optional(),
+    project: projectInputSchema.optional(),
     assignee: assigneeInputSchema.optional(),
+    acceptanceCriteria: acceptanceCriteriaInputSchema.optional(),
+    links: taskLinksInputSchema.optional(),
+    parentId: taskIdSchema.nullable().optional(),
+    expectedVersion: expectedVersionSchema,
   })
   .strict();
-export type UpdateTicketInput = z.infer<typeof updateTicketInputSchema>;
+export type UpdateTaskInput = z.infer<typeof updateTaskInputSchema>;
 
-/** `true` when a parsed PATCH body carries at least one field. */
-export const hasAtLeastOneField = (input: UpdateTicketInput): boolean =>
-  Object.keys(input).length > 0;
-
-/**
- * `:ticketId` — a non-numeric segment fails here and becomes 404, never 422.
- *
- * Decimal digits only, deliberately not `z.coerce.number()`: coercion accepts
- * `"0x2a"`, `"1e3"`, and `" 12 "`, which would serve ticket 42 under three alias
- * URLs. It would also disagree with `parseReference()`, the other entry point
- * that turns user input into a ticket id — and two disagreeing parsers for the
- * same concept is how `q=1e3` and `/tickets/1e3` end up resolving differently.
- *
- * **The `{1,15}` bound is the other half of that agreement, and it was missing
- * until it was measured.** With a bare `\d+`, `/tickets/0000000000000000042`
- * returned ticket 42 while `?q=0000000000000000042` matched nothing — two
- * parsers for one concept, disagreeing exactly as the paragraph above says they
- * must not, because `parseReference` caps its digit run at 15 and this did not.
- * A leading-zero id is still an alias (`/tickets/042` is ticket 42), but it is
- * now an alias *both* parsers accept, which is the property that matters.
- * `comment.test.ts` compares all three parsers against one shared input table.
- */
-export const ticketIdParamSchema = z
-  .string()
-  .regex(new RegExp(`^\\d{1,${TICKET_ID_MAX_DIGITS}}$`))
-  .transform(Number)
-  .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
+/** `true` when a parsed PATCH body carries at least one field besides `expectedVersion`. */
+export const hasAtLeastOneField = (input: UpdateTaskInput): boolean =>
+  Object.keys(input).some((key) => key !== "expectedVersion");
 
 /* ------------------------------------------------------------------ *
  * Responses
  * ------------------------------------------------------------------ */
 
 /**
- * Server → client, single ticket. `reference` is computed at serialization
- * time; `statusRank` / `priorityRank` are DB-only and never serialized — the
- * wire shape is allowed to differ from the Prisma model, and deriving one from
- * the other would couple the API surface to storage.
+ * The active lease on a task. Present only while a live claim exists — an
+ * expired lease serializes as `null`, because to every consumer it means the
+ * same thing as no claim: anyone may take the task.
  */
-export const ticketSchema = z
+export const taskClaimSchema = z
+  .object({
+    actor: storedActorSchema,
+    expiresAt: z.iso.datetime(),
+  })
+  .strict();
+export type TaskClaim = z.infer<typeof taskClaimSchema>;
+
+/** A compact pointer to another task (parent, child, dependency). */
+export const taskRefSchema = z
+  .object({
+    id: z.number().int().positive(),
+    reference: z.string(),
+    title: z.string(),
+    status: taskStatusSchema,
+  })
+  .strict();
+export type TaskRef = z.infer<typeof taskRefSchema>;
+
+/**
+ * List rows. Everything that is one row of `Task` plus the open decision (the
+ * inbox renders its question and options inline) and a count of unfinished
+ * dependencies — no comment thread, no relation lists, so the list never fans
+ * out into N queries per row.
+ *
+ * `statusNote` is the "why" of the current status: the reason for `blocked` or
+ * `deferred`, the instructions for `needs_user_action`, the change summary for
+ * `needs_qa`. It is replaced on every transition; history is in the events feed.
+ */
+export const taskSummarySchema = z
   .object({
     id: z.number().int().positive(),
     reference: z.string(),
     title: z.string(),
     description: z.string(),
-    status: ticketStatusSchema,
-    priority: ticketPrioritySchema,
-    category: ticketCategorySchema.nullable(),
-    requesterName: z.string(),
-    requesterEmail: z.string(),
+    status: taskStatusSchema,
+    statusNote: z.string().nullable(),
+    priority: taskPrioritySchema,
+    project: z.string().nullable(),
     assignee: z.string().nullable(),
+    acceptanceCriteria: z.string().nullable(),
+    links: z.array(taskLinkSchema),
+    parentId: z.number().int().positive().nullable(),
+    createdBy: storedActorSchema,
+    claim: taskClaimSchema.nullable(),
+    version: z.number().int().positive(),
+    openDependencyCount: z.number().int().nonnegative(),
+    openDecision: decisionSchema.nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
-    resolvedAt: z.iso.datetime().nullable(),
-    closedAt: z.iso.datetime().nullable(),
+    startedAt: z.iso.datetime().nullable(),
+    completedAt: z.iso.datetime().nullable(),
     commentCount: z.number().int().nonnegative(),
-    comments: z.array(commentSchema),
   })
   .strict();
-export type Ticket = z.infer<typeof ticketSchema>;
+export type TaskSummary = z.infer<typeof taskSummarySchema>;
 
 /**
- * List rows. Derived, not retyped — the list must never fan out into N comment
- * queries, so `comments` is dropped and only `commentCount` survives.
+ * Server → client, single task: the summary plus its thread and relations.
+ *
+ * `decisions` is the full history, newest first — answered and withdrawn ones
+ * included — because the answer to a decision is exactly what the next agent to
+ * pick the task up needs, and `statusNote` is replaced by the next transition.
  */
-export const ticketSummarySchema = ticketSchema.omit({ comments: true });
-export type TicketSummary = z.infer<typeof ticketSummarySchema>;
+export const taskSchema = taskSummarySchema
+  .extend({
+    comments: z.array(commentSchema),
+    decisions: z.array(decisionSchema),
+    parent: taskRefSchema.nullable(),
+    children: z.array(taskRefSchema),
+    dependencies: z.array(taskRefSchema),
+    dependents: z.array(taskRefSchema),
+  })
+  .strict();
+export type Task = z.infer<typeof taskSchema>;
 
 /**
- * `GET /tickets/facets` — distinct non-null values actually present in the
- * table, sorted. It is the only source of options for the assignee filter, and
- * sending an exact stored value is what makes case-sensitive equality safe.
+ * `GET /tasks/facets` — distinct non-null values actually present in the
+ * table, sorted. The only source of options for the assignee and project
+ * filters; sending an exact stored value is what makes case-sensitive equality
+ * safe.
  */
-export const ticketFacetsSchema = z
+export const taskFacetsSchema = z
   .object({
     assignees: z.array(z.string()),
-    categories: z.array(ticketCategorySchema),
+    projects: z.array(z.string()),
+    creators: z.array(z.string()),
   })
   .strict();
-export type TicketFacets = z.infer<typeof ticketFacetsSchema>;
+export type TaskFacets = z.infer<typeof taskFacetsSchema>;
+
+/**
+ * `GET /tasks/stats` — task count per status, every status present (zero
+ * included). Feeds the board lane headers and the inbox badge without pulling
+ * rows. Accepts the same `project` filter as the list.
+ */
+export const taskStatsSchema = z
+  .object({
+    byStatus: z.record(taskStatusSchema, z.number().int().nonnegative()),
+    needsAttention: z.number().int().nonnegative(),
+  })
+  .strict();
+export type TaskStats = z.infer<typeof taskStatsSchema>;

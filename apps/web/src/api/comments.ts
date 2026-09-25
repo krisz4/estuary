@@ -5,44 +5,47 @@ import { queryKeys } from "@/api/queryKeys";
 
 /**
  * Comment writes. There is no read hook and no list endpoint: the thread ships
- * inside `GET /tickets/:ticketId` (`docs/features/Comments.md`), so the detail
+ * inside `GET /tasks/:taskId` (`docs/features/Comments.md`), so the detail
  * query is the only reader and these mutations invalidate it.
  *
- * **`queryKeys.tickets.detail(ticketId)`, not `tickets.all`.** A comment does
- * not move `Ticket.updatedAt`, so no list row changed position, count, or
- * filter membership. Widening this to `all` would re-issue the list and facets
+ * **`queryKeys.tasks.detail(taskId)`, not `tasks.all`.** A comment does
+ * not bump the task's `version`, so no list row changed position or filter
+ * membership. Widening this to `all` would re-issue the list, stats and facets
  * requests on every comment — the narrower key is the correct one, not the lazy
- * one.
+ * one. The task's activity timeline is refreshed too: `comment.created` is an
+ * event, and the user should see their own post in it without waiting a poll.
  */
 
-export const createComment = (ticketId: number, input: CreateCommentInput): Promise<Comment> =>
-  api.post<Comment>(`/tickets/${ticketId}/comments`, input);
+export const createComment = (taskId: number, input: CreateCommentInput): Promise<Comment> =>
+  api.post<Comment>(`/tasks/${taskId}/comments`, input);
 
-export const deleteComment = (ticketId: number, commentId: number): Promise<void> =>
-  api.delete<void>(`/tickets/${ticketId}/comments/${commentId}`);
+export const deleteComment = (taskId: number, commentId: number): Promise<void> =>
+  api.delete<void>(`/tasks/${taskId}/comments/${commentId}`);
 
 export const useCreateCommentMutation = (
-  ticketId: number,
+  taskId: number,
 ): UseMutationResult<Comment, Error, CreateCommentInput> => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateCommentInput) => createComment(ticketId, input),
+    mutationFn: (input: CreateCommentInput) => createComment(taskId, input),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.tickets.detail(ticketId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.events.task(taskId) });
     },
   });
 };
 
 export const useDeleteCommentMutation = (
-  ticketId: number,
+  taskId: number,
 ): UseMutationResult<void, Error, number> => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (commentId: number) => deleteComment(ticketId, commentId),
+    mutationFn: (commentId: number) => deleteComment(taskId, commentId),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.tickets.detail(ticketId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.events.task(taskId) });
     },
   });
 };

@@ -1,24 +1,24 @@
 ---
 type: Feature
-title: Ticket list query — filtering, sorting, paging
-description: Every query parameter on GET /tickets, the response envelope, and how the UI binds it to the URL.
-resource: apps/api/src/services/ticket-query.ts
-tags: [tickets, list, filtering, sorting, pagination, api]
+title: Task list query — filtering, sorting, paging
+description: Every query parameter on GET /tasks, the response envelope, and how the UI binds it to the URL.
+resource: apps/api/src/services/task-query.ts
+tags: [tasks, list, filtering, sorting, pagination, api]
 status: canonical
 ---
-# Ticket list query — filtering, sorting, paging
+# Task list query — filtering, sorting, paging
 
-Task 3 of the brief. This is the most-graded part of the API, so it is specified tightly.
+The endpoint every screen and every agent's `task_list` call goes through. This is the highest-traffic part of the API, so it is specified tightly.
 
 ## Overview
 
 | Concern | Location |
 | ------- | -------- |
-| Query schema | `ticketListQuerySchema` in `packages/contracts/src/ticket-query.ts` |
-| Prisma translation | `apps/api/src/services/ticket-query.ts` (`buildWhere`, `buildOrderBy`) |
-| Route | `GET /api/v1/tickets` in `apps/api/src/routes/tickets.route.ts` |
-| URL binding (web) | `apps/web/src/pages/tickets-list/useTicketListParams.ts` |
-| Filter UI | `apps/web/src/features/tickets/TicketFilterBar.tsx` |
+| Query schema | `taskListQuerySchema` in `packages/contracts/src/task-query.ts` |
+| Prisma translation | `apps/api/src/services/task-query.ts` (`buildWhere`, `buildOrderBy`) |
+| Route | `GET /api/v1/tasks` in `apps/api/src/routes/tasks.route.ts` |
+| URL binding (web) | `apps/web/src/pages/tasks-list/useTaskListParams.ts` |
+| Filter UI | `apps/web/src/features/tasks/TaskFilterBar.tsx` |
 
 ## Parameters
 
@@ -43,12 +43,12 @@ Offset paging (`skip`/`take`), not cursor paging: the UI needs jump-to-page and 
 
 Sortable fields: `id`, `createdAt`, `updatedAt`, `title`, `status`, `priority`.
 
-`id` is the reference order (the UI labels that column "Reference"). Two fields do **not** sort alphabetically:
+`id` is the reference order (`TASK-000042`'s number). Two fields do **not** sort alphabetically:
 
 - **`priority`** sorts by severity (`urgent` > `high` > `medium` > `low`), not by string.
-- **`status`** sorts by lifecycle order (`open` → `in_progress` → `resolved` → `closed`).
+- **`status`** sorts by lifecycle order (`backlog` → `needs_refinement` → `todo` → `in_progress` → `blocked` → `needs_user_decision` → `needs_user_action` → `needs_qa` → `done` → `deferred` — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md)).
 
-SQLite cannot express that ordering on a text column, so both are backed by integer rank columns (`priorityRank`, `statusRank`) maintained by the service on every write. Any code path that sets `status` or `priority` **must** go through `applyTicketRanks()` or sorting silently breaks. See [Ticket_Priority.md](./Ticket_Priority.md).
+SQLite cannot express that ordering on a text column, so both are backed by integer rank columns (`priorityRank`, `statusRank`) maintained by the service on every write. Any code path that sets `status` or `priority` **must** go through `applyTaskRanks()` or sorting silently breaks. See [Task_Priority.md](./Task_Priority.md).
 
 **Stable ordering:** `{ id: "desc" }` is appended as a tiebreaker so paging never repeats or drops a row whose sort key is not unique. It is omitted when `id` is already the sort field, since a second clause on the same column is dead weight.
 
@@ -60,37 +60,39 @@ So `desc` is free on descending sorts and costs a temp B-tree on ascending ones 
 
 | Param | Type | Matches |
 | ----- | ---- | ------- |
-| `status` | repeatable enum | OR within the param: `?status=open&status=in_progress` |
+| `status` | repeatable enum | OR within the param: `?status=todo&status=in_progress` |
 | `priority` | repeatable enum | OR within the param |
-| `category` | repeatable enum | OR within the param |
-| `assignee` | string | **Exact, case-sensitive.** Send a value from `GET /tickets/facets` |
-| `assigneeIsNull` | boolean | `true` returns only unassigned tickets, `false` only assigned ones. Mutually exclusive with `assignee` (sending both → `VALIDATION_ERROR`) |
-| `requesterEmail` | email | Exact; lowercased before compare, matching how it is stored |
+| `project` | repeatable slug | OR within the param. Send values from `GET /tasks/facets` |
+| `assignee` | string | **Exact, case-sensitive.** Send a value from `GET /tasks/facets` |
+| `assigneeIsNull` | boolean | `true` returns only unassigned tasks, `false` only assigned ones. Mutually exclusive with `assignee` (sending both → `VALIDATION_ERROR`) |
+| `createdBy` | actor | Exact; lowercased before compare, matching how `X-Actor` is stored |
+| `claimedBy` | actor | Exact; matches the stored `claimedBy` even once the lease has expired — pair with `status=in_progress` and check `claim` on the rows when only *live* claims matter |
+| `parentId` | task id | Subtasks of one parent. Digits only, like `:taskId` (`0x2a` → 422) |
 | `q` | string, 1–120 | Free text — see below |
 | `createdFrom` / `createdTo` | `YYYY-MM-DD` | Inclusive day bounds, UTC — see below |
 
-Different params AND together; repeated values within one param OR together. `?status=open&status=resolved&priority=urgent` = "(open OR resolved) AND urgent".
+Different params AND together; repeated values within one param OR together. `?status=todo&status=blocked&priority=urgent` = "(todo OR blocked) AND urgent".
 
-**On the board (`/tickets/board`) `status` selects which *columns* render**, and every column then sends its own single-status request. The parameter's meaning on the wire is unchanged — the difference is entirely in which requests the screen makes — but it is worth knowing before "fixing" the board to also filter rows: on a screen whose columns are the statuses, applying the filter twice leaves columns that are empty for a reason nothing on screen explains. See [../pages/Tickets_Board.md](../pages/Tickets_Board.md).
+**On the board (`/tasks/board`) `status` selects which *columns* render**, and every column then sends its own single-status request. The parameter's meaning on the wire is unchanged — the difference is entirely in which requests the screen makes — but it is worth knowing before "fixing" the board to also filter rows: on a screen whose columns are the statuses, applying the filter twice leaves columns that are empty for a reason nothing on screen explains. See [../pages/Tasks_Board.md](../pages/Tasks_Board.md).
 
 `assigneeIsNull` filters in **both** directions. `false` is not "no filter" — it is "assigned to someone". A boolean that only means something when it is `true` is a trap for the next caller who sends the other value explicitly.
 
-**`status` and `priority` push *both* predicates — the rank column and the text column — ANDed together.** `?status=open` compiles to `statusRank IN (0) AND status IN ('open')`, not to either one alone. The two terms do different jobs and **removing either is a regression**:
+**`status` and `priority` push *both* predicates — the rank column and the text column — ANDed together.** `?status=todo` compiles to `statusRank IN (2) AND status IN ('todo')`, not to either one alone. The two terms do different jobs and **removing either is a regression**:
 
-- **The rank term is what the index uses.** `status` and `priority` themselves carry no index, so without it `Ticket_statusRank_createdAt_idx` goes unused on the single most common view in the app. SQLite plans the rank term as the index search and applies the text term as a residual predicate — verified with `EXPLAIN QUERY PLAN`, see [../engineering/DATABASE.md](../engineering/DATABASE.md#indexes).
-- **The text term is what makes the answer exact.** The two columns are in bijection only while `applyTicketRanks()` is the sole writer of the rank. `statusRank` defaults to `0` in the schema, so any insert that skips the helper — raw SQL, a `db push` experiment, the seed — lands a row whose rank says `open` while its status says something else. Filtering on the rank alone would return that row under `?status=open`, which is a wrong result set and a wrong `meta.total`, not merely a wrong sort order.
+- **The rank term is what the index uses.** `status` and `priority` themselves carry no index, so without it `Task_statusRank_createdAt_idx` goes unused on the single most common view in the app. SQLite plans the rank term as the index search and applies the text term as a residual predicate — verified with `EXPLAIN QUERY PLAN`, see [../engineering/DATABASE.md](../engineering/DATABASE.md#indexes).
+- **The text term is what makes the answer exact.** The two columns are in bijection only while `applyTaskRanks()` is the sole writer of the rank. `statusRank` defaults to `0` in the schema, so any insert that skips the helper — raw SQL, a `db push` experiment, the seed — lands a row whose rank says `backlog` while its status says something else. Filtering on the rank alone would return that row under `?status=backlog`, which is a wrong result set and a wrong `meta.total`, not merely a wrong sort order.
 
-The text term does not merely *misfile* a drifted row, it makes it **unreachable through the status filter entirely**: the row fails the text term under its true status and the rank term under the drifted one, so no `?status=` value returns it. `?status=open&status=in_progress&status=resolved&status=closed` therefore returns strictly fewer rows than no status filter at all, and the two `meta.total` values disagree. That is the intended trade — a drifted row is corrupt data, and hiding it beats reporting it under a status it does not have — and it stays hypothetical only for as long as `applyTicketRanks()` remains the only writer. `ticket-query.test.ts` pins both halves.
+The text term does not merely *misfile* a drifted row, it makes it **unreachable through the status filter entirely**: the row fails the text term under its true status and the rank term under the drifted one, so no `?status=` value returns it. Filtering on every status therefore returns strictly fewer rows than no status filter at all, and the two `meta.total` values disagree. That is the intended trade — a drifted row is corrupt data, and hiding it beats reporting it under a status it does not have — and it stays hypothetical only for as long as `applyTaskRanks()` remains the only writer. `task-query.test.ts` pins both halves.
 
 **Why `assigneeIsNull` and not `assignee=none`:** a sentinel value collides with a real person. Someone named "None" is unlikely; someone typing `none` into a free-text assignee field is not. A separate boolean has no collision surface.
 
-**Case sensitivity is not an accident.** SQLite's `equals` is case-sensitive and Prisma's SQLite connector does not support `mode: "insensitive"` ([prisma#8268](https://github.com/prisma/prisma/issues/8268)). Rather than lowercase at query time and lose the index, every exact-match field compares canonical values: `category` is an enum, `requesterEmail` is stored lowercase, and `assignee` options come from the facets endpoint so the client always sends the exact stored string.
+**Case sensitivity is not an accident.** SQLite's `equals` is case-sensitive and Prisma's SQLite connector does not support `mode: "insensitive"` ([prisma#8268](https://github.com/prisma/prisma/issues/8268)). Rather than lowercase at query time and lose the index, every exact-match field compares canonical values: `project` is a canonical lowercase slug, `createdBy` / `claimedBy` are lowercased actors, and `assignee` options come from the facets endpoint so the client always sends the exact stored string. See [../engineering/DATABASE.md](../engineering/DATABASE.md#canonical-values-instead-of-case-insensitive-matching).
 
 #### `q`
 
-Searches `title`, `description`, and the ticket reference. `title`/`description` use `contains`, which compiles to SQLite `LIKE` and is therefore **case-insensitive for ASCII only** — accented characters compare case-sensitively. That is a documented SQLite limitation, not a bug to fix at query time.
+Searches `title`, `description`, and the task reference. `title`/`description` use `contains`, which compiles to SQLite `LIKE` and is therefore **case-insensitive for ASCII only** — accented characters compare case-sensitively. That is a documented SQLite limitation, not a bug to fix at query time.
 
-A `q` that parses as a reference (`HD-42`, `hd-000042`, `#42`, or a bare integer — see [Ticket_Numbering.md](./Ticket_Numbering.md)) additionally matches `id` exactly, so pasting a ticket number into search finds that ticket.
+A `q` that parses as a reference (`TASK-42`, `task-000042`, `#42`, or a bare integer — see [Task_Numbering.md](./Task_Numbering.md)) additionally matches `id` exactly, so pasting a task number into search finds that task.
 
 **The `q` clause is one `OR` group nested inside the top-level `AND`:**
 
@@ -106,12 +108,12 @@ where = {
 
 Hoisting those `OR` branches to the top level is the classic implementation bug here: search would then widen the result set past the active filters instead of narrowing it.
 
-**`%` and `_` in `q` are literal characters, not wildcards.** Prisma's `contains` compiles to `LIKE ?` with **no `ESCAPE` clause**, and with no escape clause SQLite has no escape character at all — so unescaped input is live pattern syntax (`?q=%` returns every ticket, `?q=50%` matches "500 errors"), and pre-escaping the string before handing it to `contains` does not help either, because `!%` is then two literal characters that match nothing. Prisma will not add an escape option ([prisma#19506](https://github.com/prisma/prisma/issues/19506)).
+**`%` and `_` in `q` are literal characters, not wildcards.** Prisma's `contains` compiles to `LIKE ?` with **no `ESCAPE` clause**, and with no escape clause SQLite has no escape character at all — so unescaped input is live pattern syntax (`?q=%` returns every task, `?q=50%` matches "500 errors"), and pre-escaping the string before handing it to `contains` does not help either, because `!%` is then two literal characters that match nothing. Prisma will not add an escape option ([prisma#19506](https://github.com/prisma/prisma/issues/19506)).
 
 So a `q` carrying `%`, `_`, or `!` is resolved with a parameterized raw query carrying its own escape character:
 
 ```sql
-SELECT id FROM "Ticket"
+SELECT id FROM "Task"
 WHERE title LIKE ?1 ESCAPE '!' OR description LIKE ?1 ESCAPE '!'
 ```
 
@@ -119,7 +121,7 @@ and feeds the resulting id set into the nested `OR` group above, alongside the r
 
 **That raw path is the exception, not the rule.** A term containing none of `%`, `_`, or `!` is escaped by a no-op, so `contains` and the escaped raw `LIKE` are provably the same query — same columns, same case-insensitive-ASCII `LIKE`, same rows, same order. Such a term keeps the `contains` spelling and with it the ordering index, no id list, and no bind-parameter ceiling. `?q=printer` should not pay for a problem it does not have. (`!` is in that character class because it *is* the escape character: a term containing it is one whose escaped form differs from itself.)
 
-Measured at 63 rows, both matching every row: fast path **1.39 ms** p50, raw path **1.85 ms**.
+Measured at 63 rows (the original helpdesk-era seed size; unchanged in shape at the current 62-row seed), both matching every row: fast path **1.39 ms** p50, raw path **1.85 ms**.
 
 On the raw path the id set is **unbounded**, and that is a ceiling rather than a slope: the ids come back as one `WHERE id IN (?,?,…)` with a bind parameter each, against SQLite's `SQLITE_MAX_VARIABLE_NUMBER` of 32766 (999 on pre-3.32 builds). It also costs the ordering index — an `id IN (…)` page plans as `SEARCH … USING INTEGER PRIMARY KEY` plus `USE TEMP B-TREE FOR ORDER BY`. Both are fine at this scale and are another reason `q` at real volume wants FTS5. Truncating with a `LIMIT` would be worse than the scan: it silently drops matches and makes `meta.total` wrong.
 
@@ -138,11 +140,11 @@ Timezone is UTC throughout; the UI labels the control accordingly rather than pr
 
 ```json
 {
-  "data": [ /* ticket summaries: no comments, with commentCount */ ],
+  "data": [ /* task summaries: no comments, with commentCount */ ],
   "meta": {
     "page": 2,
     "pageSize": 20,
-    "total": 63,
+    "total": 62,
     "totalPages": 4,
     "hasNextPage": true,
     "hasPrevPage": true
@@ -154,7 +156,7 @@ Timezone is UTC throughout; the UI labels the control accordingly rather than pr
 
 ## URL binding on the web
 
-The list state **is** the URL. `useTicketListParams()` reads `useSearchParams()`, **picks only the keys it knows**, validates them, and returns typed values plus setters. Consequences the implementation must preserve:
+The list state **is** the URL. `useTaskListParams()` reads `useSearchParams()`, **picks only the keys it knows**, validates them, and returns typed values plus setters. Consequences the implementation must preserve:
 
 - A filtered view is shareable and survives reload.
 - Browser back steps through filter changes.
@@ -186,4 +188,4 @@ The last one is worth stating explicitly: the **server rejects** an inverted dat
 
 ## Related pages
 
-- [../pages/Tickets_List.md](../pages/Tickets_List.md) — the only consumer
+- [../pages/Tasks_List.md](../pages/Tasks_List.md) — the only consumer

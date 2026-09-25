@@ -8,22 +8,23 @@ Each doc has YAML frontmatter (`type: Page`, `title`, `description`, `tags`, opt
 
 | Route | Doc | Description |
 | ----- | --- | ----------- |
-| *(all)* | [App_Shell.md](./App_Shell.md) | Layout, header, providers, toaster, error boundary |
-| `/` → `/tickets` | [Tickets_List.md](./Tickets_List.md) | Ticket list with filtering, sorting, paging |
-| `/tickets/new` | [Ticket_Create.md](./Ticket_Create.md) | Create a ticket |
-| `/tickets/board` | [Tickets_Board.md](./Tickets_Board.md) | Kanban board — one column per status, drag and drop to change it |
-| `/tickets/:ticketId` | [Ticket_Detail.md](./Ticket_Detail.md) | Detail view, status change, comments, delete |
-| `/tickets/:ticketId/edit` | [Ticket_Edit.md](./Ticket_Edit.md) | Edit an existing ticket |
+| *(all)* | [App_Shell.md](./App_Shell.md) | Layout, header, session ("You"), toaster, error boundary |
+| `/` → `/tasks` | [Tasks_List.md](./Tasks_List.md) | Task list with filtering, sorting, paging |
+| `/tasks/new` | [Task_Create.md](./Task_Create.md) | Create a task |
+| `/tasks/board` | [Tasks_Board.md](./Tasks_Board.md) | Kanban board — ten status columns in four lanes, drag and drop to change status |
+| `/tasks/:taskId` | [Task_Detail.md](./Task_Detail.md) | Detail view — status/claim/decision controls, dependencies, comments, activity, delete |
+| `/tasks/:taskId/edit` | [Task_Edit.md](./Task_Edit.md) | Edit an existing task, with version-conflict handling |
+| `/inbox` | [Inbox.md](./Inbox.md) | Everything waiting on a human — decisions, actions, QA |
 | `*` | [Not_Found.md](./Not_Found.md) | Unmatched routes |
 
-Route order matters: `/tickets/new` and `/tickets/board` are declared **before** `/tickets/:ticketId` so neither is parsed as an id.
+Route order matters: `/tasks/new` and `/tasks/board` are declared **before** `/tasks/:taskId` so neither is parsed as an id.
 
-`/tickets` and `/tickets/board` are two readings of the **same URL state** — both parse it with `useTicketListParams`, and `ViewSwitch` carries the search string between them.
+`/tasks` and `/tasks/board` are two readings of the **same URL state** — both parse it with `useTaskListParams`, and `ViewSwitch` carries the search string between them.
 
 ## Conventions across all pages
 
 - Server state via TanStack Query only; query keys from `apps/web/src/api/queryKeys.ts`.
-- List state lives in the URL — see [../features/Ticket_Query_Filter_Sort_Page.md](../features/Ticket_Query_Filter_Sort_Page.md).
+- List state lives in the URL — see [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md).
 - Every async view wires **loading, error (with retry), and empty** states.
 - Forms use react-hook-form with the zod resolver from `packages/contracts`.
 - Responsive is checked at 360px, 768px, and 1280px. Layout rules: [../engineering/UI_DESIGN_GUIDELINES.md](../engineering/UI_DESIGN_GUIDELINES.md).

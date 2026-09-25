@@ -12,9 +12,9 @@ docker compose up --build
 
 | File | Purpose |
 | ---- | ------- |
-| `apps/api/Dockerfile` | Multi-stage: base → deps → build → runtime |
+| `apps/api/Dockerfile` | Multi-stage: base → deps → build → runtime. Copies every workspace `package.json`, including `apps/mcp/package.json`, so `pnpm install` can validate the lockfile even though `apps/mcp` itself is not installed or shipped in this image |
 | `apps/api/docker-entrypoint.sh` | `migrate deploy` → drift check → guarded seed → `exec` the server |
-| `apps/web/Dockerfile` | Multi-stage: deps → build (Vite) → nginx serving static files |
+| `apps/web/Dockerfile` | Multi-stage: deps → build (Vite) → nginx serving static files. Also copies `apps/mcp/package.json` for the same lockfile-validation reason |
 | `apps/web/nginx.conf` | SPA fallback **and** the same-origin reverse proxy for `/api/`, `/docs`, `/health` |
 | `docker-compose.yml` | Both services, the named volume, healthchecks |
 | `.dockerignore` | Excludes `node_modules`, `dist`, `.git`, `*.db`, `.env` |
@@ -32,6 +32,10 @@ services:
       ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
       NODE_ENV: production
       SEED_ON_START: "true"      # demo data; see "Seeding" below
+      # Passed through from the shell, empty by default. See "Self-hosting agents" below.
+      API_TOKEN: ${API_TOKEN:-}
+      AGENTS_MAY_COMPLETE: ${AGENTS_MAY_COMPLETE:-}
+      CLAIM_LEASE_MINUTES: ${CLAIM_LEASE_MINUTES:-}
     volumes: ["helpdesk-db:/data"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
@@ -90,15 +94,15 @@ nginx resolves `api` through Docker's embedded DNS **per request** (`resolver 12
 
 **`HOST=0.0.0.0` is required in the container.** The default `127.0.0.1` binds the loopback interface *inside* the network namespace, and the published port connects to nothing.
 
-**Both ports are bound to loopback on the host** — `127.0.0.1:5173:80` and `127.0.0.1:4000:4000`, not the bare `5173:80` / `4000:4000` that publishes on every interface. This app has no authentication by design, which is the same reason `apps/api/env.example` ships `HOST=127.0.0.1` for local development: on a shared network, an all-interfaces publish hands full ticket CRUD, `DELETE` included, to anyone who can reach the machine. Note that the two settings are independent — `HOST` controls the bind *inside* the container's namespace and still has to be `0.0.0.0`; the `127.0.0.1:` prefix is what constrains the *host* side. Every documented use is local: the browser, `curl`, Swagger UI. Reaching the stack from a phone or another laptop means dropping the prefix knowingly.
+**Both ports are bound to loopback on the host** — `127.0.0.1:5173:80` and `127.0.0.1:4000:4000`, not the bare `5173:80` / `4000:4000` that publishes on every interface. This app has no authentication by design, which is the same reason `apps/api/env.example` ships `HOST=127.0.0.1` for local development: on a shared network, an all-interfaces publish hands full task CRUD, `DELETE` included, to anyone who can reach the machine. Note that the two settings are independent — `HOST` controls the bind *inside* the container's namespace and still has to be `0.0.0.0`; the `127.0.0.1:` prefix is what constrains the *host* side. Every documented use is local: the browser, `curl`, Swagger UI. Reaching the stack from a phone or another laptop means dropping the prefix knowingly.
 
-**nginx is a second place a limit is enforced, and `client_max_body_size` has to stay above `BODY_LIMIT`.** nginx's default is exactly `1m` — the same threshold as the API's `BODY_LIMIT=1mb` — so an over-limit body was refused by the proxy as an HTML 413 and never reached Express. That silently voided the error contract on the only path the app uses: `src/app.ts` mounts `cors` before the JSON parser specifically so `PAYLOAD_TOO_LARGE` arrives readable, with a `code` and an `x-request-id`, and a long ticket description is the realistic way a user gets there. `location /api/` now sets `client_max_body_size 2m`, deliberately above the API's limit so the API is the component that refuses. **Raise both together.**
+**nginx is a second place a limit is enforced, and `client_max_body_size` has to stay above `BODY_LIMIT`.** nginx's default is exactly `1m` — the same threshold as the API's `BODY_LIMIT=1mb` — so an over-limit body was refused by the proxy as an HTML 413 and never reached Express. That silently voided the error contract on the only path the app uses: `src/app.ts` mounts `cors` before the JSON parser specifically so `PAYLOAD_TOO_LARGE` arrives readable, with a `code` and an `x-request-id`, and a long task description is the realistic way a user gets there. `location /api/` now sets `client_max_body_size 2m`, deliberately above the API's limit so the API is the component that refuses. **Raise both together.**
 
 ## The entrypoint checks for schema drift, and refuses to start on it
 
 `migrate deploy` only replays the migration *files*. It cannot tell that `schema.prisma` grew a column nobody wrote a migration for: it reports "all migrations have been successfully applied", and the container comes up **healthy**, because `/health` touches no database.
 
-Measured, with a nullable column added to `model Ticket` and no migration: a clean-volume start migrated, seeded 63 tickets (the seed never writes the new column), then answered every read with a 500 — `The column main.Ticket.slaBreachedAt does not exist in the current database`. Healthy container, dead app.
+Measured, with a nullable column added to `model Task` and no migration: a clean-volume start migrated, seeded (the seed never writes the new column), then answered every read with a 500 — `The column main.Task.slaBreachedAt does not exist in the current database`. Healthy container, dead app.
 
 So the entrypoint runs `prisma migrate diff --from-schema-datasource --to-schema-datamodel --exit-code` after deploying. Exit 2 means the live database and the datamodel disagree; the container prints the difference, names the `db:migrate` command, and exits 1 rather than serving.
 
@@ -108,11 +112,11 @@ This is what makes the clean-volume start in the gate worth running — it is th
 
 The seed guard keys off **`SEED_ON_START` / `ALLOW_SEED`, not `NODE_ENV`.**
 
-That distinction is the whole point: the container runs `NODE_ENV=production` (it serves a production build), but a reviewer opening an empty ticket list has been handed a broken-looking app. Gating the seed on `NODE_ENV` would have made the advertised "up and seeded" impossible, and the documented escape hatch impossible too.
+That distinction is the whole point: the container runs `NODE_ENV=production` (it serves a production build), but a reviewer opening an empty task list has been handed a broken-looking app. Gating the seed on `NODE_ENV` would have made the advertised "up and seeded" impossible, and the documented escape hatch impossible too.
 
 So:
 
-- The entrypoint runs `prisma migrate deploy`, then runs the seed **only if `SEED_ON_START` is truthy and the ticket table is empty**. Restarting the stack never wipes data you added. The count is taken through `@prisma/client` (`node -e`), because the sqlite3 CLI is not in the image and `prisma db execute` cannot return a value; a failed count aborts the container rather than being read as "empty".
+- The entrypoint runs `prisma migrate deploy`, then runs the seed **only if `SEED_ON_START` is truthy and the task table is empty**. Restarting the stack never wipes data you added. The count is taken through `@prisma/client` (`node -e`), because the sqlite3 CLI is not in the image and `prisma db execute` cannot return a value; a failed count aborts the container rather than being read as "empty".
 - `SEED_ON_START` accepts `true` / `1` / `yes` / `on`, the same four spellings `src/lib/env.ts` accepts. The shell has to agree with the parser, or `SEED_ON_START=1` would seed the app but not the API.
 - `pnpm --filter @helpdesk/api db:seed` refuses unless `ALLOW_SEED=true` or `NODE_ENV !== "production"`, so it cannot be pointed at a real database by accident.
 - Nothing in the container calls `db:reset`. That script prompts, has no `--force`, and drops the database before `ALLOW_SEED` is ever consulted — it exists for a human at a terminal. The container path is `migrate deploy` plus the guarded seed.
@@ -121,7 +125,7 @@ Reseed from scratch:
 
 ```bash
 docker compose down -v && docker compose up          # cleanest
-docker compose exec -e ALLOW_SEED=true api node dist/seed/index.js    # in place, wipes tickets
+docker compose exec -e ALLOW_SEED=true api node dist/seed/index.js    # in place, wipes tasks
 ```
 
 ## Image notes
@@ -151,9 +155,17 @@ docker compose logs -f api           # follow API logs
 docker compose exec api sh           # shell into the API container
 ```
 
+## Self-hosting agents against this stack
+
+Agents (via `apps/mcp`, see [../features/Agent_Integration.md](../features/Agent_Integration.md)) can point at this stack over a network instead of `localhost`. Two things change from the reviewer-on-one-machine setup above:
+
+- **Set `API_TOKEN` on the `api` service** (`API_TOKEN=<32+ random chars> docker compose up -d`, or in a `.env` beside `docker-compose.yml`). Without it, anyone who can reach the port has full task CRUD — there is no other access control. `AGENTS_MAY_COMPLETE` and `CLAIM_LEASE_MINUTES` pass through the same way if you want to change their defaults; see [../engineering/ENVIRONMENT_VARIABLES.md](../engineering/ENVIRONMENT_VARIABLES.md).
+- **Put it behind HTTPS.** The bearer token travels in a plain `Authorization` header on every request; do not expose `api` (or the proxied port on `web`) to a network you do not control without TLS in front of it (a reverse proxy, a tunnel, or a platform load balancer). This compose file has no TLS termination of its own — see "Not included" below.
+- Each agent/machine then gets `TASKS_API_URL=https://<host>/api/v1`, `TASKS_API_TOKEN=<the same API_TOKEN>`, and its own `TASKS_ACTOR` — see [../features/Agent_Integration.md § Self-hosted server](../features/Agent_Integration.md#self-hosted-server).
+
 ## Not included
 
-No production orchestration, no reverse proxy with TLS, no multi-replica setup. SQLite on a single volume is a single-writer, single-node design — appropriate for this challenge, and the first thing to replace if the app were real.
+No production orchestration, no reverse proxy with TLS, no multi-replica setup. SQLite on a single volume is a single-writer, single-node design — appropriate for this project's scale, and the first thing to replace if it needed to serve people who should not trust each other.
 
 ## Related
 

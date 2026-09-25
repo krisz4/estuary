@@ -9,7 +9,7 @@ const render404 = (path: string) =>
   renderRoute({
     routes: [
       { path: "*", element: <NotFoundPage /> },
-      { path: "/tickets", element: <div>Tickets list</div> },
+      { path: "/tasks", element: <div>Tasks list</div> },
     ],
     initialEntries: [path],
   });
@@ -37,7 +37,7 @@ describe("NotFoundPage", () => {
   it("focuses the primary action so a keyboard user can leave in one keystroke", async () => {
     render404("/nope");
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: "Back to tickets" })).toHaveFocus();
+      expect(screen.getByRole("link", { name: "Back to tasks" })).toHaveFocus();
     });
   });
 
@@ -61,15 +61,15 @@ describe("NotFoundPage", () => {
       routes: [
         { path: "*", element: <NotFoundPage /> },
         {
-          path: "/tickets",
+          path: "/tasks",
           element: (
             <div>
-              Tickets list<Link to="/nope">Broken link</Link>
+              Tasks list<Link to="/nope">Broken link</Link>
             </div>
           ),
         },
       ],
-      initialEntries: ["/tickets"],
+      initialEntries: ["/tasks"],
     });
 
     // Navigate *within* the app, so the 404 is a pushed entry rather than the
@@ -78,6 +78,6 @@ describe("NotFoundPage", () => {
     await screen.findByRole("heading", { level: 1, name: "Page not found" });
 
     await user.click(screen.getByRole("button", { name: "Go back" }));
-    await waitFor(() => expect(screen.getByText("Tickets list")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Tasks list")).toBeInTheDocument());
   });
 });

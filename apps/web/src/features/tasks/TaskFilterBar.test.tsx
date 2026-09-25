@@ -1,25 +1,27 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { setViewportWidth } from "../../../vitest.setup";
 import {
   activeFilterChips,
-  TicketFilterBar,
+  creatorLabel,
+  OPEN_STATUSES,
+  TaskFilterBar,
   toggleValue,
-  type TicketFilterBarProps,
-} from "@/features/tickets/TicketFilterBar";
+  type TaskFilterBarProps,
+} from "@/features/tasks/TaskFilterBar";
 import {
-  DEFAULT_TICKET_LIST_PARAMS,
-  type TicketListFilterPatch,
-  type TicketListParams,
-} from "@/pages/tickets-list/useTicketListParams";
+  DEFAULT_TASK_LIST_PARAMS,
+  type TaskListFilterPatch,
+  type TaskListParams,
+} from "@/pages/tasks-list/useTaskListParams";
 import { renderInProviders } from "@/test/harness";
 
 /**
  * The bar itself, below the page.
  *
- * `TicketsListPage.test.tsx` covers the URL round trip through this component;
+ * `TasksListPage.test.tsx` covers the URL round trip through this component;
  * what it cannot see is the shape of the callbacks. The stage-11 constraint is
  * that a control which *derives* from a filter's previous value must hand back
  * a **function**, not a computed array — a control that computes the array from
@@ -29,20 +31,24 @@ import { renderInProviders } from "@/test/harness";
  * needing to arrange that race.
  */
 
-const params = (overrides: Partial<TicketListParams> = {}): TicketListParams => ({
-  ...DEFAULT_TICKET_LIST_PARAMS,
+const params = (overrides: Partial<TaskListParams> = {}): TaskListParams => ({
+  ...DEFAULT_TASK_LIST_PARAMS,
   ...overrides,
 });
 
-const renderBar = (props: Partial<TicketFilterBarProps> = {}) => {
+const renderBar = (props: Partial<TaskFilterBarProps> = {}) => {
   const onFiltersChange = vi.fn();
   const onSortChange = vi.fn();
   const onClear = vi.fn();
 
   renderInProviders(
-    <TicketFilterBar
+    <TaskFilterBar
       params={params()}
-      facets={{ assignees: ["Alice Chen", "Marcus Feld"], categories: ["hardware", "software"] }}
+      facets={{
+        assignees: ["Alice Chen", "Marcus Feld"],
+        projects: ["helpdesk", "mcp-server"],
+        creators: ["agent:claude-code", "human:krisz"],
+      }}
       onFiltersChange={onFiltersChange}
       onSortChange={onSortChange}
       onClear={onClear}
@@ -53,8 +59,8 @@ const renderBar = (props: Partial<TicketFilterBarProps> = {}) => {
   );
 
   /** Resolve the patch the bar handed back against a given starting state. */
-  const patchAgainst = (current: TicketListParams, callIndex = 0) => {
-    const patch = onFiltersChange.mock.calls[callIndex]?.[0] as TicketListFilterPatch;
+  const patchAgainst = (current: TaskListParams, callIndex = 0) => {
+    const patch = onFiltersChange.mock.calls[callIndex]?.[0] as TaskListFilterPatch;
     return typeof patch === "function" ? patch(current) : patch;
   };
 
@@ -67,14 +73,14 @@ const renderBar = (props: Partial<TicketFilterBarProps> = {}) => {
 
 describe("toggleValue", () => {
   it("adds a value that is absent and removes one that is present", () => {
-    expect(toggleValue(["open"], "closed")).toEqual(["open", "closed"]);
-    expect(toggleValue(["open", "closed"], "open")).toEqual(["closed"]);
+    expect(toggleValue(["todo"], "done")).toEqual(["todo", "done"]);
+    expect(toggleValue(["todo", "done"], "todo")).toEqual(["done"]);
   });
 
   it("does not mutate the array it was given", () => {
-    const current = ["open"] as const;
-    toggleValue(current, "closed");
-    expect(current).toEqual(["open"]);
+    const current = ["todo"] as const;
+    toggleValue(current, "done");
+    expect(current).toEqual(["todo"]);
   });
 });
 
@@ -82,32 +88,50 @@ describe("toggleValue", () => {
  * The chip groups
  * ------------------------------------------------------------------ */
 
-describe("TicketFilterBar chip groups", () => {
+describe("TaskFilterBar chip groups", () => {
   it("renders each filter group as a named group of real checkboxes", () => {
-    renderBar({ params: params({ status: ["open"] }) });
+    renderBar({ params: params({ status: ["todo"] }) });
 
     // Not `button aria-pressed`: a screen reader should announce this as a named
     // group of checkboxes with a count, which is what the control actually is.
-    expect(screen.getByRole("group", { name: "Status" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Open" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Closed" })).not.toBeChecked();
+    const status = screen.getByRole("group", { name: "Status" });
+    expect(status).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "To do" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Done" })).not.toBeChecked();
+    // All ten statuses, not the helpdesk's four.
+    expect(
+      within(status)
+        .getAllByRole("checkbox")
+        .map((box) => box.closest("label")?.textContent),
+    ).toEqual([
+      "Backlog",
+      "Needs refinement",
+      "To do",
+      "In progress",
+      "Blocked",
+      "Needs decision",
+      "Needs action",
+      "Needs QA",
+      "Done",
+      "Deferred",
+    ]);
   });
 
   it("hands back a FUNCTION of the current filters, never a computed array", async () => {
     const user = userEvent.setup();
-    const { onFiltersChange, patchAgainst } = renderBar({ params: params({ status: ["open"] }) });
+    const { onFiltersChange, patchAgainst } = renderBar({ params: params({ status: ["todo"] }) });
 
-    await user.click(screen.getByRole("checkbox", { name: "Closed" }));
+    await user.click(screen.getByRole("checkbox", { name: "Done" }));
 
-    // The shape is the assertion. A control that computed `["open","closed"]`
+    // The shape is the assertion. A control that computed `["todo","done"]`
     // here would satisfy any test that only checks the resulting value, and
     // would still drop a concurrent write to the same field.
     expect(typeof onFiltersChange.mock.calls[0]?.[0]).toBe("function");
 
     // Resolved against a state that moved *after* the chip rendered: the patch
-    // must build on `resolved`, not on the `["open"]` it was drawn with.
-    expect(patchAgainst(params({ status: ["open", "resolved"] }))).toEqual({
-      status: ["open", "resolved", "closed"],
+    // must build on `blocked`, not on the `["todo"]` it was drawn with.
+    expect(patchAgainst(params({ status: ["todo", "blocked"] }))).toEqual({
+      status: ["todo", "blocked", "done"],
     });
   });
 
@@ -120,22 +144,106 @@ describe("TicketFilterBar chip groups", () => {
     expect(patchAgainst(params({ priority: ["urgent", "high"] }))).toEqual({ priority: ["high"] });
   });
 
-  it("narrows the category chips to the facets when they have loaded", () => {
+  it("offers the projects the facets report", () => {
     renderBar();
 
-    expect(screen.getByRole("checkbox", { name: "Hardware" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Software" })).toBeInTheDocument();
-    // `network` is in the enum but not in these facets, so it is not offered —
-    // a chip that can only ever return zero rows is noise.
-    expect(screen.queryByRole("checkbox", { name: "Network" })).not.toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Project" });
+    expect(within(group).getByRole("checkbox", { name: "helpdesk" })).toBeInTheDocument();
+    expect(within(group).getByRole("checkbox", { name: "mcp-server" })).toBeInTheDocument();
   });
 
-  it("falls back to the full category enum before the facets land", () => {
-    // An empty select while a 1ms request is in flight reads as a broken
-    // control, so `undefined` facets must not mean "no options".
-    renderBar({ facets: undefined });
+  it("keeps a project from the URL removable before the facets land", () => {
+    // A shared link's filter must stay visible and uncheckable even while —
+    // or if — the facets request has not answered.
+    renderBar({ facets: undefined, params: params({ project: ["helpdesk"] }) });
 
-    expect(screen.getByRole("checkbox", { name: "Network" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "helpdesk" })).toBeChecked();
+  });
+
+  it("renders no project group when there are no projects at all", () => {
+    renderBar({ facets: { assignees: [], projects: [], creators: [] } });
+    expect(screen.queryByRole("group", { name: "Project" })).not.toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Status presets
+ * ------------------------------------------------------------------ */
+
+describe("TaskFilterBar status presets", () => {
+  it("selects every non-closed status with one click", async () => {
+    const user = userEvent.setup();
+    const { patchAgainst } = renderBar();
+
+    await user.click(screen.getByRole("button", { name: "Open work" }));
+
+    expect(patchAgainst(params())).toEqual({ status: [...OPEN_STATUSES] });
+    expect(OPEN_STATUSES).not.toContain("done");
+    expect(OPEN_STATUSES).not.toContain("deferred");
+    expect(OPEN_STATUSES).toHaveLength(8);
+  });
+
+  it("selects the inbox statuses with one click", async () => {
+    const user = userEvent.setup();
+    const { patchAgainst } = renderBar();
+
+    await user.click(screen.getByRole("button", { name: "Needs you" }));
+
+    expect(patchAgainst(params())).toEqual({
+      status: ["needs_user_decision", "needs_user_action", "needs_qa"],
+    });
+  });
+
+  it("shows itself pressed when the selection is exactly its set, and clears on a second press", async () => {
+    const user = userEvent.setup();
+    const { patchAgainst } = renderBar({
+      params: params({ status: ["needs_qa", "needs_user_action", "needs_user_decision"] }),
+    });
+
+    const preset = screen.getByRole("button", { name: "Needs you" });
+    expect(preset).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Open work" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    await user.click(preset);
+    expect(patchAgainst(params())).toEqual({ status: [] });
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Created by
+ * ------------------------------------------------------------------ */
+
+describe("TaskFilterBar creator control", () => {
+  it("offers the creators from facets, named with their kind", async () => {
+    const user = userEvent.setup();
+    const { patchAgainst } = renderBar();
+
+    await user.click(screen.getByRole("combobox", { name: "Filter by creator" }));
+    await user.click(await screen.findByRole("option", { name: "claude-code (agent)" }));
+
+    // The exact stored actor goes on the wire — `createdBy` is an exact match.
+    expect(patchAgainst(params())).toEqual({ createdBy: "agent:claude-code" });
+  });
+
+  it("clears back to anyone", async () => {
+    const user = userEvent.setup();
+    const { patchAgainst } = renderBar({ params: params({ createdBy: "human:krisz" }) });
+
+    expect(screen.getByRole("combobox", { name: "Filter by creator" })).toHaveTextContent(
+      "krisz (human)",
+    );
+    await user.click(screen.getByRole("combobox", { name: "Filter by creator" }));
+    await user.click(await screen.findByRole("option", { name: "Anyone" }));
+
+    expect(patchAgainst(params())).toEqual({ createdBy: undefined });
+  });
+
+  it("labels an actor as name then kind", () => {
+    expect(creatorLabel("agent:claude-code")).toBe("claude-code (agent)");
+    expect(creatorLabel("system:taskmanager")).toBe("taskmanager (system)");
   });
 });
 
@@ -143,7 +251,7 @@ describe("TicketFilterBar chip groups", () => {
  * Assignee — one control, so the 422 is unrepresentable
  * ------------------------------------------------------------------ */
 
-describe("TicketFilterBar assignee control", () => {
+describe("TaskFilterBar assignee control", () => {
   const openAssignee = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(screen.getByRole("combobox", { name: "Filter by assignee" }));
   };
@@ -170,7 +278,9 @@ describe("TicketFilterBar assignee control", () => {
 
   it("distinguishes a person named 'unassigned' from the sentinel", async () => {
     const user = userEvent.setup();
-    const { patchAgainst } = renderBar({ facets: { assignees: ["unassigned"], categories: [] } });
+    const { patchAgainst } = renderBar({
+      facets: { assignees: ["unassigned"], projects: [], creators: [] },
+    });
 
     await openAssignee(user);
     // Two options now read "Unassigned"-ish; the person is the one under the
@@ -209,35 +319,43 @@ describe("activeFilterChips", () => {
 
   it("emits one chip per selected value, in a stable order", () => {
     const chips = activeFilterChips(
-      params({ q: "printer", status: ["open", "closed"], priority: ["urgent"] }),
+      params({
+        q: "printer",
+        status: ["todo", "done"],
+        priority: ["urgent"],
+        project: ["helpdesk"],
+        createdBy: "agent:claude-code",
+      }),
     );
 
     expect(chips.map((chip) => chip.key)).toEqual([
       "q",
-      "status:open",
-      "status:closed",
+      "status:todo",
+      "status:done",
       "priority:urgent",
+      "project:helpdesk",
+      "createdBy",
     ]);
     expect(chips.map((chip) => chip.label)).toEqual([
       "Search: printer",
-      "Status: Open",
-      "Status: Closed",
+      "Status: To do",
+      "Status: Done",
       "Priority: Urgent",
+      "Project: helpdesk",
+      "Created by: claude-code (agent)",
     ]);
   });
 
   it("clears one value out of several as a function of the current state", () => {
-    const chips = activeFilterChips(params({ status: ["open", "closed", "resolved"] }));
-    const closed = chips.find((chip) => chip.key === "status:closed")!;
+    const chips = activeFilterChips(params({ status: ["todo", "done", "blocked"] }));
+    const done = chips.find((chip) => chip.key === "status:done")!;
 
     // Resolved against a state carrying a status that was not there when the
-    // chip was built: removing "closed" must leave the newcomer alone. A chip
-    // that captured its siblings at render time would return ["open","resolved"].
-    expect(closed.clear(params({ status: ["open", "closed", "resolved", "in_progress"] }))).toEqual(
-      {
-        status: ["open", "resolved", "in_progress"],
-      },
-    );
+    // chip was built: removing "done" must leave the newcomer alone. A chip
+    // that captured its siblings at render time would return ["todo","blocked"].
+    expect(done.clear(params({ status: ["todo", "done", "blocked", "in_progress"] }))).toEqual({
+      status: ["todo", "blocked", "in_progress"],
+    });
   });
 
   it("labels a date bound with the UTC-pinned formatter", () => {
@@ -255,15 +373,15 @@ describe("activeFilterChips", () => {
   });
 });
 
-describe("TicketFilterBar active chips", () => {
+describe("TaskFilterBar active chips", () => {
   it("offers a labelled remove button per chip plus one Clear all", async () => {
     const user = userEvent.setup();
     const { onClear, patchAgainst } = renderBar({
-      params: params({ status: ["open"], priority: ["urgent"] }),
+      params: params({ status: ["todo"], priority: ["urgent"] }),
     });
 
-    await user.click(screen.getByRole("button", { name: "Remove filter: Status: Open" }));
-    expect(patchAgainst(params({ status: ["open"], priority: ["urgent"] }))).toEqual({
+    await user.click(screen.getByRole("button", { name: "Remove filter: Status: To do" }));
+    expect(patchAgainst(params({ status: ["todo"], priority: ["urgent"] }))).toEqual({
       status: [],
     });
 
@@ -282,7 +400,7 @@ describe("TicketFilterBar active chips", () => {
  * Wide vs narrow
  * ------------------------------------------------------------------ */
 
-describe("TicketFilterBar layout", () => {
+describe("TaskFilterBar layout", () => {
   it("renders the controls inline and no Filters trigger when wide", () => {
     setViewportWidth(1280);
     renderBar({ isWide: true });
@@ -296,7 +414,7 @@ describe("TicketFilterBar layout", () => {
   it("hides the controls behind a counting trigger when narrow", async () => {
     const user = userEvent.setup();
     setViewportWidth(360);
-    renderBar({ isWide: false, params: params({ status: ["open"] }), activeFilterCount: 2 });
+    renderBar({ isWide: false, params: params({ status: ["todo"] }), activeFilterCount: 2 });
 
     // Not rendered twice: the controls exist inline *or* in the sheet, never
     // both, so there is no second copy of every checkbox to keep in step.
@@ -306,7 +424,7 @@ describe("TicketFilterBar layout", () => {
     await user.click(trigger);
 
     expect(await screen.findByRole("group", { name: "Status" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Open" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "To do" })).toBeChecked();
   });
 
   it("labels the trigger without a count when nothing is filtered", () => {
@@ -339,12 +457,12 @@ describe("TicketFilterBar layout", () => {
  * Search box
  * ------------------------------------------------------------------ */
 
-describe("TicketFilterBar search box", () => {
+describe("TaskFilterBar search box", () => {
   it("commits with replace, so typing does not fill the history stack", async () => {
     const user = userEvent.setup();
     const { onFiltersChange } = renderBar();
 
-    await user.type(screen.getByRole("searchbox", { name: /search tickets/i }), "printer");
+    await user.type(screen.getByRole("searchbox", { name: /search tasks/i }), "printer");
 
     await waitFor(() => expect(onFiltersChange).toHaveBeenCalled());
     // Both halves matter: `q` is the patch, `{ replace: true }` is what keeps
@@ -356,7 +474,7 @@ describe("TicketFilterBar search box", () => {
     const user = userEvent.setup();
     const { onFiltersChange } = renderBar({ params: params({ q: "printer" }) });
 
-    await user.clear(screen.getByRole("searchbox", { name: /search tickets/i }));
+    await user.clear(screen.getByRole("searchbox", { name: /search tasks/i }));
 
     await waitFor(() =>
       expect(onFiltersChange).toHaveBeenLastCalledWith({ q: undefined }, { replace: true }),
@@ -380,7 +498,7 @@ describe("TicketFilterBar search box", () => {
           <button type="button" onClick={() => setQ(undefined)}>
             Go back
           </button>
-          <TicketFilterBar
+          <TaskFilterBar
             params={params({ q })}
             facets={undefined}
             onFiltersChange={vi.fn()}
@@ -394,7 +512,7 @@ describe("TicketFilterBar search box", () => {
     };
 
     renderInProviders(<Host />);
-    const box = screen.getByRole("searchbox", { name: /search tickets/i });
+    const box = screen.getByRole("searchbox", { name: /search tasks/i });
     expect(box).toHaveValue("printer");
 
     await user.click(screen.getByRole("button", { name: "Go back" }));
@@ -405,7 +523,7 @@ describe("TicketFilterBar search box", () => {
 
   it("caps typed input at the contract's maximum", () => {
     renderBar();
-    expect(screen.getByRole("searchbox", { name: /search tickets/i })).toHaveAttribute(
+    expect(screen.getByRole("searchbox", { name: /search tasks/i })).toHaveAttribute(
       "maxlength",
       "120",
     );

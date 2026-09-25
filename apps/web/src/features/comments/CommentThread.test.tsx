@@ -12,14 +12,14 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.unstubAllGlobals());
 
 const comments = [
-  makeComment({ id: 1, authorName: "Priya Nair", body: "First." }),
-  makeComment({ id: 2, authorName: "Marcus Feld", body: "Second." }),
+  makeComment({ id: 1, author: "human:priya", body: "First." }),
+  makeComment({ id: 2, author: "agent:claude-code", kind: "progress", body: "Second." }),
 ];
 
 describe("CommentThread", () => {
   it("keeps the server's order rather than re-sorting", () => {
     mockApi({});
-    renderInProviders(<CommentThread ticketId={42} comments={comments} />);
+    renderInProviders(<CommentThread taskId={42} comments={comments} />);
 
     const items = within(screen.getByRole("list", { name: "Comment thread" })).getAllByRole(
       "listitem",
@@ -33,7 +33,7 @@ describe("CommentThread", () => {
   it("renders markup in a body as text", () => {
     mockApi({});
     const { container } = renderInProviders(
-      <CommentThread ticketId={42} comments={[makeComment({ body: "<b>bold</b>" })]} />,
+      <CommentThread taskId={42} comments={[makeComment({ body: "<b>bold</b>" })]} />,
     );
 
     expect(screen.getByText("<b>bold</b>")).toBeInTheDocument();
@@ -42,20 +42,44 @@ describe("CommentThread", () => {
 
   it("shows the empty line when there is nothing yet", () => {
     mockApi({});
-    renderInProviders(<CommentThread ticketId={42} comments={[]} />);
+    renderInProviders(<CommentThread taskId={42} comments={[]} />);
     expect(screen.getByText("No comments yet.")).toBeInTheDocument();
   });
 
   it("labels each delete button with its author", () => {
     mockApi({});
-    renderInProviders(<CommentThread ticketId={42} comments={comments} />);
+    renderInProviders(<CommentThread taskId={42} comments={comments} />);
 
+    expect(screen.getByRole("button", { name: "Delete comment by priya" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Delete comment by Priya Nair" }),
+      screen.getByRole("button", { name: "Delete comment by claude-code" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Delete comment by Marcus Feld" }),
-    ).toBeInTheDocument();
+  });
+
+  it("tells an agent's comment from a human's, and tags non-note kinds", () => {
+    mockApi({});
+    renderInProviders(
+      <CommentThread
+        taskId={42}
+        comments={[
+          ...comments,
+          makeComment({ id: 3, author: "human:dana", kind: "qa_feedback", body: "Third." }),
+        ]}
+      />,
+    );
+
+    const [first, second, third] = within(
+      screen.getByRole("list", { name: "Comment thread" }),
+    ).getAllByRole("listitem");
+
+    // The kind is spelled out for assistive technology, not only drawn as an icon.
+    expect(within(first!).getByRole("heading")).toHaveTextContent("Human priya");
+    expect(within(second!).getByRole("heading")).toHaveTextContent("Agent claude-code");
+
+    // `note` is the default and carries no tag; the other two do.
+    expect(within(first!).queryByText("Note")).not.toBeInTheDocument();
+    expect(within(second!).getByText("Progress")).toBeInTheDocument();
+    expect(within(third!).getByText("QA feedback")).toBeInTheDocument();
   });
 
   it("confirms, deletes, and invalidates only the detail key", async () => {
@@ -67,19 +91,23 @@ describe("CommentThread", () => {
     const queryClient = makeQueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
-    renderInProviders(<CommentThread ticketId={42} comments={comments} />, { queryClient });
+    renderInProviders(<CommentThread taskId={42} comments={comments} />, { queryClient });
 
-    await user.click(screen.getByRole("button", { name: "Delete comment by Priya Nair" }));
+    await user.click(screen.getByRole("button", { name: "Delete comment by priya" }));
     const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveAccessibleDescription(/The comment by Priya Nair will be removed\./);
+    expect(dialog).toHaveAccessibleDescription(/The comment by priya will be removed\./);
     expect(requests).toHaveLength(0);
 
     await user.click(within(dialog).getByRole("button", { name: "Delete comment" }));
 
     await waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0]?.url.pathname).toMatch(/\/tickets\/42\/comments\/1$/);
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tickets", "detail", 42] });
-    expect(queryKeys.tickets.detail(42)).toEqual(["tickets", "detail", 42]);
+    expect(requests[0]?.url.pathname).toMatch(/\/tasks\/42\/comments\/1$/);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tasks", "detail", 42] });
+    expect(queryKeys.tasks.detail(42)).toEqual(["tasks", "detail", 42]);
+    // …and the timeline, where `comment.deleted` is now the newest event. Not
+    // `tasks.all`: a comment moves no list row.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.events.task(42) });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: queryKeys.tasks.all });
     expect(toast.success).toHaveBeenCalledWith("Comment deleted");
   });
 
@@ -105,15 +133,15 @@ describe("CommentThread", () => {
     const queryClient = makeQueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
-    renderInProviders(<CommentThread ticketId={42} comments={comments} />, { queryClient });
+    renderInProviders(<CommentThread taskId={42} comments={comments} />, { queryClient });
 
-    await user.click(screen.getByRole("button", { name: "Delete comment by Priya Nair" }));
+    await user.click(screen.getByRole("button", { name: "Delete comment by priya" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Delete comment" }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tickets.detail(42) });
-    expect(queryKeys.tickets.detail(42)).toEqual(["tickets", "detail", 42]);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks.detail(42) });
+    expect(queryKeys.tasks.detail(42)).toEqual(["tasks", "detail", 42]);
     // The dialog still closes — the action is over, it just did not succeed.
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });

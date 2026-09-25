@@ -130,6 +130,35 @@ const envSchema = z.object({
 
   /** Over-limit bodies become `PAYLOAD_TOO_LARGE`. */
   BODY_LIMIT: z.string().min(1).default("1mb"),
+
+  /**
+   * Optional shared secret for self-hosted deployments. When set, every
+   * `/api/v1` request must carry `Authorization: Bearer <API_TOKEN>` or gets
+   * `UNAUTHORIZED` (401); `/health` and `/docs` stay open. Unset (the default)
+   * means no check at all — right for localhost, wrong for anything reachable
+   * from a network you do not control.
+   *
+   * This is a gate, not accounts: one token for every caller, humans and agents
+   * alike. Who did what is still the self-declared `X-Actor`.
+   *
+   * At least 16 characters, so a placeholder like `changeme` fails boot instead
+   * of protecting nothing.
+   */
+  API_TOKEN: z.string().min(16, "API_TOKEN must be at least 16 characters").optional(),
+
+  /**
+   * Whether an `agent:` actor may move a task to `done`. Off by default: agents
+   * hand finished work to `needs_qa` and a human closes it. Turn it on for a
+   * fully autonomous setup where a QA agent does the closing.
+   */
+  AGENTS_MAY_COMPLETE: booleanFromString(false),
+
+  /**
+   * How long a claim lasts without a heartbeat or a write from its holder. Short
+   * enough that a crashed agent's task comes back within the working session,
+   * long enough that an agent deep in a build does not lose its task.
+   */
+  CLAIM_LEASE_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
 });
 
 export type Env = z.infer<typeof envSchema>;

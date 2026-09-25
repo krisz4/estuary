@@ -1,15 +1,20 @@
-// Helpdesk schema — see docs/engineering/DATABASE.md for the reasoning behind
-// every decision here. The three that surprise people:
+// Task manager schema — see docs/engineering/DATABASE.md for the reasoning behind
+// every decision here. The ones that surprise people:
 //
-//   1. No native enums. SQLite has none, so `status`, `priority`, and `category`
-//      are String columns; the zod enums in packages/contracts are the only
+//   1. No native enums. SQLite has none, so `status`, `priority`, `kind`, and
+//      `type` are String columns; the zod enums in packages/contracts are the only
 //      enforcement. Never write a literal status string outside the service helpers.
 //   2. `@default(autoincrement())` only on the `@id` field — Prisma's SQLite
-//      connector rejects it anywhere else. That is why `Ticket.id` is an Int and
-//      *is* the ticket number (rendered `HD-000042`), with no separate column.
+//      connector rejects it anywhere else. That is why `Task.id` is an Int and
+//      *is* the task number (rendered `TASK-000042`), with no separate column.
 //   3. `statusRank` / `priorityRank` are derived columns that exist purely so
 //      SQLite can sort by lifecycle and severity instead of alphabetically.
-//      `applyTicketRanks()` is their only writer.
+//      `applyTaskRanks()` is their only writer.
+//   4. JSON lives in `String` columns (`links`, `options`, `payload`), parsed and
+//      validated with the contracts' zod schemas on the way out. The shape is the
+//      contract's, not the database's.
+//   5. `TaskEvent.taskId` is deliberately NOT a foreign key: the feed must still
+//      describe a task after it is deleted.
 
 generator client {
   provider = "prisma-client-js"
@@ -20,46 +25,109 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Ticket {
-  id Int @id @default(autoincrement()) // also the ticket number
+model Task {
+  id Int @id @default(autoincrement()) // also the task number
 
-  title       String
-  description String
+  title              String
+  description        String
+  acceptanceCriteria String?
 
-  status       String  @default("open") // TicketStatus (contracts)
+  status       String  @default("backlog") // TaskStatus (contracts)
   statusRank   Int     @default(0) // derived, for ordering
-  priority     String  @default("medium") // TicketPriority (contracts)
+  statusNote   String? // the "why" of the current status; replaced on each transition
+  priority     String  @default("medium") // TaskPriority (contracts)
   priorityRank Int     @default(1) // derived, for ordering
-  category     String? // TicketCategory (contracts)
 
-  requesterName  String
-  requesterEmail String // stored lowercase
-  assignee       String?
+  project   String? // lowercase slug
+  assignee  String?
+  createdBy String // actor, e.g. "agent:claude-code"
+  links     String  @default("[]") // JSON TaskLink[]
 
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  resolvedAt DateTime?
-  closedAt   DateTime?
+  // Claim lease. Meaningful only while claimExpiresAt is in the future.
+  claimedBy      String?
+  claimExpiresAt DateTime?
 
-  comments Comment[]
+  version        Int     @default(1) // optimistic concurrency; +1 on every write
+  idempotencyKey String? @unique
+
+  parentId Int?
+  parent   Task?  @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
+  children Task[] @relation("Subtasks")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  comments     Comment[]
+  decisions    Decision[]
+  dependencies TaskDependency[] @relation("DependentSide")
+  dependents   TaskDependency[] @relation("DependencySide")
 
   @@index([createdAt])
   @@index([statusRank])
   @@index([priorityRank])
   @@index([statusRank, createdAt])
-  @@index([requesterEmail])
-  @@index([category])
+  @@index([status, priorityRank, createdAt])
+  @@index([project])
   @@index([assignee])
+  @@index([createdBy])
+  @@index([parentId])
 }
 
 model Comment {
-  id         Int      @id @default(autoincrement())
-  ticketId   Int
-  authorName String
-  body       String
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  taskId    Int
+  author    String // actor
+  kind      String   @default("note") // CommentKind (contracts)
+  body      String
+  createdAt DateTime @default(now())
 
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-  @@index([ticketId, id])
+  @@index([taskId, id])
+}
+
+/// `taskId` depends on `dependsOnId`: taskId cannot start until dependsOnId is done.
+model TaskDependency {
+  taskId      Int
+  dependsOnId Int
+  createdAt   DateTime @default(now())
+
+  task      Task @relation("DependentSide", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("DependencySide", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, dependsOnId])
+  @@index([dependsOnId])
+}
+
+model Decision {
+  id                Int       @id @default(autoincrement())
+  taskId            Int
+  status            String    @default("open") // DecisionStatus (contracts)
+  question          String
+  options           String // JSON DecisionOption[]
+  recommendedOption String?
+  context           String?
+  requestedBy       String // actor
+  choice            String?
+  note              String?
+  answeredBy        String?
+  createdAt         DateTime  @default(now())
+  answeredAt        DateTime?
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, status])
+}
+
+model TaskEvent {
+  id        Int      @id @default(autoincrement())
+  taskId    Int // not a relation — see note 5 above
+  type      String // TaskEventType (contracts)
+  actor     String
+  payload   String   @default("{}") // JSON
+  createdAt DateTime @default(now())
+
+  @@index([taskId, id])
 }

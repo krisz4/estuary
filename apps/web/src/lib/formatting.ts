@@ -1,60 +1,116 @@
 import {
-  TICKET_CATEGORIES,
-  TICKET_PRIORITIES,
-  TICKET_STATUSES,
-  type TicketCategory,
-  type TicketPriority,
-  type TicketStatus,
+  actorKindOf,
+  actorNameOf,
+  COMMENT_KINDS,
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  type ActorKind,
+  type CommentKind,
+  type TaskPriority,
+  type TaskStatus,
+  type TaskStatusLane,
 } from "@helpdesk/contracts";
 
 /**
  * Presentation helpers. Nothing here knows about the network or React.
  *
  * Enum labels are written out per value rather than derived by de-underscoring
- * and title-casing. A derivation would render `in_progress` as "In Progress"
- * and `HD-000042`-adjacent strings inconsistently, and — more to the point — it
- * would silently produce a plausible-looking label for a value that is not in
- * the enum at all, which is the case worth surfacing.
+ * and title-casing. A derivation would render `needs_user_decision` as "Needs
+ * User Decision" — accurate and unreadable on a 9rem board column — and, more to
+ * the point, it would silently produce a plausible-looking label for a value
+ * that is not in the enum at all, which is the case worth surfacing.
  */
 
-export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
-  open: "Open",
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  backlog: "Backlog",
+  needs_refinement: "Needs refinement",
+  todo: "To do",
   in_progress: "In progress",
-  resolved: "Resolved",
+  blocked: "Blocked",
+  needs_user_decision: "Needs decision",
+  needs_user_action: "Needs action",
+  needs_qa: "Needs QA",
+  done: "Done",
+  deferred: "Deferred",
+};
+
+/**
+ * One line on what each status *means* — the column hint on the board and the
+ * option description in the transition dialog. The lifecycle is new enough to
+ * everyone (human and agent) that "Needs refinement" vs "Backlog" deserves a
+ * sentence rather than a guess.
+ */
+export const TASK_STATUS_DESCRIPTIONS: Record<TaskStatus, string> = {
+  backlog: "Captured, not planned yet.",
+  needs_refinement: "Unclear — needs more detail before anyone can start.",
+  todo: "Ready to pick up. Has acceptance criteria.",
+  in_progress: "Being worked on, and claimed by whoever is on it.",
+  blocked: "Waiting on other tasks or on something external.",
+  needs_user_decision: "An agent asked a question only a human can answer.",
+  needs_user_action: "A human has to do a manual step.",
+  needs_qa: "The work is done. Someone needs to verify it.",
+  done: "Finished and verified.",
+  deferred: "Parked on purpose. The reason is recorded.",
+};
+
+/** The four groups the board arranges its columns into (`TASK_STATUS_LANES`). */
+export const TASK_LANE_LABELS: Record<TaskStatusLane, string> = {
+  plan: "Plan",
+  doing: "Doing",
+  waiting: "Waiting",
   closed: "Closed",
 };
 
-export const TICKET_PRIORITY_LABELS: Record<TicketPriority, string> = {
+export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
   low: "Low",
   medium: "Medium",
   high: "High",
   urgent: "Urgent",
 };
 
-export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
-  hardware: "Hardware",
-  software: "Software",
-  network: "Network",
-  access: "Access",
-  email: "Email",
-  other: "Other",
+export const COMMENT_KIND_LABELS: Record<CommentKind, string> = {
+  note: "Note",
+  progress: "Progress",
+  qa_feedback: "QA feedback",
+};
+
+export const ACTOR_KIND_LABELS: Record<ActorKind, string> = {
+  human: "Human",
+  agent: "Agent",
+  system: "System",
 };
 
 /** Options in enum order, ready for a `<Select>`. */
-export const statusOptions = TICKET_STATUSES.map((value) => ({
+export const statusOptions = TASK_STATUSES.map((value) => ({
   value,
-  label: TICKET_STATUS_LABELS[value],
+  label: TASK_STATUS_LABELS[value],
 }));
 
-export const priorityOptions = TICKET_PRIORITIES.map((value) => ({
+export const priorityOptions = TASK_PRIORITIES.map((value) => ({
   value,
-  label: TICKET_PRIORITY_LABELS[value],
+  label: TASK_PRIORITY_LABELS[value],
 }));
 
-export const categoryOptions = TICKET_CATEGORIES.map((value) => ({
+export const commentKindOptions = COMMENT_KINDS.map((value) => ({
   value,
-  label: TICKET_CATEGORY_LABELS[value],
+  label: COMMENT_KIND_LABELS[value],
 }));
+
+/* ------------------------------------------------------------------ *
+ * Actors
+ * ------------------------------------------------------------------ */
+
+/**
+ * `"agent:claude-code"` → `"claude-code"`; the kind is rendered separately, as
+ * a badge, so it is never folded into the name. The one special case is the
+ * default a request without `X-Actor` is attributed to, which reads better as
+ * words than as a slug.
+ */
+export const actorDisplayName = (actor: string): string => {
+  const name = actorNameOf(actor);
+  if (actorKindOf(actor) === "human" && name === "anonymous") return "Anonymous";
+  return name;
+};
 
 /* ------------------------------------------------------------------ *
  * Dates
@@ -111,7 +167,7 @@ export const formatAbsolute = (iso: string): string => {
 
 /**
  * Date without a time, **in the viewer's timezone**, for an instant that has one
- * — a `createdAt`, a `resolvedAt`.
+ * — a `createdAt`, a `completedAt`.
  *
  * Not for a `YYYY-MM-DD` filter bound: that string has no instant behind it, and
  * this function would resolve it to UTC midnight and then render it in local
@@ -129,7 +185,7 @@ export const formatDate = (iso: string): string => {
  * viewer's timezone renders `Jul 31, 2026` anywhere west of Greenwich — a filter
  * bound labelled "Created from (UTC) = 2026-08-01" whose chip reads the day
  * before. `createdFrom` / `createdTo` are UTC calendar days by contract
- * (`docs/features/Ticket_Query_Filter_Sort_Page.md` § Date bounds), so the
+ * (`docs/features/Task_Query_Filter_Sort_Page.md` § Date bounds), so the
  * formatter is pinned to UTC rather than the reader's clock.
  *
  * The pinning is on the formatter, not on the parse: a `timeZone` passed here
@@ -160,7 +216,7 @@ export const toDateTimeAttribute = (iso: string): string | undefined =>
  * Text
  * ------------------------------------------------------------------ */
 
-/** `"Showing 1–20 of 63 tickets"` — the live-region copy on the list page. */
+/** `"Showing 1–20 of 63 tasks"` — the live-region copy on the list page. */
 export const formatCount = (count: number, singular: string, plural = `${singular}s`): string =>
   `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 

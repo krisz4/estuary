@@ -2,8 +2,8 @@ import { API_ERROR_CODES } from "@helpdesk/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiClientError, CLIENT_ERROR_CODES } from "@/api/http";
 import {
-  allowedTransitionsFrom,
   errorCopy,
+  errorDescription,
   errorRequestId,
   GENERIC_ERROR,
   NON_FIELD_DETAIL_KEY,
@@ -43,7 +43,7 @@ describe("errorCopy", () => {
   });
 
   it("marks 404s and 422s as non-retryable and transport failures as retryable", () => {
-    expect(errorCopy(clientError("TICKET_NOT_FOUND")).retryable).toBe(false);
+    expect(errorCopy(clientError("TASK_NOT_FOUND")).retryable).toBe(false);
     expect(errorCopy(clientError("VALIDATION_ERROR")).retryable).toBe(false);
     expect(errorCopy(clientError("NETWORK_ERROR")).retryable).toBe(true);
     expect(errorCopy(clientError("INTERNAL_ERROR")).retryable).toBe(true);
@@ -57,19 +57,24 @@ describe("errorRequestId", () => {
   });
 });
 
-describe("allowedTransitionsFrom", () => {
-  it("reads details.allowed for INVALID_STATUS_TRANSITION", () => {
-    const error = clientError("INVALID_STATUS_TRANSITION", {
-      from: "closed",
-      to: "resolved",
-      allowed: ["open", "in_progress"],
+describe("errorDescription", () => {
+  it("names who holds a claim, from details", () => {
+    const error = clientError("TASK_ALREADY_CLAIMED", {
+      claimedBy: "agent:claude-code",
+      expiresAt: "2026-09-25T12:00:00.000Z",
     });
-    expect(allowedTransitionsFrom(error)).toEqual(["open", "in_progress"]);
+    expect(errorDescription(error)).toMatch(/^agent:claude-code holds the claim\./);
   });
 
-  it("is undefined for any other code, even with a matching details shape", () => {
-    const error = clientError("VALIDATION_ERROR", { allowed: ["open"] });
-    expect(allowedTransitionsFrom(error)).toBeUndefined();
+  it("spells out the loop a dependency would close", () => {
+    const error = clientError("DEPENDENCY_CYCLE", { path: [4, 7, 4] });
+    expect(errorDescription(error)).toContain("#4 → #7 → #4");
+  });
+
+  it("falls back to the plain copy when details are not the documented shape", () => {
+    const error = clientError("TASK_ALREADY_CLAIMED", { claimedBy: 42 });
+    expect(errorDescription(error)).toBe(errorCopy(error).description);
+    expect(errorDescription(error)).not.toContain("RAW SERVER TEXT");
   });
 });
 
@@ -113,7 +118,7 @@ describe("splitValidationErrors", () => {
   });
 
   it("is empty for a non-validation error and for a non-error value", () => {
-    expect(splitValidationErrors(clientError("TICKET_NOT_FOUND"), FIELDS)).toEqual({
+    expect(splitValidationErrors(clientError("TASK_NOT_FOUND"), FIELDS)).toEqual({
       fieldErrors: {},
       formErrors: [],
     });

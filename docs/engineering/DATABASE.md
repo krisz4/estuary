@@ -8,57 +8,79 @@ SQLite means a reviewer clones, runs one command, and has a working system — n
 
 ## Schema
 
+Five models: `Task`, `Comment`, `Decision`, `TaskDependency`, and `TaskEvent`. The full, current definitions — with the column-by-column reasoning inline — live in `apps/api/prisma/schema.prisma`; that file's own header comment covers the five things that surprise people (no native enums, `autoincrement()` only on `@id`, the derived rank columns, JSON-in-`String` columns, and `TaskEvent.taskId` deliberately not being a foreign key). The shape, trimmed to what this page's reasoning depends on:
+
 ```prisma
-model Ticket {
-  id             Int       @id @default(autoincrement())   // also the ticket number
+model Task {
+  id                 Int       @id @default(autoincrement())   // also the task number
 
-  title          String
-  description    String
+  title              String
+  description        String
+  acceptanceCriteria String?
 
-  status         String    @default("open")      // TicketStatus (contracts)
-  statusRank     Int       @default(0)           // derived, for ordering
-  priority       String    @default("medium")    // TicketPriority (contracts)
-  priorityRank   Int       @default(1)           // derived, for ordering
-  category       String?                         // TicketCategory (contracts)
+  status             String    @default("backlog")   // TaskStatus (contracts)
+  statusRank         Int       @default(0)            // derived, for ordering
+  statusNote         String?
+  priority           String    @default("medium")     // TaskPriority (contracts)
+  priorityRank       Int       @default(1)            // derived, for ordering
 
-  requesterName  String
-  requesterEmail String                          // stored lowercase
-  assignee       String?
+  project            String?                          // lowercase slug
+  assignee           String?
+  createdBy          String                           // actor, e.g. "agent:claude-code"
+  links              String    @default("[]")         // JSON TaskLink[]
 
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  resolvedAt     DateTime?
-  closedAt       DateTime?
+  claimedBy          String?
+  claimExpiresAt     DateTime?
 
-  comments       Comment[]
+  version            Int       @default(1)
+  idempotencyKey     String?   @unique
+
+  parentId           Int?
+  parent             Task?     @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
+  children           Task[]    @relation("Subtasks")
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  startedAt          DateTime?
+  completedAt        DateTime?
+
+  comments           Comment[]
+  decisions          Decision[]
+  dependencies       TaskDependency[] @relation("DependentSide")
+  dependents         TaskDependency[] @relation("DependencySide")
 
   @@index([createdAt])
   @@index([statusRank])
   @@index([priorityRank])
   @@index([statusRank, createdAt])
-  @@index([requesterEmail])
-  @@index([category])
+  @@index([status, priorityRank, createdAt])
+  @@index([project])
   @@index([assignee])
+  @@index([createdBy])
+  @@index([parentId])
 }
 
 model Comment {
-  id         Int      @id @default(autoincrement())
-  ticketId   Int
-  authorName String
-  body       String
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  taskId    Int
+  author    String   // actor
+  kind      String   @default("note")   // CommentKind (contracts)
+  body      String
+  createdAt DateTime @default(now())
 
-  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-  @@index([ticketId, id])
+  @@index([taskId, id])
 }
 ```
 
+`Decision` (one open decision per task, `requestedBy`/`answeredBy` actors), `TaskDependency` (a composite-key edge table, `taskId` depends on `dependsOnId`), and `TaskEvent` (the append-only feed, `taskId` **not** a foreign key) are in the schema file. See [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md#decisions), [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md#dependencies), and [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md#events).
+
 ## Integer primary keys (not cuid)
 
-Both models use `Int @id @default(autoincrement())`, and **`Ticket.id` is the ticket number** — there is no separate `ticketNumber` column. Reasoning and the rejected alternatives are in [../features/Ticket_Numbering.md](../features/Ticket_Numbering.md).
+Every model uses `Int @id @default(autoincrement())`, and **`Task.id` is the task number** — there is no separate `taskNumber` column. Reasoning and the rejected alternatives are in [../features/Task_Numbering.md](../features/Task_Numbering.md).
 
-The forcing constraint: Prisma's SQLite connector rejects `@default(autoincrement())` on any field that is not the `@id`, with `The autoincrement() default value is used on a non-id field even though the datasource does not support this.` ([prisma#1938](https://github.com/prisma/prisma/issues/1938), [prisma#6477](https://github.com/prisma/prisma/issues/6477)). A cuid `id` plus an autoincrementing `ticketNumber` — the obvious design — does not compile on SQLite.
+The forcing constraint: Prisma's SQLite connector rejects `@default(autoincrement())` on any field that is not the `@id`, with `The autoincrement() default value is used on a non-id field even though the datasource does not support this.` ([prisma#1938](https://github.com/prisma/prisma/issues/1938), [prisma#6477](https://github.com/prisma/prisma/issues/6477)). A cuid `id` plus an autoincrementing `taskNumber` — the obvious design — does not compile on SQLite.
 
 `Comment.id` being an integer is also what makes comment ordering deterministic: it is monotonic, so `ORDER BY createdAt, id` breaks same-millisecond ties in true insertion order. A cuid tiebreaker would not (cuid2 is deliberately unsortable).
 
@@ -67,10 +89,10 @@ The forcing constraint: Prisma's SQLite connector rejects `@default(autoincremen
 | Caveat | Consequence |
 | ------ | ----------- |
 | **`autoincrement()` only on the `@id` field** | See above. Non-id autoincrement is a *schema validation* error, not a runtime one — it fails at `prisma generate` |
-| **No native enums** | `status`, `priority`, `category` are `String`. The zod enums in `packages/contracts` are the only enforcement — never write a literal status string outside the service helpers |
+| **No native enums** | `status`, `priority`, `kind` (comment), and `type` (event) are `String`. The zod enums in `packages/contracts` are the only enforcement — never write a literal status string outside the service helpers |
 | **No `mode: "insensitive"`** | Unsupported by the SQLite connector ([prisma#8268](https://github.com/prisma/prisma/issues/8268)); it is not even in the generated types. Do not reach for it |
 | **`=` is case-sensitive, `LIKE` is not** | `equals` on text is case-**sensitive**; `contains` / `startsWith` compile to `LIKE` and are case-**insensitive for ASCII only**. Any filter needing case-insensitive equality must compare canonical values (see below) |
-| **Single writer** | Writes serialize. Fine here; it is the first thing to hit under real concurrency |
+| **Single writer** | Writes serialize — and concurrent *interactive* transactions deadlock rather than queue. See [Concurrent writes](#concurrent-writes) for the in-process write queue and WAL that handle it |
 | **No full-text search** | `q` uses `LIKE` scans. Acceptable at seed scale; a real deployment would want FTS5 |
 | **Dates stored as integers** | Prisma handles the conversion; never write raw SQL against the timestamp columns |
 
@@ -80,11 +102,29 @@ Because `equals` is case-sensitive and `mode: "insensitive"` does not exist here
 
 | Field | Canonicalization |
 | ----- | ---------------- |
-| `requesterEmail` | Lowercased and trimmed on write |
-| `category` | Constrained to the `TicketCategory` enum (already lowercase) |
-| `assignee` | Stored as typed. The filter sends an **exact stored value**, sourced from `GET /api/v1/tickets/facets`, so casing always matches |
+| `project` | A slug, lowercased and trimmed by `projectSchema` on write *and* on the filter input |
+| `createdBy` / `claimedBy` / every actor column | Lowercased by `actorSchema` when the `X-Actor` header is parsed; the `createdBy` / `claimedBy` filters lowercase their input the same way |
+| `assignee` | Stored as typed. The filter sends an **exact stored value**, sourced from `GET /api/v1/tasks/facets`, so casing always matches |
+
+(This replaced an earlier IT-helpdesk-era design where `category` was a fixed enum and `requesterEmail` was the lowercase exact-match field; both are gone from the schema. `project` and the actor columns took over the same role.)
 
 Do not "fix" this by adding `mode: "insensitive"` or by lowercasing at query time — the former does not compile, the latter defeats the index.
+
+## Concurrent writes
+
+**Every interactive write transaction goes through `writeTransaction()` in `apps/api/src/lib/prisma.ts`, which queues them in process, one at a time.** Nothing in `services/` calls `prisma.$transaction(async …)` for a write directly.
+
+Why: Prisma opens interactive transactions on SQLite as deferred (`BEGIN`). Each takes a shared lock on its first read and tries to upgrade on its first write. Two that have both read cannot both upgrade — SQLite refuses one, the other waits on it, and the pair ends as a `Socket timeout` 500 after the busy timeout. Measured, not assumed: 15 concurrent `POST /tasks` produced 9 such failures, and concurrent `GET /tasks` failed alongside them. Agents polling and writing in parallel make this the normal load, not an edge case.
+
+The queue costs nothing SQLite was not already charging — it serializes writers regardless — and turns the deadlock into a short wait. A rejected transaction does not wedge the queue. It is correct because the API is **one process per database file**, which is how it is built and deployed; a second process writing the same file would need `BEGIN IMMEDIATE`, which Prisma does not expose.
+
+Around it:
+
+- **`POST /tasks/next`** runs its conditional `UPDATE` (the claim) and the claim's events in one `writeTransaction`, so it cannot interleave with a queued transaction's read-then-write and a committed claim never lacks its events. The candidate read happens outside the lock; the conditional `UPDATE` re-checks the version *and* the lease, and `next` re-reads its candidates if every one was lost to a concurrent write, rather than answering "nothing to do" over a queue that still has work in it.
+- **Reads take no lock.** `listTasks` uses the batch `$transaction([findMany, count])` form, which runs as one statement sequence on one snapshot; its `LIKE` prefilter runs before it.
+- **WAL.** `enableWal()` (`PRAGMA journal_mode = WAL`) runs in `server.ts` before `listen`, so readers proceed while a write is in flight instead of queuing behind it. The mode is persisted in the file, so re-running it on every boot is a no-op. The `-wal` / `-shm` siblings are gitignored and live on the same volume as the database.
+
+`apps/api/src/lib/prisma.test.ts` pins the queue (ordering, survival after a rejection); `apps/api/src/routes/concurrency.route.test.ts` fires bursts of creates, list reads, `next` calls, comments, and patches at once and asserts every one succeeds.
 
 ## Indexes
 
@@ -93,39 +133,42 @@ Do not "fix" this by adding `mode: "insensitive"` or by lowercasing at query tim
 | `createdAt` | Default sort (`createdAt:desc`) |
 | `statusRank` | Status filter + status sort |
 | `priorityRank` | Priority filter + priority sort |
-| `(statusRank, createdAt)` | The common view: open tickets, newest first |
-| `requesterEmail` | Requester filter |
-| `category`, `assignee` | Their filters, and the `facets` `GROUP BY` (covering — see below) |
+| `(statusRank, createdAt)` | The common view: tasks in a given status, newest first |
+| `(status, priorityRank, createdAt)` | `POST /tasks/next`'s candidate query — live `todo` work at the top priority, oldest first |
+| `project`, `assignee`, `createdBy` | Their filters, and the `facets` `GROUP BY` (covering — see below) |
+| `parentId` | Subtask lookups (`parentId` filter, ancestor-cycle check) |
 | `id` (implicit PK) | Reference lookup, and the stable sort tiebreaker |
-| `(ticketId, id)` on Comment | Loading a thread in insertion order |
+| `(taskId, id)` on Comment | Loading a thread in insertion order |
+| `(taskId, id)` on TaskEvent | The `after=<id>` cursor feed |
+| `(taskId, status)` on Decision | Finding the open decision for a task |
 
 `title` / `description` are unindexed — SQLite cannot use a B-tree for a leading-wildcard `LIKE` anyway.
 
-**`status` and `priority` are unindexed, deliberately.** The list query filters on `statusRank` / `priorityRank` **and** on the text column: the rank term is what an index can serve, the text term is what keeps the answer correct if a rank ever drifts from the string it describes. SQLite uses the index for the rank term and applies the text term as a residual predicate, so the correctness term is free. See [../features/Ticket_Query_Filter_Sort_Page.md](../features/Ticket_Query_Filter_Sort_Page.md#filtering).
+**`status` and `priority` are unindexed, deliberately.** The list query filters on `statusRank` / `priorityRank` **and** on the text column: the rank term is what an index can serve, the text term is what keeps the answer correct if a rank ever drifts from the string it describes. SQLite uses the index for the rank term and applies the text term as a residual predicate, so the correctness term is free. See [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md#filtering).
 
 Three plans measured in stage 7 against the real SQL Prisma emits (63 rows, no `ANALYZE`), because the shape of the emitted query is not what reading the Prisma call suggests:
 
 | Query | Plan |
 | ----- | ---- |
-| `status` filter + `createdAt:desc` | `SEARCH Ticket USING INDEX Ticket_statusRank_createdAt_idx (statusRank=?)` — a **search, not covering**: `include: { _count }` projects every column, so each matched index entry still costs a table row lookup. The `count` half of the pair *is* covering |
-| `priority:desc` | `SCAN Ticket USING INDEX Ticket_priorityRank_idx`, and **no temp B-tree** — the index is physically `(priorityRank, rowid)`, so a backwards walk already satisfies `priorityRank DESC, id DESC` |
-| `q` search, plain term | One statement: `SCAN Ticket USING INDEX Ticket_createdAt_idx`, evaluating both `LIKE`s per row. The scan is expected — a leading-wildcard `LIKE` has no index to use — but the ordering still comes from the index |
-| `q` search, term with `%` / `_` / `!` | Two statements. The raw `LIKE … ESCAPE` prefilter is `SCAN Ticket`. The page it feeds is `SEARCH Ticket USING INTEGER PRIMARY KEY (rowid=?)` **plus `USE TEMP B-TREE FOR ORDER BY`** — an `id IN (…)` list gives up the `createdAt` index for ordering. Which is why only a term that needs escaping takes this path |
+| `status` filter + `createdAt:desc` | `SEARCH Task USING INDEX Task_statusRank_createdAt_idx (statusRank=?)` — a **search, not covering**: `include: { _count }` projects every column, so each matched index entry still costs a table row lookup. The `count` half of the pair *is* covering |
+| `priority:desc` | `SCAN Task USING INDEX Task_priorityRank_idx`, and **no temp B-tree** — the index is physically `(priorityRank, rowid)`, so a backwards walk already satisfies `priorityRank DESC, id DESC` |
+| `q` search, plain term | One statement: `SCAN Task USING INDEX Task_createdAt_idx`, evaluating both `LIKE`s per row. The scan is expected — a leading-wildcard `LIKE` has no index to use — but the ordering still comes from the index |
+| `q` search, term with `%` / `_` / `!` | Two statements. The raw `LIKE … ESCAPE` prefilter is `SCAN Task`. The page it feeds is `SEARCH Task USING INTEGER PRIMARY KEY (rowid=?)` **plus `USE TEMP B-TREE FOR ORDER BY`** — an `id IN (…)` list gives up the `createdAt` index for ordering. Which is why only a term that needs escaping takes this path |
 
-The list query's `commentCount` is the one cost that is not visible in the Prisma call: `_count` compiles to a `LEFT JOIN` on a **materialized** `SELECT ticketId, COUNT(*) … GROUP BY ticketId` over the whole `Comment` table, plus a runtime `AUTOMATIC COVERING INDEX` on it. It is `O(all comments)` per list page rather than `O(pageSize)`. Irrelevant at seed scale; the lever, if it ever matters, is a second `groupBy` scoped to the 20 ids on the page rather than a schema change.
+The list query's `commentCount` is the one cost that is not visible in the Prisma call: `_count` compiles to a `LEFT JOIN` on a **materialized** `SELECT taskId, COUNT(*) … GROUP BY taskId` over the whole `Comment` table, plus a runtime `AUTOMATIC COVERING INDEX` on it. It is `O(all comments)` per list page rather than `O(pageSize)`. Irrelevant at seed scale; the lever, if it ever matters, is a second `groupBy` scoped to the 20 ids on the page rather than a schema change.
 
-**Facets use `groupBy`, not `findMany` + `distinct`.** Prisma applies `distinct` **in the client**: it emits `SELECT id, assignee FROM Ticket WHERE assignee IS NOT NULL ORDER BY assignee` and dedupes in memory, so the endpoint would read one row per assigned ticket and could never be index-only (the `id` in the projection rules it out). `groupBy` emits a real `GROUP BY`, which plans as `SEARCH Ticket USING COVERING INDEX Ticket_assignee_idx`. Verified with `EXPLAIN QUERY PLAN` in stage 6.
+**Facets use `groupBy`, not `findMany` + `distinct`.** Prisma applies `distinct` **in the client**: it emits `SELECT id, assignee FROM Task WHERE assignee IS NOT NULL ORDER BY assignee` and dedupes in memory, so the endpoint would read one row per assigned task and could never be index-only (the `id` in the projection rules it out). `groupBy` emits a real `GROUP BY`, which plans as `SEARCH Task USING COVERING INDEX Task_assignee_idx`. Verified with `EXPLAIN QUERY PLAN` in stage 6.
 
 ## Derived columns
 
 `statusRank` and `priorityRank` exist only so SQLite can sort by lifecycle and severity instead of alphabetically. They are **derived state in the database**, which is a smell worth naming: the mitigation is that exactly one helper writes them.
 
 ```ts
-// apps/api/src/services/ticket-status.ts
-export function applyTicketRanks<T extends { status?: string; priority?: string }>(data: T) { … }
+// apps/api/src/services/task-status.ts
+export function applyTaskRanks<T extends { status?: string; priority?: string }>(data: T) { … }
 ```
 
-Every create and update path calls it, including the seed. A `prisma.ticket.update({ data: { status } })` written anywhere else silently corrupts sort order — the row still shows the right badge, so nobody notices until someone sorts. If you add a write path, add a test that sorts after it.
+Every create and update path calls it, including the seed. A `prisma.task.update({ data: { status } })` written anywhere else silently corrupts sort order — the row still shows the right badge, so nobody notices until someone sorts. If you add a write path, add a test that sorts after it.
 
 ## Migrations
 
@@ -133,7 +176,7 @@ Every create and update path calls it, including the seed. A `prisma.ticket.upda
 pnpm --filter @helpdesk/api db:migrate --name descriptive_snake_case   # create + apply
 pnpm --filter @helpdesk/api db:deploy                                  # apply only (Docker, CI)
 pnpm --filter @helpdesk/api db:studio                                  # browse
-pnpm --filter @helpdesk/api db:seed                                    # wipe and re-seed 63 tickets
+pnpm --filter @helpdesk/api db:seed                                    # wipe and re-seed 62 tasks
 pnpm --filter @helpdesk/api db:reset                                   # drop, migrate, seed (destructive)
 ```
 
@@ -153,7 +196,7 @@ Tests never touch it: each worker gets its own temp file, and E2E gets a third, 
 
 ## Related
 
-- [../features/Tickets.md](../features/Tickets.md) — field semantics
-- [../features/Ticket_Numbering.md](../features/Ticket_Numbering.md) — why the id is the number
+- [../features/Tasks.md](../features/Tasks.md) — field semantics
+- [../features/Task_Numbering.md](../features/Task_Numbering.md) — why the id is the number
 - [../features/Seed_Data.md](../features/Seed_Data.md)
 - [ARCHITECTURE.md](./ARCHITECTURE.md)

@@ -42,6 +42,10 @@ The `engines` range used to read `>=20.11.0`, which was already fiction — no i
 
 **No build cache is restored.** `actions/setup-node`'s `cache: pnpm` caches the pnpm *store* — downloaded tarballs — and nothing else. `node_modules`, `.turbo`, and `node_modules/.cache/tsc` are always built fresh. P44 is why: a restored `dist` that disagrees with a surviving `tsbuildinfo` makes `tsc` exit 0 and emit nothing, so a build cache can carry a broken tree to green. **Do not add an `actions/cache` step for `.turbo` without reading P44 first.** Turborepo remote caching is off for the same reason plus P3.
 
+## `apps/mcp` is covered without a dedicated step
+
+`pnpm build`, `pnpm typecheck`, and `pnpm test` all run through `turbo run <task>`, and Turborepo runs a task for every workspace that defines it. `apps/mcp` has `build`, `typecheck`, and `test` scripts (`apps/mcp/package.json`), so it is built and tested by the same three steps every other workspace is, with no `apps/mcp`-specific line in the workflow. **The one gap:** "Assert build output" checks `packages/contracts/dist/index.js`, `apps/api/dist/server.js`, `apps/api/dist/seed/index.js`, and `apps/web/dist/index.html`, but not `apps/mcp/dist/index.js` — a silently-empty MCP build would still pass CI. Worth adding the same `test -s` line if `apps/mcp`'s build ever needs the same guarantee as the others.
+
 ## What CI does not do
 
 - **No Docker build.** The compose stack is not exercised here; its gate is a human running `docker compose up --build` on a clean volume (D22). A `docker build` step would prove the images build, not that the app comes up seeded and survives a `down`, which is the part that has never been verified.

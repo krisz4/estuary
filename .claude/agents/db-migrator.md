@@ -10,7 +10,7 @@ You own `apps/api/prisma/` — schema, migrations, and seed. Nothing else in the
 ## Read first
 
 - `docs/engineering/DATABASE.md` — schema, indexes, SQLite caveats
-- `docs/features/Tickets.md`, `docs/features/Comments.md` — field semantics
+- `docs/features/Tasks.md`, `docs/features/Comments.md` — field semantics
 - `docs/features/Seed_Data.md` — what the seed must produce
 
 ## Non-negotiables
@@ -25,7 +25,7 @@ You own `apps/api/prisma/` — schema, migrations, and seed. Nothing else in the
 4. **SQLite has no enums.** New constrained fields are `String` plus a zod enum in `packages/contracts`. Say so in your report — someone has to add the zod side.
 5. **`autoincrement()` only works on the `@id` field** on SQLite. A second autoincrementing column fails schema validation, not runtime. If you need one, you need a different design — say so rather than working around it.
 6. **`equals` is case-sensitive and `mode: "insensitive"` does not exist here.** A new exact-match filter field must store a canonical value (enum, or normalized on write), or the filter will silently miss rows.
-7. **Ordering by a non-alphabetical scale needs a rank column** (`statusRank`, `priorityRank`) plus a note that `applyTicketRanks()` must handle it. Adding a scale without the rank column silently breaks sorting.
+7. **Ordering by a non-alphabetical scale needs a rank column** (`statusRank`, `priorityRank`) plus a note that `applyTaskRanks()` must handle it. Adding a scale without the rank column silently breaks sorting.
 8. **Index anything new that gets filtered or sorted**, and add the row to the index table in `DATABASE.md`.
 9. **Cascade rules are declared in the schema**, not enforced in application code.
 

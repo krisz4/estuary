@@ -1,19 +1,17 @@
 ---
 type: Page
-title: Edit ticket
-description: Edit an existing ticket at /tickets/:ticketId/edit, sending only changed fields.
-resource: apps/web/src/pages/ticket-edit/
-tags: [tickets, form, update]
+title: Edit task
+description: Edit an existing task at /tasks/:taskId/edit, sending only changed fields, with version-conflict handling.
+resource: apps/web/src/pages/task-edit/
+tags: [tasks, form, update, version-conflict]
 status: canonical
 ---
-# Page Review: Edit Ticket
-
-Task 4.5 of the brief.
+# Page Review: Edit Task
 
 ## Route
 
-- Path: `/tickets/:ticketId/edit`
-- File: `src/pages/ticket-edit/TicketEditPage.tsx`
+- Path: `/tasks/:taskId/edit`
+- File: `src/pages/task-edit/TaskEditPage.tsx`
 - Type: Client component
 
 ## Dependencies
@@ -22,9 +20,9 @@ Task 4.5 of the brief.
 
 | Component | Role |
 | --------- | ---- |
-| `TicketForm` | **Same component as [Ticket_Create.md](./Ticket_Create.md)**, with `mode="edit"` — swaps the resolver to `updateTicketInputSchema`, adds the status field, and changes the submit label to "Save changes". Those three are the only differences |
-| `PageHeader` | Back link + "Edit HD-000042" |
-| `DetailField` | The read-only metadata `<dl>` below the form |
+| `TaskForm` | **Same component as [Task_Create.md](./Task_Create.md)**, with `mode="edit"` — swaps the resolver to `updateTaskInputSchema`, drops the "starting status" field (status is never edited here), and changes the submit label to "Save changes" |
+| `PageHeader` | Back link + "Edit TASK-000042" |
+| `DetailField` | The read-only metadata `<dl>` below the form: Status (`StatusBadge`), Created by (`ActorBadge`), Created, Completed |
 | `ConfirmDialog` | Discard confirmation |
 | `FormSkeleton`, `ErrorPanel`, `NotFoundState` | Async states |
 
@@ -32,52 +30,53 @@ Task 4.5 of the brief.
 
 | Call | Method | Endpoint |
 | ---- | ------ | -------- |
-| `getTicket(ticketId)` | `GET` | `/api/v1/tickets/:ticketId` — prefills the form |
-| `updateTicket(ticketId, patch)` | `PATCH` | `/api/v1/tickets/:ticketId` |
+| `getTask(taskId)` | `GET` | `/api/v1/tasks/:taskId` — prefills the form |
+| `updateTask(taskId, patch)` | `PATCH` | `/api/v1/tasks/:taskId` |
+| `getTaskFacets()` | `GET` | `/api/v1/tasks/facets` — project suggestions |
 
-Resolver: `zodResolver(updateTicketInput)` from `packages/contracts`.
+Resolver: `zodResolver(updateTaskInputSchema)`.
 
 ## Fields
 
-Same set as create, **plus Status**, which is editable here and on the detail page. `requesterName` / `requesterEmail` remain editable — a typo'd requester email is a real correction people need.
+Same set as create (title, description, priority, project, assignee, acceptance criteria, links, parent task) — **minus status**. Status changes happen only through the detail page's `StatusSelect` / `TransitionDialog`, because a status change carries its own required payload and side effects; the edit form's `PATCH` never accepts `status` at all (the server rejects it with a `VALIDATION_ERROR` pointing at the transition endpoint).
 
-Not editable: `id`, `createdAt`, `resolvedAt`, `closedAt`. They render as read-only metadata below the form; the schemas are `.strict()`, so the API rejects them if sent.
+Not editable here: `id`, `createdAt`, `createdBy`, `version`, `completedAt`, `startedAt`, `claimedBy` — they render as read-only metadata below the form, and the schema is `.strict()` so the API rejects them if sent.
 
-**Clearing an optional field sends `null`, not `""`.** Emptying the assignee input must produce `{ "assignee": null }`. The contract schema transforms `""` → `null` as a backstop, but the form should not rely on it: a ticket stored with an empty-string assignee matches neither the "Unassigned only" filter nor any name, so it vanishes from every assignee view. Same for category.
+**Clearing an optional field sends `null`, not `""`.** Same rule as create.
 
 ## Behavior / UI flow
 
-1. Load the ticket, then `reset()` the form with its values. The form does not render before data arrives — a form that repopulates after mount fights anything already typed.
-2. **Only changed fields are sent.** `diffTicketPatch()` compares the schema's *output* against **the ticket the form was initialised from** — a snapshot taken once at mount (`TicketEditForm`'s `baselineRef`), never the live query data. react-hook-form reads `defaultValues` once, so a refetch landing after mount would otherwise make the diff see a field the user never touched as changed and PATCH the stale value over someone else's edit. That is the exact loss the diff exists to prevent, so the two sides of the comparison must come from the same moment. It PATCHes the subset. Both sides are then in the server's canonical shape (`null` for a cleared optional, a trimmed title, a lowercased email), so a trailing space the user typed is correctly *not* a change. Sending the whole object would clobber a concurrent change to a field the user never touched.
-3. If nothing changed, submit short-circuits to a "No changes to save" info toast and does not call the API (the server would answer `AT_LEAST_ONE_FIELD` anyway).
-4. Status changes go through the same lifecycle guard as the detail page — see [../features/Ticket_Status_Lifecycle.md](../features/Ticket_Status_Lifecycle.md). An illegal transition surfaces inline on the status field with the allowed targets, built from the server's `details.allowed` by `lib/statusTransition.ts`. Neither screen keeps a local copy of the transition table: the guard is deliberately permissive and has been loosened before, and a client-side copy would forbid something the server allows with nothing failing anywhere.
-5. **Success** — invalidate `queryKeys.tickets.detail(id)` and `queryKeys.tickets.all`, toast "Changes saved", navigate back to `/tickets/:id` with `replace: true`.
-6. **Cancel / dirty guard** — identical to create: untouched cancels immediately, dirty confirms discard.
+1. Load the task, then mount `TaskForm` with `defaultValues` from it (`toFormValues(task)`). The form does not render before data arrives.
+2. **Only changed fields are sent.** `diffTaskPatch()` compares the schema's output against **the task the form was initialised from** — a snapshot taken once at mount (`TaskEditForm`'s `baselineRef`), never the live query data, since react-hook-form reads `defaultValues` only once. Both sides of the diff are in the server's canonical shape (`null` for a cleared optional, a trimmed title, a lowercased project), so a trailing space the user typed is correctly *not* a change.
+3. If nothing changed, submit short-circuits to a "No changes to save" info toast and does not call the API (the server would answer `AT_LEAST_ONE_FIELD` otherwise).
+4. **Version conflict.** The save sends `expectedVersion` — the version the form was loaded at. If an agent (or anyone else) wrote the task in between, the server answers `VERSION_CONFLICT` (409); the page shows an alert banner above the form ("This task changed while you were editing… Reload to see their changes") with a **Reload task** button. Reloading re-fetches, bumps a `formGeneration` key so `TaskForm` remounts from the fresh copy, and — the one action on this page that replaces typed values — the notice says so before it happens. Nothing else on this page auto-merges a concurrent change.
+5. **Success** — invalidate `queryKeys.tasks.detail(id)`, `queryKeys.tasks.all`, and the events feed, toast "Changes saved", navigate to `/tasks/:id` with `replace: true`, carrying `location.state` along.
+6. **Cancel / dirty guard** — identical to create, and `replace`s the same way on both cancel and save, so Back from the detail page never re-opens this form.
 
 ## States
 
 | State | Behavior |
 | ----- | -------- |
 | Loading | `FormSkeleton` |
-| `TICKET_NOT_FOUND` | `NotFoundState` + "Back to tickets" (covers a ticket deleted in another tab) |
+| `TASK_NOT_FOUND` | `NotFoundState` + "Back to tasks" (covers a task deleted in another tab) |
 | Load error | `ErrorPanel` + Retry |
 | Field invalid | Inline error, same treatment as create |
 | Saving | Button spinner, fields read-only |
-| `INVALID_STATUS_TRANSITION` (409) | Inline on the status field, listing `details.allowed`; other edits stay in the form |
-| Save error | Destructive toast; values preserved |
+| `VERSION_CONFLICT` (409) | Alert banner above the form with a "Reload task" action; every typed value stays until Reload is clicked |
+| Save error (other) | Destructive toast; values preserved |
 
 ## Responsive
 
-Identical to [Ticket_Create.md](./Ticket_Create.md) — same component, same breakpoints, same sticky action bar below `md`.
+Identical to [Task_Create.md](./Task_Create.md) — same component, same breakpoints, same sticky action bar below `md`. The read-only metadata `<dl>` is `grid-cols-2` below `sm`, `grid-cols-4` from it.
 
 ## Accessibility
 
-Inherited from `TicketForm`: labelled fields, `aria-invalid` + `aria-describedby`, assertive error summary on submit failure, native `<form>` submit.
+Inherited from `TaskForm`: labelled fields, `aria-invalid` + `aria-describedby`, assertive error summary on submit failure, native `<form>` submit. The version-conflict notice is `role="alert"`, since it arrives in response to the user's own save and changes what they should do next.
 
 The read-only metadata block is a `<dl>`, not disabled inputs — disabled inputs are skipped by screen readers and look like something you failed to enable.
 
 ## Related
 
-- [../features/Tickets.md](../features/Tickets.md) — update rules, immutable fields
-- [../features/Ticket_Status_Lifecycle.md](../features/Ticket_Status_Lifecycle.md)
-- [Ticket_Detail.md](./Ticket_Detail.md), [Ticket_Create.md](./Ticket_Create.md)
+- [../features/Tasks.md](../features/Tasks.md) — update rules, immutable fields, optimistic concurrency
+- [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) — where status actually changes
+- [Task_Detail.md](./Task_Detail.md), [Task_Create.md](./Task_Create.md)

@@ -17,7 +17,7 @@ let shouldThrow = true;
 
 const Boom = () => {
   if (shouldThrow) throw new Error("render crash");
-  return <p>Ticket list</p>;
+  return <p>Task list</p>;
 };
 
 /** Mirrors AppLayout: the boundary is keyed on the current pathname. */
@@ -30,12 +30,12 @@ const RoutedHarness = () => {
   );
 };
 
-const renderAt = (path = "/tickets") =>
+const renderAt = (path = "/tasks") =>
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/tickets" element={<RoutedHarness />} />
-        <Route path="/tickets/:ticketId" element={<RoutedHarness />} />
+        <Route path="/tasks" element={<RoutedHarness />} />
+        <Route path="/tasks/:taskId" element={<RoutedHarness />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -55,7 +55,7 @@ describe("ErrorBoundary", () => {
   it("renders children when nothing throws", () => {
     shouldThrow = false;
     renderAt();
-    expect(screen.getByText("Ticket list")).toBeInTheDocument();
+    expect(screen.getByText("Task list")).toBeInTheDocument();
   });
 
   it("shows the fallback when a child throws", () => {
@@ -63,19 +63,19 @@ describe("ErrorBoundary", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("This page stopped working");
   });
 
-  it('clears the error when "Back to tickets" is a SAME-PATH navigation', async () => {
+  it('clears the error when "Back to tasks" is a SAME-PATH navigation', async () => {
     // The bug this exists for: `resetKey` is the pathname, so navigating
-    // /tickets → /tickets never changes it and the boundary stayed stuck. That
+    // /tasks → /tasks never changes it and the boundary stayed stuck. That
     // is the list page — exactly where a crash is most likely — so the most
     // prominent escape hatch was the one that did nothing.
-    renderAt("/tickets");
+    renderAt("/tasks");
     expect(screen.getByRole("alert")).toBeInTheDocument();
 
     shouldThrow = false;
-    await userEvent.click(screen.getByRole("link", { name: "Back to tickets" }));
+    await userEvent.click(screen.getByRole("link", { name: "Back to tasks" }));
 
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("Ticket list")).toBeInTheDocument();
+    expect(screen.getByText("Task list")).toBeInTheDocument();
   });
 
   it('clears the error via "Try again"', async () => {
@@ -85,18 +85,18 @@ describe("ErrorBoundary", () => {
     shouldThrow = false;
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    expect(screen.getByText("Ticket list")).toBeInTheDocument();
+    expect(screen.getByText("Task list")).toBeInTheDocument();
   });
 
   it("clears the error when the route actually changes", () => {
     // The other half of the reset rule: a genuine navigation must clear it
     // without the user pressing anything.
-    const { unmount } = renderAt("/tickets");
+    const { unmount } = renderAt("/tasks");
     expect(screen.getByRole("alert")).toBeInTheDocument();
     unmount();
 
     shouldThrow = false;
-    renderAt("/tickets/42");
-    expect(screen.getByText("Ticket list")).toBeInTheDocument();
+    renderAt("/tasks/42");
+    expect(screen.getByText("Task list")).toBeInTheDocument();
   });
 });

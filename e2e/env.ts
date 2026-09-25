@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
  *
  * Because `pnpm dev` uses those, and `reuseExistingServer` would then hand the
  * suite a developer's dev servers — pointed at `apps/api/prisma/data/helpdesk.db`.
- * Specs 1, 3, and 4 create, comment on, and **delete** tickets. Running
+ * Most specs create, transition, comment on, and **delete** tasks. Running
  * `pnpm test:e2e` with `pnpm dev` open in another terminal is an ordinary thing
  * to do, and on the shared ports it would quietly mutate the developer's local
  * data — the exact failure `docs/engineering/TESTING.md` calls non-negotiable
@@ -24,11 +24,13 @@ import { fileURLToPath } from "node:url";
  *
  * ## Why 127.0.0.1 everywhere and not `localhost`
  *
- * `localhost` resolves to both `::1` and `127.0.0.1`, and Vite's dev server
- * binds only the IPv4 address. A base URL spelled `localhost` therefore depends
- * on the resolver's preference order, which differs between macOS, Linux, and CI
- * images — and fails as a bare `ECONNREFUSED` naming nothing. One spelling,
- * used by the config, the specs, and `ALLOWED_ORIGINS` alike.
+ * `localhost` resolves to both `::1` and `127.0.0.1`, and which one Vite's
+ * dev server binds when told `localhost` depends on the machine — on some it is
+ * only `::1`. A base URL spelled `localhost` therefore depends on the
+ * resolver's preference order, which differs between macOS, Linux, and CI
+ * images — and fails as a bare `ECONNREFUSED` naming nothing. So Vite is
+ * started with `--host 127.0.0.1` (`WEB_HOST`), and that one spelling is used
+ * by the config, the specs, and `ALLOWED_ORIGINS` alike.
  */
 
 const E2E_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -39,7 +41,9 @@ export const API_PORT = 4010;
 export const WEB_PORT = 5183;
 
 export const API_HOST = "127.0.0.1";
-export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
+/** Passed to Vite as `--host`: left to itself it binds `localhost`, which may be `::1` only. */
+export const WEB_HOST = "127.0.0.1";
+export const WEB_ORIGIN = `http://${WEB_HOST}:${WEB_PORT}`;
 export const API_ORIGIN = `http://${API_HOST}:${API_PORT}`;
 
 /** What the browser is pointed at, and what the specs `page.goto()` against. */

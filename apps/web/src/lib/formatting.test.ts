@@ -1,12 +1,20 @@
-import { TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES } from "@helpdesk/contracts";
+import {
+  COMMENT_KINDS,
+  TASK_PRIORITIES,
+  TASK_STATUS_LANES,
+  TASK_STATUSES,
+} from "@helpdesk/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  actorDisplayName,
+  COMMENT_KIND_LABELS,
   formatAbsolute,
   formatCount,
   formatRelative,
-  TICKET_CATEGORY_LABELS,
-  TICKET_PRIORITY_LABELS,
-  TICKET_STATUS_LABELS,
+  TASK_LANE_LABELS,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_DESCRIPTIONS,
+  TASK_STATUS_LABELS,
   toDateTimeAttribute,
   truncate,
 } from "@/lib/formatting";
@@ -16,14 +24,28 @@ describe("enum labels", () => {
   // Adding a status API-side and forgetting its label fails here rather than
   // rendering `undefined` in a badge.
   it.each([
-    ["status", TICKET_STATUSES, TICKET_STATUS_LABELS],
-    ["priority", TICKET_PRIORITIES, TICKET_PRIORITY_LABELS],
-    ["category", TICKET_CATEGORIES, TICKET_CATEGORY_LABELS],
+    ["status", TASK_STATUSES, TASK_STATUS_LABELS],
+    ["priority", TASK_PRIORITIES, TASK_PRIORITY_LABELS],
+    ["status description", TASK_STATUSES, TASK_STATUS_DESCRIPTIONS],
+    ["comment kind", COMMENT_KINDS, COMMENT_KIND_LABELS],
+    ["lane", Object.keys(TASK_STATUS_LANES), TASK_LANE_LABELS],
   ] as const)("covers every %s value", (_name, values, labels) => {
     expect(Object.keys(labels).sort()).toEqual([...values].sort());
     for (const value of values) {
       expect((labels as Record<string, string>)[value]).toBeTruthy();
     }
+  });
+});
+
+describe("actorDisplayName", () => {
+  it.each([
+    ["agent:claude-code", "claude-code"],
+    ["human:krisz", "krisz"],
+    ["system:taskmanager", "taskmanager"],
+    // The server's default for a request without `X-Actor` reads as words.
+    ["human:anonymous", "Anonymous"],
+  ])("renders %s as %s", (actor, expected) => {
+    expect(actorDisplayName(actor)).toBe(expected);
   });
 });
 
@@ -59,9 +81,9 @@ describe("toDateTimeAttribute", () => {
 
 describe("formatCount", () => {
   it("pluralises", () => {
-    expect(formatCount(1, "ticket")).toBe("1 ticket");
-    expect(formatCount(0, "ticket")).toBe("0 tickets");
-    expect(formatCount(63, "ticket")).toBe("63 tickets");
+    expect(formatCount(1, "task")).toBe("1 task");
+    expect(formatCount(0, "task")).toBe("0 tasks");
+    expect(formatCount(63, "task")).toBe("63 tasks");
   });
 
   it("takes an irregular plural", () => {

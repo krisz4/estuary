@@ -3,20 +3,35 @@ import {
   COMMENT_BODY_MAX,
   createCommentInputSchema,
   type Comment,
+  type CommentKind,
   type CreateCommentInput,
 } from "@helpdesk/contracts";
 import { useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 import { useCreateCommentMutation } from "@/api/comments";
 import { isApiClientError } from "@/api/http";
 import { FormErrorSummary } from "@/components/FormErrorSummary";
-import { Button, Field, Input, Textarea } from "@/components/ui";
+import { Button, Field, Select, Textarea } from "@/components/ui";
+import { ActorBadge } from "@/features/tasks/ActorBadge";
 import { errorCopy } from "@/lib/errorMessages";
+import { commentKindOptions } from "@/lib/formatting";
 import { applyServerValidationErrors } from "@/lib/serverErrors";
+import { openSessionDialog, useSessionActor } from "@/stores/session";
 
 /**
- * Add a comment to a ticket.
+ * Add a comment to a task.
+ *
+ * ## Who the author is
+ *
+ * There is no name field. The author is the actor this browser sends in
+ * `X-Actor` — the name set under "You" in the header (`stores/session.ts`) —
+ * so a comment is attributed exactly the way a status change is, and an agent
+ * reading the thread sees the same `human:…` label in both places. The composer
+ * says who you are posting as and links to the dialog to change it.
+ *
+ * `kind` defaults to `note`; `progress` and `qa_feedback` exist so a human can
+ * write in the same register an agent does when that is what they are doing.
  *
  * ## Clearing
  *
@@ -45,25 +60,28 @@ import { applyServerValidationErrors } from "@/lib/serverErrors";
  * caching is correct — the render prop *is* pure in the compiler's terms; the
  * side effect it is being relied on for is invisible to it.
  *
- * `TicketForm` uses the same `register`-inside-a-render-prop shape and stays
+ * `TaskForm` uses the same `register`-inside-a-render-prop shape and stays
  * compiled, because it never calls `reset()` — nothing there depends on
  * re-registration. **Adding a `reset(values)` to it means adding this directive
  * too**, and the failure is silent: stale text in a field, no error anywhere.
  */
 
-const FIELDS = ["authorName", "body"] as const;
+const FIELDS = ["body", "kind"] as const;
+
+type CommentFormValues = { body: string; kind: CommentKind };
 
 export type CommentComposerProps = {
-  ticketId: number;
+  taskId: number;
   /** Called with the created comment so the thread can move focus to it. */
   onCreated?: (comment: Comment) => void;
 };
 
-export const CommentComposer = ({ ticketId, onCreated }: CommentComposerProps) => {
+export const CommentComposer = ({ taskId, onCreated }: CommentComposerProps) => {
   "use no memo";
 
   const [formErrors, setFormErrors] = useState<string[]>([]);
-  const mutation = useCreateCommentMutation(ticketId);
+  const mutation = useCreateCommentMutation(taskId);
+  const actor = useSessionActor();
 
   const {
     register,
@@ -71,15 +89,23 @@ export const CommentComposer = ({ ticketId, onCreated }: CommentComposerProps) =
     control,
     reset,
     setError,
+    setValue,
     formState: { errors },
-  } = useForm<CreateCommentInput>({
-    resolver: zodResolver(createCommentInputSchema),
+  } = useForm<CommentFormValues, unknown, CreateCommentInput>({
+    // `kind` has a schema default, so its zod *input* type is optional while
+    // the form always holds one — the same input/output mismatch `TaskForm`
+    // casts across.
+    resolver: zodResolver(createCommentInputSchema) as unknown as Resolver<
+      CommentFormValues,
+      unknown,
+      CreateCommentInput
+    >,
     mode: "onTouched",
-    defaultValues: { authorName: "", body: "" },
+    defaultValues: { body: "", kind: "note" },
   });
 
-  // `useWatch` rather than `watch()` — see the note in `TicketForm.tsx`.
-  const body = useWatch({ control, name: "body" });
+  // `useWatch` rather than `watch()` — see the note in `TaskForm.tsx`.
+  const [body, kind] = useWatch({ control, name: ["body", "kind"] });
   const isEmpty = body.trim() === "";
 
   const onSubmit = handleSubmit((values) => {
@@ -87,12 +113,12 @@ export const CommentComposer = ({ ticketId, onCreated }: CommentComposerProps) =
 
     mutation.mutate(values, {
       onSuccess: (comment) => {
-        reset({ authorName: values.authorName, body: "" });
+        reset({ body: "", kind: "note" });
         toast.success("Comment added");
         onCreated?.(comment);
       },
       onError: (error) => {
-        setFormErrors(applyServerValidationErrors<CreateCommentInput>(error, FIELDS, setError));
+        setFormErrors(applyServerValidationErrors<CommentFormValues>(error, FIELDS, setError));
 
         // A 422 is already on screen — on the fields, or in the summary above
         // them. Every other code has nowhere else to appear, so it gets a toast.
@@ -113,16 +139,16 @@ export const CommentComposer = ({ ticketId, onCreated }: CommentComposerProps) =
 
       <FormErrorSummary messages={formErrors} />
 
-      <Field label="Your name" error={errors.authorName?.message} required>
-        {(field) => (
-          <Input
-            {...field}
-            {...register("authorName")}
-            autoComplete="name"
-            placeholder="Marcus Feld"
-          />
-        )}
-      </Field>
+      <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        Posting as <ActorBadge actor={actor} />
+        <button
+          type="button"
+          onClick={openSessionDialog}
+          className="rounded text-primary underline-offset-2 hover:underline"
+        >
+          Change
+        </button>
+      </p>
 
       <Field
         label="Comment"
@@ -133,7 +159,19 @@ export const CommentComposer = ({ ticketId, onCreated }: CommentComposerProps) =
         {(field) => <Textarea {...field} {...register("body")} rows={4} />}
       </Field>
 
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <Field label="Kind" error={errors.kind?.message} className="sm:w-48">
+          {(field) => (
+            <Select<CommentKind>
+              options={commentKindOptions}
+              value={kind}
+              onValueChange={(next) => setValue("kind", next, { shouldValidate: true })}
+              id={field.id}
+              aria-describedby={field["aria-describedby"]}
+              aria-invalid={field["aria-invalid"]}
+            />
+          )}
+        </Field>
         <Button type="submit" disabled={isEmpty} isLoading={mutation.isPending}>
           Add comment
         </Button>

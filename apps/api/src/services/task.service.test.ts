@@ -1,58 +1,67 @@
 import {
-  createTicketInputSchema,
+  createTaskInputSchema,
   hasAtLeastOneField,
-  TICKET_STATUSES,
-  updateTicketInputSchema,
-  type CreateTicketInput,
-  type TicketStatus,
-  type UpdateTicketInput,
+  TASK_STATUSES,
+  taskSchema,
+  updateTaskInputSchema,
+  type CreateTaskInput,
+  type UpdateTaskInput,
 } from "@helpdesk/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
-import { makeComment, makeTicket } from "../test/factories.js";
-import { ALLOWED_TRANSITIONS } from "./ticket-status.js";
 import {
-  createTicket,
-  deleteTicket,
-  getTicket,
-  getTicketFacets,
-  updateTicket,
-} from "./ticket.service.js";
+  claimedBy,
+  eventsFor,
+  expiredClaimBy,
+  makeComment,
+  makeDecision,
+  makeDependency,
+  makeTask,
+} from "../test/factories.js";
+import {
+  createTask,
+  deleteTask,
+  getTask,
+  getTaskFacets,
+  getTaskStats,
+  updateTask,
+} from "./task.service.js";
 
 /**
- * Service tests against a real (temp) SQLite file. Required cases come from
- * `docs/engineering/TESTING.md` § Tickets and § Status lifecycle.
+ * Service tests against a real (temp) SQLite file for task CRUD, facets, and
+ * stats — `docs/features/Task_Workflow_API.md` and `docs/engineering/TESTING.md`
+ * § Tasks. Status changes, claims, `next`, decisions, and dependencies are in
+ * `task-workflow.service.test.ts`.
  *
  * Two conventions worth stating, because they are what make these tests able to
  * fail:
  *
  * 1. **Input is parsed through the contract schemas**, exactly as the route will
- *    do it. `assignee: ""` becoming `null` is a schema transform, and a test that
- *    handed the service a pre-cooked `null` would assert nothing about the path
- *    a client actually takes.
+ *    do it. `assignee: ""` becoming `null` and `project` being lowercased are
+ *    schema transforms, and a test that handed the service a pre-cooked value
+ *    would assert nothing about the path a client actually takes.
  * 2. **Rank columns are asserted by sorting, never by reading the column.**
- *    Reading `priorityRank` back passes even when a second write path bypasses
- *    `applyTicketRanks()` and writes it by hand; only an `orderBy` on the column
- *    proves the ordering the feature promises.
  */
+
+const HUMAN = "human:krisz";
+const AGENT = "agent:claude-code";
+const OTHER_AGENT = "agent:codex";
 
 /* ------------------------------------------------------------------ *
  * Input helpers — the real schemas, not hand-built objects
  * ------------------------------------------------------------------ */
 
-const createInput = (overrides: Record<string, unknown> = {}): CreateTicketInput =>
-  createTicketInputSchema.parse({
-    title: "Laptop will not connect to the VPN",
-    description: "Fails with error 809 since the Tuesday update. Rebooted and reinstalled already.",
-    requesterName: "Dana Whitfield",
-    requesterEmail: "Dana.Whitfield@Example.com",
+const createInput = (overrides: Record<string, unknown> = {}): CreateTaskInput =>
+  createTaskInputSchema.parse({
+    title: "Add retries to the webhook sender",
+    description: "Deliveries fail permanently on the first 502 from the receiver.",
     ...overrides,
   });
 
-const updateInput = (input: Record<string, unknown>): UpdateTicketInput =>
-  updateTicketInputSchema.parse(input);
+const updateInput = (input: Record<string, unknown>): UpdateTaskInput =>
+  updateTaskInputSchema.parse(input);
 
 /** Assert a thrown value is our `ApiError` with the expected code and status. */
 const expectApiError = async (
@@ -68,8 +77,8 @@ const expectApiError = async (
   }
 
   // `toBeInstanceOf(ApiError)` also rules out a raw Prisma error leaking
-  // through — the difference between an explicit existence check and a `P2025`
-  // that happens to be mapped downstream.
+  // through — the difference between an explicit check and a `P2025`/`P2003`
+  // that happens to be mapped (or not) downstream.
   expect(thrown).toBeInstanceOf(ApiError);
   const error = thrown as ApiError;
   expect(error.code).toBe(code);
@@ -77,81 +86,162 @@ const expectApiError = async (
   return error;
 };
 
-/** Priorities in stored order under a `priorityRank` sort. */
-const prioritiesByRank = async (direction: "asc" | "desc") =>
-  (await prisma.ticket.findMany({ orderBy: { priorityRank: direction } })).map((t) => t.priority);
-
-/** Statuses in stored order under a `statusRank` sort. */
-const statusesByRank = async (direction: "asc" | "desc") =>
-  (await prisma.ticket.findMany({ orderBy: { statusRank: direction } })).map((t) => t.status);
+const LONG_AGO = new Date("2026-01-01T00:00:00.000Z");
 
 /* ------------------------------------------------------------------ *
  * Create
  * ------------------------------------------------------------------ */
 
-describe("createTicket", () => {
-  it("returns an integer id, its reference, and the open/medium defaults", async () => {
-    const ticket = await createTicket(createInput());
+describe("createTask", () => {
+  it("returns an integer id, its reference, the backlog/medium defaults, and version 1", async () => {
+    const { task, created } = await createTask(createInput(), HUMAN);
 
-    expect(Number.isInteger(ticket.id)).toBe(true);
-    expect(ticket.id).toBeGreaterThan(0);
-    expect(ticket.reference).toBe(`HD-${String(ticket.id).padStart(6, "0")}`);
-    expect(ticket.status).toBe("open");
-    expect(ticket.priority).toBe("medium");
-    expect(ticket.resolvedAt).toBeNull();
-    expect(ticket.closedAt).toBeNull();
-    expect(ticket.comments).toEqual([]);
-    expect(ticket.commentCount).toBe(0);
+    expect(created).toBe(true);
+    expect(Number.isInteger(task.id)).toBe(true);
+    expect(task.reference).toBe(`TASK-${String(task.id).padStart(6, "0")}`);
+    expect(task.status).toBe("backlog");
+    expect(task.priority).toBe("medium");
+    expect(task.version).toBe(1);
+    expect(task.claim).toBeNull();
+    expect(task.startedAt).toBeNull();
+    expect(taskSchema.safeParse(task).success).toBe(true);
   });
 
-  it("stores the requester email lowercased so exact-match filtering can find it", async () => {
-    const ticket = await createTicket(createInput());
-
-    // SQLite `equals` is case-sensitive and the connector has no
-    // `mode: "insensitive"`, so the canonical value is the only filterable one.
-    expect(ticket.requesterEmail).toBe("dana.whitfield@example.com");
+  it("records the acting actor as createdBy", async () => {
+    const { task } = await createTask(createInput(), AGENT);
+    expect(task.createdBy).toBe(AGENT);
   });
 
-  it("stores an empty assignee and category as null, never as an empty string", async () => {
-    const ticket = await createTicket(createInput({ assignee: "", category: "" }));
+  it.each(["backlog", "needs_refinement", "todo"] as const)(
+    "accepts %s as an initial status",
+    async (status) => {
+      const { task } = await createTask(
+        createInput({ status, acceptanceCriteria: "Retries three times with backoff" }),
+        HUMAN,
+      );
+      expect(task.status).toBe(status);
+    },
+  );
 
-    expect(ticket.assignee).toBeNull();
-    expect(ticket.category).toBeNull();
+  it.each(TASK_STATUSES.filter((s) => !["backlog", "needs_refinement", "todo"].includes(s)))(
+    "rejects %s as an initial status at the contract boundary",
+    (status) => {
+      const result = createTaskInputSchema.safeParse({ ...createInput(), status });
+      expect(result.success).toBe(false);
+    },
+  );
 
-    // Read the row, not the response: an empty string here would make the ticket
-    // match neither `assigneeIsNull=true` nor any name filter.
-    const row = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
-    expect(row.assignee).toBeNull();
-    expect(row.category).toBeNull();
+  it("requires acceptance criteria to create straight into todo", () => {
+    const result = createTaskInputSchema.safeParse({
+      title: "Add retries to the webhook sender",
+      description: "Deliveries fail permanently on the first 502.",
+      status: "todo",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => issue.path.join("."))).toEqual([
+      "acceptanceCriteria",
+    ]);
   });
 
-  it("rejects a client-supplied id or createdAt at the contract boundary", async () => {
-    // `.strict()` is what keeps these out of the service's input type at all —
-    // the service has no branch for them because it can never receive them.
-    expect(createTicketInputSchema.safeParse({ ...createInput(), id: 7 }).success).toBe(false);
-    expect(
-      createTicketInputSchema.safeParse({ ...createInput(), createdAt: "2026-01-01T00:00:00.000Z" })
-        .success,
-    ).toBe(false);
+  it("lowercases the project so filtering by it is exact", async () => {
+    const { task } = await createTask(createInput({ project: "  HelpDesk " }), HUMAN);
+    expect(task.project).toBe("helpdesk");
   });
 
-  it("sorts by severity rather than alphabetically after creating through the service", async () => {
-    await createTicket(createInput({ priority: "high" }));
-    await createTicket(createInput({ priority: "low" }));
-    await createTicket(createInput({ priority: "urgent" }));
-    await createTicket(createInput({ priority: "medium" }));
+  it("stores an empty assignee, project, and acceptance criteria as null", async () => {
+    const { task } = await createTask(
+      createInput({ assignee: "", project: "   ", acceptanceCriteria: "" }),
+      HUMAN,
+    );
 
-    // Asserted by sorting: reading priorityRank back would pass even if some
-    // other write path had set it by hand.
-    expect(await prioritiesByRank("desc")).toEqual(["urgent", "high", "medium", "low"]);
+    expect(task.assignee).toBeNull();
+    expect(task.project).toBeNull();
+    expect(task.acceptanceCriteria).toBeNull();
   });
 
-  it("writes a status rank that sorts a new ticket ahead of resolved work", async () => {
-    await makeTicket({ status: "closed" });
-    await makeTicket({ status: "resolved" });
-    await createTicket(createInput());
+  it("writes a task.created event with the status and title", async () => {
+    const { task } = await createTask(createInput({ status: "needs_refinement" }), AGENT);
 
-    expect(await statusesByRank("asc")).toEqual(["open", "resolved", "closed"]);
+    expect(await eventsFor(task.id)).toEqual([
+      {
+        type: "task.created",
+        actor: AGENT,
+        payload: { status: "needs_refinement", title: "Add retries to the webhook sender" },
+      },
+    ]);
+  });
+
+  describe("idempotencyKey", () => {
+    it("returns the original task, unchanged, for a repeated key — even with a different body", async () => {
+      const first = await createTask(
+        createInput({ idempotencyKey: "cc:repo:webhook-retries" }),
+        AGENT,
+      );
+
+      const replay = await createTask(
+        createInput({
+          idempotencyKey: "cc:repo:webhook-retries",
+          title: "A completely different title",
+          priority: "urgent",
+        }),
+        OTHER_AGENT,
+      );
+
+      expect(replay.created).toBe(false);
+      expect(replay.task.id).toBe(first.task.id);
+      expect(replay.task.title).toBe("Add retries to the webhook sender");
+      expect(replay.task.priority).toBe("medium");
+      expect(replay.task.createdBy).toBe(AGENT);
+      expect(await prisma.task.count()).toBe(1);
+      // A replay records nothing: nothing happened.
+      expect((await eventsFor(first.task.id)).map((e) => e.type)).toEqual(["task.created"]);
+    });
+
+    it("creates two tasks for two different keys", async () => {
+      await createTask(createInput({ idempotencyKey: "key-a" }), AGENT);
+      await createTask(createInput({ idempotencyKey: "key-b" }), AGENT);
+
+      expect(await prisma.task.count()).toBe(2);
+    });
+
+    it("files exactly one task when the same key races itself", async () => {
+      // Both calls can miss the pre-read; the unique index decides, and the
+      // loser's P2002 must come back as a replay rather than a 500.
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          createTask(createInput({ idempotencyKey: "racing-key" }), AGENT),
+        ),
+      );
+
+      expect(new Set(results.map((result) => result.task.id)).size).toBe(1);
+      expect(results.filter((result) => result.created)).toHaveLength(1);
+      expect(await prisma.task.count()).toBe(1);
+    });
+  });
+
+  describe("parentId", () => {
+    it("links a subtask to an existing parent", async () => {
+      const parent = await makeTask();
+
+      const { task } = await createTask(createInput({ parentId: parent.id }), HUMAN);
+
+      expect(task.parentId).toBe(parent.id);
+      expect(task.parent).toMatchObject({ id: parent.id, reference: "TASK-000001" });
+      expect((await getTask(parent.id)).children.map((child) => child.id)).toEqual([task.id]);
+    });
+
+    it("rejects a parent that does not exist on the parentId field, writing nothing", async () => {
+      const error = await expectApiError(
+        () => createTask(createInput({ parentId: 999 }), HUMAN),
+        "VALIDATION_ERROR",
+        422,
+      );
+
+      expect(error.details).toEqual({ parentId: ["Task 999 does not exist"] });
+      expect(await prisma.task.count()).toBe(0);
+      expect(await prisma.taskEvent.count()).toBe(0);
+    });
   });
 });
 
@@ -159,290 +249,324 @@ describe("createTicket", () => {
  * Read
  * ------------------------------------------------------------------ */
 
-describe("getTicket", () => {
-  it("returns the ticket with its comments oldest-first", async () => {
-    const ticket = await makeTicket();
-    await makeComment({ ticketId: ticket.id, body: "second", createdAt: new Date(2026, 0, 2) });
-    await makeComment({ ticketId: ticket.id, body: "first", createdAt: new Date(2026, 0, 1) });
+describe("getTask", () => {
+  it("returns the task with its comments oldest-first", async () => {
+    const task = await makeTask();
+    await makeComment({
+      taskId: task.id,
+      body: "first",
+      createdAt: new Date("2026-08-11T09:00:00Z"),
+    });
+    await makeComment({
+      taskId: task.id,
+      body: "second",
+      createdAt: new Date("2026-08-11T10:00:00Z"),
+    });
 
-    const loaded = await getTicket(ticket.id);
+    const loaded = await getTask(task.id);
 
-    expect(loaded.comments.map((c) => c.body)).toEqual(["first", "second"]);
+    expect(loaded.comments.map((comment) => comment.body)).toEqual(["first", "second"]);
     expect(loaded.commentCount).toBe(2);
   });
 
   it("orders comments created in the same millisecond by insertion order", async () => {
-    const ticket = await makeTicket();
-    const sameInstant = new Date("2026-08-11T10:00:00.000Z");
-    await makeComment({ ticketId: ticket.id, body: "a", createdAt: sameInstant });
-    await makeComment({ ticketId: ticket.id, body: "b", createdAt: sameInstant });
-    await makeComment({ ticketId: ticket.id, body: "c", createdAt: sameInstant });
+    const task = await makeTask();
+    const sameMs = new Date("2026-08-11T09:00:00.000Z");
+    for (const body of ["one", "two", "three"]) {
+      await makeComment({ taskId: task.id, body, createdAt: sameMs });
+    }
 
-    const loaded = await getTicket(ticket.id);
-
-    // Without the `id` tiebreaker this order is arbitrary and differs per read.
-    expect(loaded.comments.map((c) => c.body)).toEqual(["a", "b", "c"]);
+    expect((await getTask(task.id)).comments.map((comment) => comment.body)).toEqual([
+      "one",
+      "two",
+      "three",
+    ]);
   });
 
-  it("serializes dates as ISO strings and omits the rank columns", async () => {
-    const ticket = await makeTicket();
-    const loaded = await getTicket(ticket.id);
+  it("loads parent, children, dependencies, and dependents as task refs", async () => {
+    const parent = await makeTask({ title: "Parent epic here" });
+    const task = await makeTask({ parentId: parent.id, status: "blocked" });
+    const child = await makeTask({ parentId: task.id });
+    const blocker = await makeTask({ status: "in_progress" });
+    const waiter = await makeTask({ status: "blocked" });
+    await makeDependency(task.id, blocker.id);
+    await makeDependency(waiter.id, task.id);
 
-    expect(loaded.createdAt).toBe(ticket.createdAt.toISOString());
-    expect(loaded).not.toHaveProperty("statusRank");
-    expect(loaded).not.toHaveProperty("priorityRank");
+    const loaded = await getTask(task.id);
+
+    expect(loaded.parent).toEqual({
+      id: parent.id,
+      reference: "TASK-000001",
+      title: "Parent epic here",
+      status: "backlog",
+    });
+    expect(loaded.children.map((ref) => ref.id)).toEqual([child.id]);
+    expect(loaded.dependencies).toEqual([
+      expect.objectContaining({ id: blocker.id, status: "in_progress" }),
+    ]);
+    expect(loaded.dependents.map((ref) => ref.id)).toEqual([waiter.id]);
+    expect(loaded.openDependencyCount).toBe(1);
   });
 
-  it("throws TICKET_NOT_FOUND for an id that does not exist", async () => {
-    await expectApiError(() => getTicket(999), "TICKET_NOT_FOUND", 404);
+  it("serializes dates as ISO strings and omits storage columns", async () => {
+    const task = await makeTask(claimedBy(AGENT));
+
+    const loaded = await getTask(task.id);
+
+    expect(loaded.createdAt).toBe(task.createdAt.toISOString());
+    expect(loaded.claim).toEqual({ actor: AGENT, expiresAt: task.claimExpiresAt!.toISOString() });
+    for (const column of [
+      "statusRank",
+      "priorityRank",
+      "idempotencyKey",
+      "claimedBy",
+      "claimExpiresAt",
+    ]) {
+      expect(loaded).not.toHaveProperty(column);
+    }
+    expect(taskSchema.safeParse(loaded).success).toBe(true);
+  });
+
+  it("serializes an expired lease as claim: null", async () => {
+    const task = await makeTask(expiredClaimBy(AGENT));
+    expect((await getTask(task.id)).claim).toBeNull();
+  });
+
+  it("throws TASK_NOT_FOUND for an id that does not exist", async () => {
+    await expectApiError(() => getTask(999), "TASK_NOT_FOUND", 404);
   });
 });
 
 /* ------------------------------------------------------------------ *
- * Update — field semantics
+ * Update
  * ------------------------------------------------------------------ */
 
-describe("updateTicket", () => {
-  it("leaves untouched fields alone on a partial update", async () => {
-    const created = await createTicket(
-      createInput({ assignee: "Marcus Feld", category: "access" }),
-    );
+describe("updateTask", () => {
+  it("leaves untouched fields alone on a partial update and bumps the version", async () => {
+    const task = await makeTask({ title: "Original title here", priority: "low", project: "web" });
 
-    const updated = await updateTicket(created.id, updateInput({ title: "VPN still failing" }));
+    const updated = await updateTask(task.id, updateInput({ priority: "urgent" }), HUMAN);
 
-    expect(updated.title).toBe("VPN still failing");
-    expect(updated.description).toBe(created.description);
-    expect(updated.assignee).toBe("Marcus Feld");
-    expect(updated.category).toBe("access");
-    expect(updated.requesterEmail).toBe(created.requesterEmail);
-    expect(updated.status).toBe("open");
+    expect(updated.priority).toBe("urgent");
+    expect(updated.title).toBe("Original title here");
+    expect(updated.project).toBe("web");
+    expect(updated.version).toBe(2);
   });
 
   it("clears the assignee to null when it is patched to an empty string", async () => {
-    const created = await createTicket(createInput({ assignee: "Marcus Feld" }));
+    const task = await makeTask({ assignee: "Marcus Feld" });
 
-    const updated = await updateTicket(created.id, updateInput({ assignee: "" }));
+    const updated = await updateTask(task.id, updateInput({ assignee: "" }), HUMAN);
 
     expect(updated.assignee).toBeNull();
-
-    // The regression this guards: stored as "", the ticket would appear under
-    // neither `assigneeIsNull=true` nor `assignee=<any name>`.
-    const unassigned = await prisma.ticket.findMany({ where: { assignee: null } });
-    expect(unassigned.map((t) => t.id)).toEqual([created.id]);
   });
 
   it("keeps the priority rank in step with the priority it patched", async () => {
-    const a = await createTicket(createInput({ priority: "low" }));
-    await createTicket(createInput({ priority: "high" }));
+    const task = await makeTask({ priority: "low" });
+    await makeTask({ priority: "high" });
 
-    await updateTicket(a.id, updateInput({ priority: "urgent" }));
+    await updateTask(task.id, updateInput({ priority: "urgent" }), HUMAN);
 
-    // By sorting: a bypassed `applyTicketRanks()` leaves the old rank and this
-    // order comes back reversed.
-    expect(await prioritiesByRank("desc")).toEqual(["urgent", "high"]);
+    const ordered = await prisma.task.findMany({ orderBy: { priorityRank: "desc" } });
+    expect(ordered.map((row) => row.id)).toEqual([task.id, 2]);
   });
 
-  it("throws TICKET_NOT_FOUND for an unknown id instead of surfacing a Prisma error", async () => {
-    // Existence is checked before the write; the assertion that the thrown value
-    // is an `ApiError` is what distinguishes that from relying on `P2025`.
-    await expectApiError(
-      () => updateTicket(4242, updateInput({ title: "Does not matter" })),
-      "TICKET_NOT_FOUND",
-      404,
-    );
-  });
+  it("records a task.updated event listing exactly the fields that changed", async () => {
+    const task = await makeTask({ title: "Original title here", priority: "low" });
 
-  it("performs no write for an empty patch body", async () => {
-    // `{}` is valid to the schema on purpose; the route turns it into
-    // AT_LEAST_ONE_FIELD (422), which is its own code with no field details.
-    expect(hasAtLeastOneField(updateInput({}))).toBe(false);
-
-    const past = new Date("2020-01-01T00:00:00.000Z");
-    const ticket = await makeTicket({ updatedAt: past });
-
-    const result = await updateTicket(ticket.id, updateInput({}));
-
-    expect(result.updatedAt).toBe(past.toISOString());
-  });
-});
-
-/* ------------------------------------------------------------------ *
- * Update — status lifecycle
- * ------------------------------------------------------------------ */
-
-describe("status lifecycle", () => {
-  const legalPairs = TICKET_STATUSES.flatMap((from) =>
-    ALLOWED_TRANSITIONS[from].map((to) => [from, to] as const),
-  );
-
-  it.each(legalPairs)("moves a ticket from %s to %s", async (from, to) => {
-    const ticket = await makeTicket({ status: from });
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: to }));
-
-    expect(updated.status).toBe(to);
-  });
-
-  it("rejects closed → resolved with a 409 carrying from, to, and allowed", async () => {
-    const ticket = await makeTicket({ status: "closed" });
-
-    const error = await expectApiError(
-      () => updateTicket(ticket.id, updateInput({ status: "resolved" })),
-      "INVALID_STATUS_TRANSITION",
-      409,
+    await updateTask(
+      task.id,
+      updateInput({ title: "Original title here", priority: "high", project: "api" }),
+      AGENT,
     );
 
-    expect(error.details).toEqual({
-      from: "closed",
-      to: "resolved",
-      allowed: ["open", "in_progress"],
+    expect(await eventsFor(task.id)).toEqual([
+      { type: "task.updated", actor: AGENT, payload: { fields: ["priority", "project"] } },
+    ]);
+  });
+
+  it("performs no write at all when every field equals its stored value", async () => {
+    const task = await makeTask({
+      title: "Original title here",
+      priority: "low",
+      links: [{ label: "PR", url: "https://example.com/pr/1" }],
+      updatedAt: LONG_AGO,
     });
-  });
 
-  it("leaves the row untouched when a transition is rejected", async () => {
-    const past = new Date("2020-01-01T00:00:00.000Z");
-    const ticket = await makeTicket({ status: "closed", updatedAt: past });
+    const result = await updateTask(
+      task.id,
+      updateInput({
+        title: "Original title here",
+        priority: "low",
+        links: [{ label: "PR", url: "https://example.com/pr/1" }],
+      }),
+      HUMAN,
+    );
 
-    await expect(updateTicket(ticket.id, updateInput({ status: "resolved" }))).rejects.toThrow();
-
-    const row = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
-    expect(row.status).toBe("closed");
-    expect(row.updatedAt.toISOString()).toBe(past.toISOString());
-  });
-
-  it("does not write when the status patched is the status it already has", async () => {
-    const past = new Date("2020-01-01T00:00:00.000Z");
-    const ticket = await makeTicket({ status: "in_progress", updatedAt: past });
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: "in_progress" }));
-
-    // `updatedAt` is `@updatedAt`: a write of identical values still moves it and
-    // floats the ticket to the top of an `updatedAt` sort with nothing changed.
-    // Unchanged is the only assertion that distinguishes "no write" from
-    // "wrote the same thing".
-    expect(updated.status).toBe("in_progress");
-    expect(updated.updatedAt).toBe(past.toISOString());
-
-    const row = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
-    expect(row.updatedAt.toISOString()).toBe(past.toISOString());
+    const after = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(result.version).toBe(1);
+    expect(after.version).toBe(1);
+    expect(after.updatedAt.toISOString()).toBe(LONG_AGO.toISOString());
+    expect(await eventsFor(task.id)).toEqual([]);
   });
 
   it("moves updatedAt when a field genuinely changes", async () => {
-    // The control for the test above: without it, a broken `updatedAt` (or a
-    // fixture Prisma ignored) would make the no-op assertion pass vacuously.
-    const past = new Date("2020-01-01T00:00:00.000Z");
-    const ticket = await makeTicket({ status: "in_progress", updatedAt: past });
+    const task = await makeTask({ updatedAt: LONG_AGO });
 
-    const updated = await updateTicket(ticket.id, updateInput({ title: "A different title" }));
+    const updated = await updateTask(task.id, updateInput({ priority: "high" }), HUMAN);
 
-    expect(updated.updatedAt).not.toBe(past.toISOString());
-    expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(past.getTime());
+    expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(LONG_AGO.getTime());
   });
 
-  it("still writes when a patch carries an unchanged status alongside a changed field", async () => {
-    const past = new Date("2020-01-01T00:00:00.000Z");
-    const ticket = await makeTicket({ status: "open", updatedAt: past });
+  it("treats { expectedVersion } alone as carrying no field", () => {
+    expect(hasAtLeastOneField(updateInput({ expectedVersion: 1 }))).toBe(false);
+    expect(hasAtLeastOneField(updateInput({}))).toBe(false);
+    expect(hasAtLeastOneField(updateInput({ priority: "low" }))).toBe(true);
+  });
 
-    const updated = await updateTicket(
-      ticket.id,
-      updateInput({ status: "open", priority: "urgent" }),
+  it("rejects status at the contract boundary — status goes through /transition", () => {
+    expect(updateTaskInputSchema.safeParse({ status: "done" }).success).toBe(false);
+  });
+
+  describe("expectedVersion", () => {
+    it("succeeds when it matches", async () => {
+      const task = await makeTask({ version: 4 });
+
+      const updated = await updateTask(
+        task.id,
+        updateInput({ priority: "high", expectedVersion: 4 }),
+        HUMAN,
+      );
+
+      expect(updated.version).toBe(5);
+    });
+
+    it("throws VERSION_CONFLICT with expected and current when it does not, writing nothing", async () => {
+      const task = await makeTask({ version: 3, priority: "low" });
+
+      const error = await expectApiError(
+        () => updateTask(task.id, updateInput({ priority: "high", expectedVersion: 2 }), HUMAN),
+        "VERSION_CONFLICT",
+        409,
+      );
+
+      expect(error.details).toEqual({ expected: 2, current: 3 });
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).priority).toBe(
+        "low",
+      );
+      expect(await eventsFor(task.id)).toEqual([]);
+    });
+
+    it("is checked even when the body would change nothing", async () => {
+      const task = await makeTask({ version: 3, priority: "low" });
+
+      await expectApiError(
+        () => updateTask(task.id, updateInput({ priority: "low", expectedVersion: 1 }), HUMAN),
+        "VERSION_CONFLICT",
+        409,
+      );
+    });
+  });
+
+  describe("claims", () => {
+    it("refuses an agent other than the holder with TASK_ALREADY_CLAIMED and who holds it", async () => {
+      const task = await makeTask(claimedBy(AGENT));
+
+      const error = await expectApiError(
+        () => updateTask(task.id, updateInput({ priority: "high" }), OTHER_AGENT),
+        "TASK_ALREADY_CLAIMED",
+        409,
+      );
+
+      expect(error.details).toEqual({
+        claimedBy: AGENT,
+        expiresAt: task.claimExpiresAt!.toISOString(),
+      });
+    });
+
+    it("lets a human override a live agent claim", async () => {
+      const task = await makeTask(claimedBy(AGENT));
+
+      const updated = await updateTask(task.id, updateInput({ priority: "high" }), HUMAN);
+
+      expect(updated.priority).toBe("high");
+      // Editing does not take the task away from the agent.
+      expect(updated.claim?.actor).toBe(AGENT);
+    });
+
+    it("lets any agent write once the lease has expired", async () => {
+      const task = await makeTask(expiredClaimBy(AGENT));
+
+      const updated = await updateTask(task.id, updateInput({ priority: "high" }), OTHER_AGENT);
+
+      expect(updated.priority).toBe("high");
+    });
+
+    it("renews the holder's lease on its own write", async () => {
+      const task = await makeTask(claimedBy(AGENT, 1));
+
+      const updated = await updateTask(task.id, updateInput({ priority: "high" }), AGENT);
+
+      expect(new Date(updated.claim!.expiresAt).getTime()).toBeGreaterThan(
+        task.claimExpiresAt!.getTime() + 60_000,
+      );
+    });
+  });
+
+  describe("parentId", () => {
+    it("rejects making a task its own parent", async () => {
+      const task = await makeTask();
+
+      const error = await expectApiError(
+        () => updateTask(task.id, updateInput({ parentId: task.id }), HUMAN),
+        "VALIDATION_ERROR",
+        422,
+      );
+      expect(Object.keys(error.details as object)).toEqual(["parentId"]);
+    });
+
+    it("rejects making a task a child of its own descendant", async () => {
+      const root = await makeTask();
+      const child = await makeTask({ parentId: root.id });
+      const grandchild = await makeTask({ parentId: child.id });
+
+      const error = await expectApiError(
+        () => updateTask(root.id, updateInput({ parentId: grandchild.id }), HUMAN),
+        "VALIDATION_ERROR",
+        422,
+      );
+
+      expect(error.details).toEqual({ parentId: ["That would make the task its own ancestor"] });
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: root.id } })).parentId).toBeNull();
+    });
+
+    it("rejects a parent that does not exist", async () => {
+      const task = await makeTask();
+
+      await expectApiError(
+        () => updateTask(task.id, updateInput({ parentId: 999 }), HUMAN),
+        "VALIDATION_ERROR",
+        422,
+      );
+    });
+
+    it("detaches a subtask with parentId: null", async () => {
+      const parent = await makeTask();
+      const task = await makeTask({ parentId: parent.id });
+
+      const updated = await updateTask(task.id, updateInput({ parentId: null }), HUMAN);
+
+      expect(updated.parentId).toBeNull();
+      expect(updated.parent).toBeNull();
+    });
+  });
+
+  it("throws TASK_NOT_FOUND for an unknown id instead of surfacing a Prisma error", async () => {
+    await expectApiError(
+      () => updateTask(999, updateInput({ priority: "high" }), HUMAN),
+      "TASK_NOT_FOUND",
+      404,
     );
-
-    expect(updated.priority).toBe("urgent");
-    expect(updated.updatedAt).not.toBe(past.toISOString());
-  });
-
-  it("stamps resolvedAt when a ticket is resolved", async () => {
-    const ticket = await makeTicket({ status: "in_progress" });
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: "resolved" }));
-
-    expect(updated.resolvedAt).not.toBeNull();
-    expect(updated.closedAt).toBeNull();
-  });
-
-  it("stamps closedAt and backfills resolvedAt when a ticket is closed from open", async () => {
-    const ticket = await makeTicket({ status: "open" });
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: "closed" }));
-
-    expect(updated.closedAt).not.toBeNull();
-    // "closed implies resolved" stays true for any consumer.
-    expect(updated.resolvedAt).not.toBeNull();
-  });
-
-  it("keeps the original resolvedAt when closing a resolved ticket", async () => {
-    const resolvedAt = new Date("2026-08-01T09:00:00.000Z");
-    const ticket = await makeTicket({ status: "resolved", resolvedAt });
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: "closed" }));
-
-    expect(updated.resolvedAt).toBe(resolvedAt.toISOString());
-    expect(updated.closedAt).not.toBeNull();
-  });
-
-  it("clears resolvedAt when a resolved ticket goes back to in_progress", async () => {
-    // The reopen case that gets missed: `resolved` is not terminal, so a rule
-    // phrased "from a terminal state" would strand this resolvedAt.
-    const ticket = await makeTicket({ status: "resolved" });
-    expect(ticket.resolvedAt).not.toBeNull();
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: "in_progress" }));
-
-    expect(updated.resolvedAt).toBeNull();
-    expect(updated.closedAt).toBeNull();
-  });
-
-  it("clears resolvedAt when a resolved ticket is reopened to open", async () => {
-    const ticket = await makeTicket({ status: "resolved" });
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: "open" }));
-
-    expect(updated.resolvedAt).toBeNull();
-    expect(updated.closedAt).toBeNull();
-  });
-
-  it("clears both timestamps when a closed ticket is reopened", async () => {
-    const ticket = await makeTicket({ status: "closed" });
-    expect(ticket.resolvedAt).not.toBeNull();
-    expect(ticket.closedAt).not.toBeNull();
-
-    const updated = await updateTicket(ticket.id, updateInput({ status: "open" }));
-
-    expect(updated.resolvedAt).toBeNull();
-    expect(updated.closedAt).toBeNull();
-  });
-
-  it("keeps the status rank in lifecycle order after a status change", async () => {
-    // Statuses are assigned so that lifecycle order and insertion (id) order
-    // disagree. With ids ascending they would come back closed → in_progress →
-    // resolved, so a status written without its rank — leaving every rank at the
-    // `open` value and the sort falling back to id order — fails here rather
-    // than coincidentally matching.
-    const a = await makeTicket({ status: "open" });
-    const b = await makeTicket({ status: "open" });
-    const c = await makeTicket({ status: "open" });
-
-    await updateTicket(a.id, updateInput({ status: "closed" }));
-    await updateTicket(b.id, updateInput({ status: "in_progress" }));
-    await updateTicket(c.id, updateInput({ status: "resolved" }));
-
-    // Asserted by sorting: a status written without its rank leaves this order
-    // matching the old statuses instead of the new ones.
-    expect(await statusesByRank("asc")).toEqual(["in_progress", "resolved", "closed"]);
-  });
-
-  it("keeps ranks consistent across a reopen, which writes status and timestamps together", async () => {
-    const closed = await makeTicket({ status: "closed" });
-    await makeTicket({ status: "in_progress" });
-
-    await updateTicket(closed.id, updateInput({ status: "open" }));
-
-    expect(await statusesByRank("asc")).toEqual(["open", "in_progress"]);
-  });
-
-  it("rejects a status outside the enum at the contract boundary", async () => {
-    expect(updateTicketInputSchema.safeParse({ status: "archived" }).success).toBe(false);
   });
 });
 
@@ -450,40 +574,59 @@ describe("status lifecycle", () => {
  * Delete
  * ------------------------------------------------------------------ */
 
-describe("deleteTicket", () => {
-  it("removes the ticket and its comments", async () => {
-    const ticket = await makeTicket();
-    await makeComment({ ticketId: ticket.id });
-    await makeComment({ ticketId: ticket.id });
+describe("deleteTask", () => {
+  it("removes the task and cascades its comments, decisions, and dependency rows", async () => {
+    const task = await makeTask();
+    const other = await makeTask();
+    await makeComment({ taskId: task.id });
+    await makeDecision({ taskId: task.id });
+    await makeDependency(task.id, other.id);
+    await makeDependency(other.id, task.id);
 
-    await deleteTicket(ticket.id);
+    await deleteTask(task.id, HUMAN);
 
-    await expectApiError(() => getTicket(ticket.id), "TICKET_NOT_FOUND", 404);
-    // Cascade is a database-level FK rule, not application code — so this also
-    // proves the migration carries `onDelete: Cascade`.
+    expect(await prisma.task.findUnique({ where: { id: task.id } })).toBeNull();
     expect(await prisma.comment.count()).toBe(0);
+    expect(await prisma.decision.count()).toBe(0);
+    expect(await prisma.taskDependency.count()).toBe(0);
+    expect(await prisma.task.count()).toBe(1);
   });
 
-  it("leaves other tickets and their comments alone", async () => {
-    const doomed = await makeTicket();
-    const survivor = await makeTicket();
-    await makeComment({ ticketId: survivor.id });
+  it("keeps the task's events and appends task.deleted with its title", async () => {
+    const { task } = await createTask(createInput(), HUMAN);
 
-    await deleteTicket(doomed.id);
+    await deleteTask(task.id, AGENT);
 
-    expect(await prisma.ticket.count()).toBe(1);
-    expect(await prisma.comment.count()).toBe(1);
+    expect(await eventsFor(task.id)).toEqual([
+      expect.objectContaining({ type: "task.created" }),
+      {
+        type: "task.deleted",
+        actor: AGENT,
+        payload: { title: "Add retries to the webhook sender" },
+      },
+    ]);
   });
 
-  it("throws TICKET_NOT_FOUND on a second delete rather than a Prisma error", async () => {
-    const ticket = await makeTicket();
-    await deleteTicket(ticket.id);
+  it("refuses an agent that does not hold the live claim", async () => {
+    const task = await makeTask(claimedBy(AGENT));
 
-    await expectApiError(() => deleteTicket(ticket.id), "TICKET_NOT_FOUND", 404);
+    await expectApiError(() => deleteTask(task.id, OTHER_AGENT), "TASK_ALREADY_CLAIMED", 409);
+    expect(await prisma.task.count()).toBe(1);
   });
 
-  it("throws TICKET_NOT_FOUND for an id that never existed", async () => {
-    await expectApiError(() => deleteTicket(4242), "TICKET_NOT_FOUND", 404);
+  it("lets a human delete a claimed task", async () => {
+    const task = await makeTask(claimedBy(AGENT));
+
+    await deleteTask(task.id, HUMAN);
+
+    expect(await prisma.task.count()).toBe(0);
+  });
+
+  it("throws TASK_NOT_FOUND on a second delete rather than a Prisma error", async () => {
+    const task = await makeTask();
+    await deleteTask(task.id, HUMAN);
+
+    await expectApiError(() => deleteTask(task.id, HUMAN), "TASK_NOT_FOUND", 404);
   });
 });
 
@@ -491,95 +634,79 @@ describe("deleteTicket", () => {
  * Facets
  * ------------------------------------------------------------------ */
 
-describe("getTicketFacets", () => {
-  it("returns distinct non-null assignees and categories, sorted", async () => {
-    await makeTicket({ assignee: "Priya Raman", category: "network" });
-    await makeTicket({ assignee: "Marcus Feld", category: "access" });
-    await makeTicket({ assignee: "Marcus Feld", category: "network" });
+describe("getTaskFacets", () => {
+  it("returns distinct non-null assignees, projects, and creators, sorted", async () => {
+    await makeTask({ assignee: "Priya Raman", project: "web", createdBy: "human:krisz" });
+    await makeTask({ assignee: "Marcus Feld", project: "api", createdBy: "agent:claude-code" });
+    await makeTask({ assignee: "Marcus Feld", project: "web", createdBy: "human:krisz" });
+    await makeTask({ assignee: null, project: null, createdBy: "agent:codex" });
 
-    const facets = await getTicketFacets();
-
-    expect(facets.assignees).toEqual(["Marcus Feld", "Priya Raman"]);
-    expect(facets.categories).toEqual(["access", "network"]);
+    expect(await getTaskFacets()).toEqual({
+      assignees: ["Marcus Feld", "Priya Raman"],
+      projects: ["api", "web"],
+      creators: ["agent:claude-code", "agent:codex", "human:krisz"],
+    });
   });
 
-  it("omits null assignees and categories rather than returning a placeholder", async () => {
-    await makeTicket({ assignee: null, category: null });
-    await makeTicket({ assignee: "Marcus Feld", category: "hardware" });
-
-    const facets = await getTicketFacets();
-
-    expect(facets.assignees).toEqual(["Marcus Feld"]);
-    expect(facets.categories).toEqual(["hardware"]);
-  });
-
-  it("offers only categories that are actually present, not the whole enum", async () => {
-    await makeTicket({ category: "email" });
-
-    const facets = await getTicketFacets();
-
-    // The filter must not offer a value that would return zero rows.
-    expect(facets.categories).toEqual(["email"]);
-  });
-
-  it("returns empty lists when there are no tickets", async () => {
-    expect(await getTicketFacets()).toEqual({ assignees: [], categories: [] });
+  it("returns empty lists when there are no tasks", async () => {
+    expect(await getTaskFacets()).toEqual({ assignees: [], projects: [], creators: [] });
   });
 
   it("reflects a value cleared by a patch", async () => {
-    const created = await createTicket(createInput({ assignee: "Marcus Feld" }));
-    await updateTicket(created.id, updateInput({ assignee: "" }));
+    const task = await makeTask({ project: "web" });
 
-    expect((await getTicketFacets()).assignees).toEqual([]);
+    await updateTask(task.id, updateInput({ project: "" }), HUMAN);
+
+    expect((await getTaskFacets()).projects).toEqual([]);
   });
 });
 
 /* ------------------------------------------------------------------ *
- * A row whose status is outside the enum
+ * Stats
  * ------------------------------------------------------------------ */
 
-describe("a stored status outside the enum", () => {
-  /**
-   * `status` is a plain `String` column — the enum lives in zod, not in SQLite
-   * (`docs/engineering/DATABASE.md`). Every API write path goes through the
-   * schemas, but direct SQL, a `db push` experiment, or a bad migration can
-   * still land a value the code has never heard of. That must degrade to the
-   * documented 409, not to an unhandled `TypeError` reported as `INTERNAL_ERROR`.
-   */
-  it("patches to a 409, not a 500", async () => {
-    const ticket = await makeTicket({ status: "open" });
-    await prisma.$executeRaw`UPDATE Ticket SET status = 'archived' WHERE id = ${ticket.id}`;
+describe("getTaskStats", () => {
+  it("reports all ten statuses, zero included", async () => {
+    const stats = await getTaskStats();
 
-    const error = await updateTicket(ticket.id, updateInput({ status: "open" })).catch(
-      (e: unknown) => e,
-    );
-
-    expect(error).toBeInstanceOf(ApiError);
-    expect((error as ApiError).code).toBe("INVALID_STATUS_TRANSITION");
-    expect((error as ApiError).status).toBe(409);
-
-    // And the row is left exactly as it was found.
-    const after = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
-    expect(after.status).toBe("archived");
+    expect(Object.keys(stats.byStatus).sort()).toEqual([...TASK_STATUSES].sort());
+    expect(Object.values(stats.byStatus).every((count) => count === 0)).toBe(true);
+    expect(stats.needsAttention).toBe(0);
   });
-});
 
-/* ------------------------------------------------------------------ *
- * Cross-cutting: the rank invariant, over every write path in this stage
- * ------------------------------------------------------------------ */
+  it("counts per status and sums the three human-attention statuses into needsAttention", async () => {
+    await makeTask({ status: "todo" });
+    await makeTask({ status: "todo" });
+    await makeTask({ status: "needs_user_decision" });
+    await makeTask({ status: "needs_user_action" });
+    await makeTask({ status: "needs_qa" });
+    await makeTask({ status: "needs_qa" });
+    await makeTask({ status: "blocked" });
 
-describe("rank consistency across every stage-6 write path", () => {
-  it("sorts correctly after a create, a priority patch, and a status patch", async () => {
-    const created = await createTicket(createInput({ priority: "low" }));
-    const patched = await createTicket(createInput({ priority: "medium" }));
-    await updateTicket(patched.id, updateInput({ priority: "urgent" }));
-    const reopened = await makeTicket({ status: "closed", priority: "high" });
-    await updateTicket(reopened.id, updateInput({ status: "in_progress" }));
+    const stats = await getTaskStats();
 
-    expect(await prioritiesByRank("desc")).toEqual(["urgent", "high", "low"]);
+    expect(stats.byStatus).toMatchObject({
+      todo: 2,
+      needs_user_decision: 1,
+      needs_user_action: 1,
+      needs_qa: 2,
+      blocked: 1,
+      done: 0,
+    });
+    // `blocked` waits on another task, not on a human.
+    expect(stats.needsAttention).toBe(4);
+  });
 
-    const byStatus = await prisma.ticket.findMany({ orderBy: { statusRank: "asc" } });
-    expect(byStatus.map((t) => t.status as TicketStatus)).toEqual(["open", "open", "in_progress"]);
-    expect(byStatus.map((t) => t.id)).toContain(created.id);
+  it("counts only the given projects", async () => {
+    await makeTask({ status: "todo", project: "web" });
+    await makeTask({ status: "needs_qa", project: "api" });
+    await makeTask({ status: "needs_qa", project: "infra" });
+    await makeTask({ status: "todo", project: null });
+
+    const stats = await getTaskStats(["web", "api"]);
+
+    expect(stats.byStatus.todo).toBe(1);
+    expect(stats.byStatus.needs_qa).toBe(1);
+    expect(stats.needsAttention).toBe(1);
   });
 });

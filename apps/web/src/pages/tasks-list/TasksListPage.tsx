@@ -4,39 +4,48 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { Pagination } from "@/components/Pagination";
 import { Button } from "@/components/ui";
-import { useTicketFacetsQuery, useTicketsQuery } from "@/api/tickets";
-import { TicketCardList, TicketCardListSkeleton } from "@/features/tickets/TicketCardList";
-import { TicketFilterBar } from "@/features/tickets/TicketFilterBar";
-import { TicketTable, TicketTableSkeleton } from "@/features/tickets/TicketTable";
-import { ViewSwitch } from "@/features/tickets/ViewSwitch";
+import { useTaskFacetsQuery, useTasksQuery } from "@/api/tasks";
+import { TaskCardList, TaskCardListSkeleton } from "@/features/tasks/TaskCardList";
+import { TaskFilterBar } from "@/features/tasks/TaskFilterBar";
+import { TaskTable, TaskTableSkeleton } from "@/features/tasks/TaskTable";
+import { ViewSwitch } from "@/features/tasks/ViewSwitch";
 import { cn } from "@/lib/cn";
 import { formatCount } from "@/lib/formatting";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useTicketListParams } from "@/pages/tickets-list/useTicketListParams";
-import { useRememberTicketView } from "@/stores/ticketView";
+import { useTaskListParams } from "@/pages/tasks-list/useTaskListParams";
+import { useRememberTaskView } from "@/stores/taskView";
 
 /**
- * `/tickets` — the landing screen. Spec: `docs/pages/Tickets_List.md`.
+ * `/tasks` — the landing screen. Spec: `docs/pages/Tasks_List.md`.
  *
  * The page owns no list state of its own. Everything a user can change lives in
- * the URL through `useTicketListParams()`, which is what makes a filtered view
+ * the URL through `useTaskListParams()`, which is what makes a filtered view
  * shareable, survive reload, and step backwards correctly. Nothing here is
  * mirrored into `useState`, and no fetched data is copied out of TanStack Query.
+ *
+ * The page polls (`api/polling.ts`), so tasks an agent files or moves appear
+ * without a reload; `keepPreviousData` means a poll dims nothing that was not
+ * already on screen.
+ *
+ * **There is no default status filter.** A bare `/tasks` shows everything, so
+ * "nothing exists" and "nothing matches" stay distinguishable and a shared
+ * link means exactly what it says. The filter bar's "Open work" preset is the
+ * one-click "hide the closed lane".
  */
-export const TicketsListPage = () => {
-  useDocumentTitle("Tickets");
+export const TasksListPage = () => {
+  useDocumentTitle("Tasks");
 
   /*
     The one piece of *user* state this screen records: which view they are in,
-    so a ticket opened from here comes back to here rather than to the board.
-    The list's own state stays in the URL — see `stores/ticketView.ts` for why
+    so a task opened from here comes back to here rather than to the board.
+    The list's own state stays in the URL — see `stores/taskView.ts` for why
     the view is the exception.
   */
-  useRememberTicketView("list");
+  useRememberTaskView("list");
 
   const { params, setPage, setPageSize, setSort, setFilters, clearFilters, activeFilterCount } =
-    useTicketListParams();
+    useTaskListParams();
 
   /**
    * `md` decides which of two different components renders — not which of two
@@ -44,49 +53,52 @@ export const TicketsListPage = () => {
    */
   const isWide = useMediaQuery(MD_BREAKPOINT_QUERY);
 
-  const facetsQuery = useTicketFacetsQuery();
-  const ticketsQuery = useTicketsQuery(params);
+  const facetsQuery = useTaskFacetsQuery();
+  const tasksQuery = useTasksQuery(params);
 
-  const { data, error, isPending, isFetching, isPlaceholderData, refetch } = ticketsQuery;
+  const { data, error, isPending, isFetching, isPlaceholderData, refetch } = tasksQuery;
 
-  const tickets = data?.data ?? [];
+  const tasks = data?.data ?? [];
   const meta = data?.meta;
 
   /**
-   * A refetch with previous data still on screen: dim it and mark it busy rather
-   * than tearing it down for a skeleton. `isPlaceholderData` is true exactly when
-   * `keepPreviousData` is showing the *last* page's rows while the next one
-   * loads, which is the case the guidelines are about; `isFetching` also covers a
-   * plain background refresh of the same page.
+   * The *previous* page's rows on screen while the next one loads: dim them and
+   * mark them busy rather than tearing them down for a skeleton.
+   * `isPlaceholderData` is true exactly when `keepPreviousData` is showing the
+   * last page's rows for a new request — a page or filter change.
+   *
+   * Deliberately **not** `isFetching`: the list polls every fifteen seconds, and
+   * a table that dims itself on a timer, for a refresh that usually changes
+   * nothing, reads as broken.
    */
-  const isRefreshing = (isFetching && !isPending) || isPlaceholderData;
+  const isRefreshing = isPlaceholderData;
 
   const hasFilters = activeFilterCount > 0;
 
   return (
     <div className="flex flex-col gap-4">
       {/*
-        No "New ticket" button here: `AppHeader` already renders one on every
+        No "New task" button here: `AppHeader` already renders one on every
         screen, and the design guidelines allow one primary action per view. Two
         identical buttons 60px apart is not redundancy, it is a question about
         whether they do the same thing.
       */}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Tickets</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Tasks</h1>
           <p className="text-sm text-muted-foreground">
-            Every support request, newest first by default.
+            Everything humans and agents are working on, newest first by default.
           </p>
         </div>
 
         {/*
-          The switch carries the current search string to `/tickets/board`, which
+          The switch carries the current search string to `/tasks/board`, which
           reads the same filters out of the URL — see `ViewSwitch`.
         */}
         <ViewSwitch />
       </header>
 
-      <TicketFilterBar
+      <TaskFilterBar
         params={params}
         facets={facetsQuery.data}
         onFiltersChange={setFilters}
@@ -102,7 +114,7 @@ export const TicketsListPage = () => {
         filter change would otherwise be silent.
       */}
       <p aria-live="polite" className="sr-only">
-        {meta === undefined ? "" : `${formatCount(meta.total, "ticket")} found`}
+        {meta === undefined ? "" : `${formatCount(meta.total, "task")} found`}
       </p>
 
       {/* A failed background refresh keeps the stale rows and explains itself above them. */}
@@ -112,13 +124,13 @@ export const TicketsListPage = () => {
 
       {isPending ? (
         isWide ? (
-          <TicketTableSkeleton />
+          <TaskTableSkeleton />
         ) : (
-          <TicketCardListSkeleton />
+          <TaskCardListSkeleton />
         )
       ) : error !== null && data === undefined ? (
         <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />
-      ) : tickets.length === 0 ? (
+      ) : tasks.length === 0 ? (
         <ListEmptyState
           hasFilters={hasFilters}
           isPastEnd={meta !== undefined && meta.total > 0 && params.page > 1}
@@ -131,14 +143,14 @@ export const TicketsListPage = () => {
           className={cn("transition-opacity", isRefreshing && "opacity-60")}
         >
           {isWide ? (
-            <TicketTable tickets={tickets} sort={params.sort} onSortChange={setSort} />
+            <TaskTable tasks={tasks} sort={params.sort} onSortChange={setSort} />
           ) : (
-            <TicketCardList tickets={tickets} />
+            <TaskCardList tasks={tasks} />
           )}
         </div>
       )}
 
-      {meta === undefined || (tickets.length === 0 && meta.total === 0) ? null : (
+      {meta === undefined || (tasks.length === 0 && meta.total === 0) ? null : (
         <Pagination meta={meta} onPageChange={setPage} onPageSizeChange={setPageSize} />
       )}
     </div>
@@ -149,7 +161,7 @@ export const TicketsListPage = () => {
  * The empty state, in its three genuinely different flavours.
  *
  * "Nothing exists" and "nothing matches" are not the same screen: offering
- * "Create the first ticket" to someone whose filter is too narrow is the wrong
+ * "Create the first task" to someone whose filter is too narrow is the wrong
  * answer, and offering "Clear filters" to someone with an empty database is a
  * dead end. The third case — a real result set, but the URL points past its last
  * page — has its own action again, because clearing filters would throw away a
@@ -183,7 +195,7 @@ const ListEmptyState = ({
     return (
       <EmptyState
         icon={FilterX}
-        title="No tickets match these filters"
+        title="No tasks match these filters"
         description="Try removing a filter or widening the date range."
         action={
           <Button variant="outline" onClick={onClearFilters}>
@@ -197,15 +209,15 @@ const ListEmptyState = ({
   return (
     <EmptyState
       icon={Inbox}
-      title="No tickets yet"
-      description="When someone reports a problem, it will show up here."
+      title="No tasks yet"
+      description="Create one here, or let an agent file them through the MCP server — they show up here either way."
       action={
         <Button asChild>
           {/* Same `{ from }` the rows attach, so cancelling out of the form
-              comes back to this URL rather than a bare `/tickets`. */}
-          <Link to="/tickets/new" state={search === "" ? undefined : { from: search }}>
+              comes back to this URL rather than a bare `/tasks`. */}
+          <Link to="/tasks/new" state={search === "" ? undefined : { from: search }}>
             <Plus aria-hidden="true" />
-            Create the first ticket
+            Create the first task
           </Link>
         </Button>
       }

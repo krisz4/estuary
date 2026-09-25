@@ -1,20 +1,20 @@
 ---
 type: Page
-title: Ticket detail
-description: Full ticket view with inline status change, comment thread, edit and delete actions.
-resource: apps/web/src/pages/ticket-detail/
-tags: [tickets, detail, comments, delete]
+title: Task detail
+description: Full task view — status transitions, claims, decisions, dependencies, comments, activity timeline, edit and delete.
+resource: apps/web/src/pages/task-detail/
+tags: [tasks, detail, status, claims, decisions, dependencies, comments, activity]
 status: canonical
 ---
-# Page Review: Ticket Detail
+# Page Review: Task Detail
 
-Task 4.2 of the brief — a separate page, not a modal, so the URL is shareable.
+A separate page, not a modal, so the URL is shareable — an agent can paste `/tasks/42` into a hand-off note.
 
 ## Route
 
-- Path: `/tickets/:ticketId` — `ticketId` is the integer id, which **is** the ticket number (`/tickets/42` ↔ `HD-000042`). See [../features/Ticket_Numbering.md](../features/Ticket_Numbering.md). A non-numeric segment 404s rather than 422s.
-- File: `src/pages/ticket-detail/TicketDetailPage.tsx`
-- Type: Client component, data via TanStack Query
+- Path: `/tasks/:taskId` — `taskId` is the integer id, which **is** the task number (`/tasks/42` ↔ `TASK-000042`). See [../features/Task_Numbering.md](../features/Task_Numbering.md). A non-numeric segment renders the in-page not-found state, not a 404 route.
+- File: `src/pages/task-detail/TaskDetailPage.tsx`
+- Type: Client component, data via TanStack Query, polling
 
 ## Dependencies
 
@@ -22,41 +22,53 @@ Task 4.2 of the brief — a separate page, not a modal, so the URL is shareable.
 
 | Component | Role on this page |
 | --------- | ----------------- |
-| `PageHeader` (`src/components/`) | Back link to the list (preserving the previous query string), reference + title, action buttons |
-| `StatusSelect` (`src/features/tickets/`) | Inline status change — the most common action, so it does not require entering the edit form |
-| `PriorityBadge` | Current priority |
-| `DetailField` | Label/value pair used for requester, assignee, category, timestamps |
+| `PageHeader` (`src/components/`) | Back link to the remembered list/board view (preserving its query string), reference + title, Edit/Delete actions |
+| `StatusSelect` (`src/features/tasks/`) | Inline status control — reports the pick; the page decides whether to post the transition immediately or open `TransitionDialog` |
+| `StatusNotePanel` | The "why" of the current status — `statusNote` — framed by heading + icon specific to that status ("Blocked because…", "What you need to do", "QA summary", …) |
+| `DecisionAnswer` | The open `needs_user_decision` question, its options, and the answer controls — shown above both columns when present |
+| `ClaimIndicator`, the page's own `ClaimPanel` | Who holds the live claim and until when; **Release** (any human may release anyone's claim) or **Claim** (an `in_progress` task whose lease expired) |
+| `PriorityBadge`, `ActorBadge` | Priority; who created the task |
+| `TaskLinks` | The task's PR/branch/doc links, each rendered as a link only when it is `http(s)` |
+| `TaskRefList` / `DependencyEditor` (`DependencyList.tsx`) | Parent, subtasks, and "Needed by" as read-only linked lists; "Waits on" as an editable list (add by task number, remove — no confirm needed since it only removes a link) |
+| `PastDecisions` | Answered/withdrawn decisions, newest first — the record of what a task's open question resolved to, since `statusNote` is replaced by the next transition |
 | `CommentThread` (`src/features/comments/`) | Ordered list of comments + `CommentComposer` |
-| `ConfirmDialog` (`src/components/`) | Destructive delete confirmation, for the ticket and for each comment |
+| `ActivityTimeline` | The task's event log (`GET /events`), newest first, infinite-scroll-back via cursor paging |
+| `TransitionDialog` | The form for whichever status the pending move targets — opened by `StatusSelect` or reused directly when a status change is rejected mid-flight |
+| `ConfirmDialog` (`src/components/`) | Destructive confirmation for task delete, comment delete, and claim release |
 | `DetailSkeleton`, `ErrorPanel`, `NotFoundState` | Async states |
 
-**There is no `StatusBadge` on this page.** `StatusSelect` shows the current status *and* is the control that changes it; a badge repeating the same word directly below it reads as two different facts about the ticket. The badge stays on the list, where there is no control to carry the value.
+**There is no `StatusBadge` on this page.** `StatusSelect` shows the current status *and* is the control that changes it.
 
 ### Hooks / API calls
 
 | Call | Method | Endpoint |
 | ---- | ------ | -------- |
-| `getTicket(ticketId)` | `GET` | `/api/v1/tickets/:ticketId` — includes `comments` |
-| `updateTicket(ticketId, { status })` | `PATCH` | `/api/v1/tickets/:ticketId` (inline status change) |
-| `deleteTicket(ticketId)` | `DELETE` | `/api/v1/tickets/:ticketId` |
-| `createComment(ticketId, input)` | `POST` | `/api/v1/tickets/:ticketId/comments` |
-| `deleteComment(ticketId, commentId)` | `DELETE` | `/api/v1/tickets/:ticketId/comments/:commentId` |
+| `getTask(taskId)` | `GET` | `/api/v1/tasks/:taskId` — includes comments, parent, children, dependencies, dependents, decisions, open decision |
+| `transitionTask(taskId, input)` | `POST` | `/api/v1/tasks/:taskId/transition` — every status change |
+| `claimTask(taskId, {})` | `POST` | `/api/v1/tasks/:taskId/claim` — take an unclaimed `in_progress` task |
+| `releaseTask(taskId, {})` | `POST` | `/api/v1/tasks/:taskId/release` — give up a claim; task returns to `todo` |
+| `deleteTask(taskId)` | `DELETE` | `/api/v1/tasks/:taskId` |
+| `answerDecision(taskId, input)` | `POST` | `/api/v1/tasks/:taskId/decision/answer` — via `DecisionAnswer` |
+| `addDependency` / `removeDependency` | `POST` / `DELETE` | `/api/v1/tasks/:taskId/dependencies[/:dependsOnId]` |
+| `createComment` / `deleteComment` | `POST` / `DELETE` | `/api/v1/tasks/:taskId/comments[/:commentId]` |
+| `listEvents({ taskId, limit, after })` | `GET` | `/api/v1/events` — the activity timeline |
 
-Query key: `queryKeys.tickets.detail(ticketId)`. Every mutation on this page invalidates that key **and** `queryKeys.tickets.all` (the list's status counts and rows are now stale).
+Query key: `queryKeys.tasks.detail(taskId)`, polled every 15s. Workflow writes (transition, claim, release, decision answer, dependency add/remove) invalidate every list, every mounted detail, stats, and the events feed (`invalidateAfterWorkflowWrite` in `api/tasks.ts`) — not facets, which none of them can move. Comment writes invalidate only this task's detail and events keys.
 
 ## Behavior / UI flow
 
-1. **Header** — `HD-000042` as small muted text above the title; title as `<h1>`. Right side: "Edit" (→ `/tickets/:id/edit`) and "Delete" (destructive variant).
-2. **Back link** returns to the view the user came from, carrying the previous search params — the two halves come from two different places, and both are needed:
-   - **The query string** comes from `location.state.from`. The rows attach it (`<Link state={{ from: search }}>` in `TicketTable` / `TicketCardList` / `BoardCard`); the detail URL itself stays clean, because a pasted link should not resurrect a stranger's filters. `location.state` is user-writable through `history.pushState`, so it is validated and anything that is not a string is dropped.
-   - **The path** — `/tickets` or `/tickets/board` — comes from the `stores/ticketView` zustand store, written by whichever view screen the user last had open. `state` cannot carry it: it is absent on a pasted link and on a reload into a fresh entry, which is exactly when the answer is needed. Before the store, a ticket opened from the board sent the user back to the *list* with the board's filters applied.
-
-   `useBackToListPath()` combines the two; the delete redirect uses the same value, so leaving by either door lands in the same place.
-3. **Summary grid** — priority, category (or "Uncategorised"), requester (name + mailto link), assignee (or "Unassigned"), created, updated, resolved/closed when set. Status is above it, on the `StatusSelect`. Timestamps show relative time with the absolute value in `title` and in a `<time datetime>` attribute.
-4. **Description** — plain text with `whitespace-pre-wrap` so the requester's line breaks survive. Rendered as a text node; never `dangerouslySetInnerHTML`.
-5. **Inline status change** — selecting a new status fires the PATCH immediately with an optimistic update; the select is disabled while in flight. On failure it rolls back and shows the error inline next to the control (an `INVALID_STATUS_TRANSITION` lists the allowed targets from `details.allowed`).
-6. **Comments** — oldest first, in the server's order (never re-sorted client-side: the seed puts several comments in the same millisecond and only the `id` tiebreaker makes them stable). Each shows author, relative timestamp, body, and a delete button, which opens the same `ConfirmDialog`. The delete button is revealed on hover/focus **only under `@media (hover: hover)`**, via the `can-hover:` custom variant defined in `index.css`; on touch devices it is always visible, since a hover-gated control is simply unreachable there. **Do not write this as the arbitrary variant `[@media(hover:hover)]:`** — Tailwind v4 drops that form silently, leaving the class in the DOM with no rule behind it. The composer (author name + body) sits below the thread; submit is disabled while empty or pending. On success the form clears and the new comment gets focus. On failure the typed text stays.
-7. **Delete** — opens `ConfirmDialog` naming the ticket ("Delete HD-000042? This also deletes its 3 comments. This can't be undone."). On confirm: DELETE, invalidate the list, toast, navigate to `/tickets`. Cancel is the default-focused button.
+1. **Header** — `TASK-000042` as small muted text above the title; title as `<h1>`. Right side: "Edit" (→ `/tasks/:id/edit`) and "Delete" (destructive variant).
+2. **Back link** returns to the view the user came from (list or board), carrying its previous search params. The path comes from `stores/taskView` (whichever view screen the user last had open); the query string comes from `location.state.from`, which the row/card the user clicked attaches. `useBackToListPath()` combines the two; the delete redirect uses the same value.
+3. **Status note and open decision** sit above both columns — on mobile, above everything else, since that's what someone opening a task from the inbox came for. `StatusNotePanel` renders whenever `statusNote` is set (every status has one once a transition has set it); `DecisionAnswer` renders additionally when the status is `needs_user_decision` and an open decision exists.
+4. **Inline status change** — picking a new value in `StatusSelect` either transitions immediately (`backlog`, `in_progress`, `done`, and `todo` when the task already has acceptance criteria — all of whose payload is an optional reason) or opens `TransitionDialog` for a target whose payload needs something from the user (`needs_refinement`, `blocked`, `needs_user_decision`, `needs_user_action`, `needs_qa`, `deferred`, or `todo` without criteria yet). See [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) for exactly what each target requires. A direct transition is optimistic on the detail cache and rolls back on failure; the failure (e.g. `TASK_ALREADY_CLAIMED` naming the claim holder) renders inline next to the control via `statusChangeErrorMessage`, and a `VALIDATION_ERROR` (the task's acceptance criteria were cleared by someone else a moment ago) reopens the dialog instead of just refusing.
+5. **Claim panel.** While the task holds a live claim, the panel names the holder (agent icon for `agent:…`, lock for `human:…`) and its lease expiry, with a **Release** button (any human may release anyone's claim — the common case is an agent that went quiet). When the task is `in_progress` with no live claim (a crashed agent's lease ran out), the panel offers **Claim it** instead. Otherwise the panel renders nothing.
+6. **Summary aside** — priority, project (or "No project"), assignee (or "Unassigned"), created by (`ActorBadge`), parent link when set, created/updated/started/completed timestamps (the last two only when set). Status is above it, on `StatusSelect` — there is no separate status row.
+7. **Description** and **acceptance criteria** render as plain text with `whitespace-pre-wrap`; acceptance criteria shows "None yet. A task needs them before it can move to To do." when unset. Never `dangerouslySetInnerHTML`.
+8. **Links, subtasks, dependencies, dependents, past decisions** each render as their own section, only when there is something to show (links, children, dependents, past decisions are omitted entirely when empty; "Waits on" always renders, since it is also where a dependency is added).
+9. **Dependencies** ("Waits on") is editable: add a task by number in any spelling `parseReference` accepts (`12`, `#12`, `TASK-000012`), remove one with no confirm dialog (it deletes a link, not data — and removing the last open blocker of a `blocked` task auto-unblocks it server-side, which the next refetch shows).
+10. **Comments** — oldest first, in the server's order, never re-sorted client-side. Each shows an `ActorBadge`, a kind tag when the kind is not `note` (`progress`, `qa_feedback`), relative timestamp, body, and a delete button revealed on hover/focus only under `@media (hover: hover)` (always visible on touch). The composer posts as the session actor (`useSessionActor()` — see [App_Shell.md](./App_Shell.md)) with a kind selector; it clears only on success and the new comment gets focus.
+11. **Activity timeline** — the event log from `GET /events?taskId=`, newest first on screen (the feed itself pages oldest-first, so "Load newer activity" sits above the list). Every event type renders a human phrase from `describeEvent()` — status changes, claims, comments, decisions, dependency changes — reading payload values defensively so a malformed payload still produces a generic line rather than a crash.
+12. **Delete** — opens `ConfirmDialog` naming the task and its comment count. On confirm: `DELETE`, invalidate the list-shaped keys (not the detail cache itself, which is marked stale with `refetchType: "none"` so the page mid-navigation does not refetch a task it just deleted), toast, navigate to the remembered list/board.
 
 ## States
 
@@ -64,28 +76,30 @@ Query key: `queryKeys.tickets.detail(ticketId)`. Every mutation on this page inv
 | ----- | -------- |
 | Loading | `DetailSkeleton` mirroring the real layout |
 | Error (network/5xx) | `ErrorPanel` + Retry |
-| `TICKET_NOT_FOUND` (404) | `NotFoundState`: "This ticket doesn't exist or was deleted" + "Back to tickets". Not a toast, not a blank page |
-| Deleted in another tab | The next refetch 404s and lands in the same not-found state |
-| Empty comments | "No comments yet" line above the composer |
-| Mutation pending | Affected control disabled with a spinner; the rest of the page stays interactive |
+| `TASK_NOT_FOUND` (a malformed id, or a deleted/never-existed task) | `NotFoundState`: "This task doesn't exist or was deleted" + "Back to tasks". Not a toast, not a blank page |
+| Deleted in another tab | The next poll or refetch 404s and lands in the same not-found state |
+| Empty comments | "No comments yet." above the composer |
+| No activity yet | "No activity recorded yet." |
+| Status change pending | `StatusSelect` disabled; the rest of the page stays interactive |
+| Status change needs input | `TransitionDialog` opens over the page |
 
 ## Responsive
 
 | Breakpoint | Layout |
 | ---------- | ------ |
-| < `md` | Single column, and the **summary comes first** (`order-1` on the aside): otherwise a phone user scrolls past the whole thread and composer to find the status they opened the ticket for. Summary becomes a two-column definition list. Edit/Delete stay as labelled buttons and wrap under the title — with two actions, an overflow menu adds a tap and hides the destructive one. Comment composer fields stack full-width |
-| ≥ `md` | Two columns: description + comments (main, `order-1`), summary fields (aside, `w-72`, `order-2`) |
+| < `md` | Single column; the **summary aside comes first** (`order-1`), then description/comments/activity (`order-2`) — otherwise a phone user scrolls past the whole thread to find the status they opened the task for. Edit/Delete wrap under the title |
+| ≥ `md` | Two columns: main content (`order-1`), summary aside (`order-2`, `w-72`, `shrink-0`) |
 
 ## Accessibility
 
-- `<h1>` is the ticket title; comment authors are `<h3>`.
-- The comment list is a `<ul>` with an `aria-label`; timestamps use `<time datetime>`.
-- `ConfirmDialog` traps focus, closes on `Escape`, restores focus to the Delete button, and is labelled by its heading.
-- The status select has a visible label and announces the change through a polite live region ("Status changed to In progress").
-- Delete-comment buttons have per-comment labels ("Delete comment by Marcus Feld").
+- `<h1>` is the task title; section headings (Description, Activity, Comments, …) are `<h2>`; comment authors and decision questions inside the aside/inbox reuse the appropriate heading level via a `headingLevel` prop.
+- Status changes announce through a polite live region ("Status changed to In progress").
+- `ConfirmDialog` traps focus, closes on `Escape`, restores focus, and is labelled by its heading.
+- Delete-comment and remove-dependency buttons carry per-row labels naming the comment's author or the dependency's reference.
+- The comment list is a `<ul aria-label="Comment thread">`; timestamps use `<time datetime>`.
 
 ## Related
 
-- [../features/Tickets.md](../features/Tickets.md), [../features/Comments.md](../features/Comments.md)
-- [../features/Ticket_Status_Lifecycle.md](../features/Ticket_Status_Lifecycle.md)
-- [Ticket_Edit.md](./Ticket_Edit.md), [Tickets_List.md](./Tickets_List.md)
+- [../features/Tasks.md](../features/Tasks.md), [../features/Comments.md](../features/Comments.md)
+- [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md), [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md) — claims, decisions, dependencies, events
+- [Task_Edit.md](./Task_Edit.md), [Tasks_List.md](./Tasks_List.md), [Inbox.md](./Inbox.md)

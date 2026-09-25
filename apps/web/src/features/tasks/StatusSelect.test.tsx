@@ -1,52 +1,58 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "@/api/http";
-import { StatusSelect } from "@/features/tickets/StatusSelect";
+import { StatusSelect } from "@/features/tasks/StatusSelect";
 import { renderInProviders } from "@/test/harness";
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
-const transitionError = (allowed: unknown) =>
-  new ApiClientError({
-    code: "INVALID_STATUS_TRANSITION",
-    message: "Cannot move from closed to resolved",
-    details: { from: "closed", to: "resolved", allowed },
-    status: 409,
+describe("StatusSelect", () => {
+  it("offers all ten statuses", async () => {
+    const user = userEvent.setup();
+    renderInProviders(<StatusSelect value="todo" onChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Status" }));
+
+    expect(await screen.findAllByRole("option")).toHaveLength(10);
   });
 
-describe("StatusSelect", () => {
-  it("renders the server's allowed targets, not a local transition table", () => {
+  it("reports the pick and leaves posting it to the page", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderInProviders(<StatusSelect value="todo" onChange={onChange} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Status" }));
+    await user.click(await screen.findByRole("option", { name: "Blocked" }));
+
+    expect(onChange).toHaveBeenCalledWith("blocked");
+  });
+
+  it("names who holds the claim when a move is refused for it", () => {
     renderInProviders(
       <StatusSelect
-        value="closed"
+        value="in_progress"
         onChange={vi.fn()}
-        error={transitionError(["open", "in_progress"])}
+        error={
+          new ApiClientError({
+            code: "TASK_ALREADY_CLAIMED",
+            message: "claimed",
+            details: { claimedBy: "agent:claude-code", expiresAt: "2026-09-25T12:00:00.000Z" },
+            status: 409,
+          })
+        }
       />,
     );
 
-    expect(
-      screen.getByText("Not allowed from here. You can move it to Open or In progress instead."),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/^agent:claude-code holds the claim\./);
   });
 
-  /**
-   * The list is server data. If the API ever adds a status the client does not
-   * know, the label must be the raw value rather than `undefined`.
-   */
-  it("renders an unknown allowed value as itself", () => {
-    renderInProviders(
-      <StatusSelect value="closed" onChange={vi.fn()} error={transitionError(["escalated"])} />,
-    );
-
-    expect(screen.getByText(/You can move it to escalated instead\./)).toBeInTheDocument();
-  });
-
-  it("falls back to mapped copy when the error is not a transition failure", () => {
+  it("falls back to mapped copy for any other failure", () => {
     renderInProviders(
       <StatusSelect
-        value="open"
+        value="todo"
         onChange={vi.fn()}
         error={new ApiClientError({ code: "NETWORK_ERROR", message: "x", status: 0 })}
       />,
@@ -58,12 +64,12 @@ describe("StatusSelect", () => {
   });
 
   it("renders no message at all when there is no error", () => {
-    renderInProviders(<StatusSelect value="open" onChange={vi.fn()} error={null} />);
+    renderInProviders(<StatusSelect value="todo" onChange={vi.fn()} error={null} />);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("disables the control while a change is in flight", () => {
-    renderInProviders(<StatusSelect value="open" onChange={vi.fn()} isPending />);
+    renderInProviders(<StatusSelect value="todo" onChange={vi.fn()} isPending />);
     expect(screen.getByRole("combobox")).toBeDisabled();
   });
 });

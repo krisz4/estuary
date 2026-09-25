@@ -1,40 +1,40 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  TICKET_VIEW_STORAGE_KEY,
-  resetTicketViewStore,
-  ticketViewFromPathname,
-  ticketViewPath,
-  useTicketViewStore,
-} from "@/stores/ticketView";
+  TASK_VIEW_STORAGE_KEY,
+  resetTaskViewStore,
+  taskViewFromPathname,
+  taskViewPath,
+  useTaskViewStore,
+} from "@/stores/taskView";
 
 /**
  * The store itself. The behaviour that matters to a user — "back" going to the
- * board — is asserted end to end in `TicketsBoardPage.test.tsx`; these cover the
+ * board — is asserted end to end in `TasksBoardPage.test.tsx`; these cover the
  * two things that file cannot see: what reaches `localStorage`, and what happens
  * when what comes back out of it is not a view.
  *
- * `resetTicketViewStore` runs in `vitest.setup.ts`'s global `afterEach`, so each
+ * `resetTaskViewStore` runs in `vitest.setup.ts`'s global `afterEach`, so each
  * case here starts from the default.
  */
-describe("ticketViewPath", () => {
+describe("taskViewPath", () => {
   it("maps each view to its route", () => {
-    expect(ticketViewPath("list")).toBe("/tickets");
-    expect(ticketViewPath("board")).toBe("/tickets/board");
+    expect(taskViewPath("list")).toBe("/tasks");
+    expect(taskViewPath("board")).toBe("/tasks/board");
   });
 });
 
-describe("ticketViewFromPathname", () => {
+describe("taskViewFromPathname", () => {
   it.each([
-    ["/tickets", "list"],
-    ["/tickets/board", "board"],
+    ["/tasks", "list"],
+    ["/tasks/board", "board"],
   ])("reads %s as the %s view", (pathname, view) => {
-    expect(ticketViewFromPathname(pathname)).toBe(view);
+    expect(taskViewFromPathname(pathname)).toBe(view);
   });
 
-  it.each(["/tickets/42", "/tickets/new", "/tickets/42/edit", "/", "/tickets/board/x"])(
+  it.each(["/tasks/42", "/tasks/new", "/tasks/42/edit", "/", "/tasks/board/x"])(
     "does not claim %s is a view",
     (pathname) => {
-      expect(ticketViewFromPathname(pathname)).toBeUndefined();
+      expect(taskViewFromPathname(pathname)).toBeUndefined();
     },
   );
 });
@@ -73,7 +73,7 @@ const installStorage = (storage: Storage | undefined): void => {
   });
 };
 
-describe("useTicketViewStore", () => {
+describe("useTaskViewStore", () => {
   beforeEach(() => {
     installStorage(memoryStorage());
   });
@@ -84,14 +84,14 @@ describe("useTicketViewStore", () => {
   });
 
   it("starts on the list", () => {
-    expect(useTicketViewStore.getState().view).toBe("list");
+    expect(useTaskViewStore.getState().view).toBe("list");
   });
 
   it("persists the chosen view", () => {
-    useTicketViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("board");
 
-    expect(useTicketViewStore.getState().view).toBe("board");
-    expect(window.localStorage.getItem(TICKET_VIEW_STORAGE_KEY)).toContain("board");
+    expect(useTaskViewStore.getState().view).toBe("board");
+    expect(window.localStorage.getItem(TASK_VIEW_STORAGE_KEY)).toContain("board");
   });
 
   /*
@@ -102,10 +102,10 @@ describe("useTicketViewStore", () => {
   */
   it("does not notify subscribers when the view is set to what it already is", () => {
     const seen: string[] = [];
-    const unsubscribe = useTicketViewStore.subscribe((state) => seen.push(state.view));
+    const unsubscribe = useTaskViewStore.subscribe((state) => seen.push(state.view));
 
-    useTicketViewStore.getState().setView("board");
-    useTicketViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("board");
     unsubscribe();
 
     expect(seen).toEqual(["board"]);
@@ -119,32 +119,32 @@ describe("useTicketViewStore", () => {
   it.each(['{"state":{"view":"kanban"},"version":0}', '{"state":{"view":7}}', "not json"])(
     "falls back to the list when the stored value is %s",
     (stored) => {
-      window.localStorage.setItem(TICKET_VIEW_STORAGE_KEY, stored);
+      window.localStorage.setItem(TASK_VIEW_STORAGE_KEY, stored);
 
-      useTicketViewStore.persist.rehydrate();
+      useTaskViewStore.persist.rehydrate();
 
-      expect(useTicketViewStore.getState().view).toBe("list");
+      expect(useTaskViewStore.getState().view).toBe("list");
     },
   );
 
   it("rehydrates a valid stored view", () => {
     window.localStorage.setItem(
-      TICKET_VIEW_STORAGE_KEY,
+      TASK_VIEW_STORAGE_KEY,
       JSON.stringify({ state: { view: "board" }, version: 0 }),
     );
 
-    useTicketViewStore.persist.rehydrate();
+    useTaskViewStore.persist.rehydrate();
 
-    expect(useTicketViewStore.getState().view).toBe("board");
+    expect(useTaskViewStore.getState().view).toBe("board");
   });
 
   it("clears both halves on reset", () => {
-    useTicketViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("board");
 
-    resetTicketViewStore();
+    resetTaskViewStore();
 
-    expect(useTicketViewStore.getState().view).toBe("list");
-    expect(window.localStorage.getItem(TICKET_VIEW_STORAGE_KEY)).toBeNull();
+    expect(useTaskViewStore.getState().view).toBe("list");
+    expect(window.localStorage.getItem(TASK_VIEW_STORAGE_KEY)).toBeNull();
   });
 
   /*
@@ -161,8 +161,8 @@ describe("useTicketViewStore", () => {
       }),
     );
 
-    expect(() => useTicketViewStore.getState().setView("board")).not.toThrow();
-    expect(useTicketViewStore.getState().view).toBe("board");
-    expect(() => useTicketViewStore.persist.rehydrate()).not.toThrow();
+    expect(() => useTaskViewStore.getState().setView("board")).not.toThrow();
+    expect(useTaskViewStore.getState().view).toBe("board");
+    expect(() => useTaskViewStore.persist.rehydrate()).not.toThrow();
   });
 });

@@ -14,9 +14,9 @@ const Host = ({ isPending = false, onConfirm = vi.fn() }) => {
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
-        title="Delete HD-000042?"
+        title="Delete TASK-000042?"
         description="This also deletes its 3 comments. This can't be undone."
-        confirmLabel="Delete ticket"
+        confirmLabel="Delete task"
         isPending={isPending}
         onConfirm={onConfirm}
       />
@@ -62,7 +62,7 @@ describe("ConfirmDialog", () => {
 
     const dialog = await screen.findByRole("dialog");
     const cancel = within(dialog).getByRole("button", { name: "Cancel" });
-    const confirm = within(dialog).getByRole("button", { name: "Delete ticket" });
+    const confirm = within(dialog).getByRole("button", { name: "Delete task" });
 
     expect(cancel.compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -73,7 +73,7 @@ describe("ConfirmDialog", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveAccessibleName("Delete HD-000042?");
+    expect(dialog).toHaveAccessibleName("Delete TASK-000042?");
     expect(dialog).toHaveAccessibleDescription(
       "This also deletes its 3 comments. This can't be undone.",
     );
@@ -110,7 +110,7 @@ describe("ConfirmDialog", () => {
     renderInProviders(<Host onConfirm={onConfirm} />);
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(await screen.findByRole("button", { name: "Delete ticket" }));
+    await user.click(await screen.findByRole("button", { name: "Delete task" }));
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });

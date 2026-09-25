@@ -1,27 +1,28 @@
 import {
   parseReference,
-  type PaginatedTickets,
-  type TicketListQuery,
-  type TicketSort,
+  type PaginatedTasks,
+  type TaskListQuery,
+  type TaskSort,
 } from "@helpdesk/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { paginate, toSkipTake } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
-import { serializeTicketSummary } from "../lib/serialize.js";
-import { PRIORITY_RANK, STATUS_RANK } from "./ticket-status.js";
+import { serializeTaskSummary } from "../lib/serialize.js";
+import { summaryInclude } from "./task-read.js";
+import { PRIORITY_RANK, STATUS_RANK } from "./task-status.js";
 
 /**
- * The list query: `GET /tickets`'s filtering, sorting, and paging.
+ * The list query: `GET /tasks`'s filtering, sorting, and paging.
  *
- * Its own module rather than part of `ticket.service.ts` because it is the
+ * Its own module rather than part of `task.service.ts` because it is the
  * largest single piece of logic in the API and the most-graded one — task 3 of
  * the brief. Behavioural spec:
- * `docs/features/Ticket_Query_Filter_Sort_Page.md`.
+ * `docs/features/Task_Query_Filter_Sort_Page.md`.
  *
  * `parseReference` is **imported** from `@helpdesk/contracts`, not reimplemented
  * here. The web app parses references too, and two parsers that disagree about
- * whether `HD-4` means ticket 4 or tickets 40–49 is a bug nobody would look for.
+ * whether `TASK-4` means task 4 or tasks 40–49 is a bug nobody would look for.
  */
 
 /* ------------------------------------------------------------------ *
@@ -38,7 +39,7 @@ const startOfUtcDay = (isoDate: string): Date => new Date(`${isoDate}T00:00:00.0
  *
  * `createdTo=2026-08-11` means "everything created on the 11th", so the bound is
  * `< 2026-08-12T00:00:00.000Z`. A naive `lte: 2026-08-11T00:00:00.000Z` excludes
- * every ticket created that day — it reads to the user as "the date filter is
+ * every task created that day — it reads to the user as "the date filter is
  * off by one" and is the single most common date-filter bug.
  *
  * Arithmetic in milliseconds rather than `setUTCDate`, and safe to do so because
@@ -109,7 +110,7 @@ export const escapeLikePattern = (value: string): string =>
  * escape character treated as a wildcard.
  *
  * Why not simply always take the raw path: it charges every search for a problem
- * only some searches have. An `id IN (…)` page gives up `Ticket_createdAt_idx`
+ * only some searches have. An `id IN (…)` page gives up `Task_createdAt_idx`
  * and takes `USE TEMP B-TREE FOR ORDER BY`, and the id list is one bind parameter
  * per match against SQLite's `SQLITE_MAX_VARIABLE_NUMBER`. `?q=printer` — which
  * has no wildcard in it at all — should pay neither.
@@ -119,7 +120,7 @@ const LIKE_METACHARACTERS = new RegExp(`[%_${escapeRegExp(LIKE_ESCAPE_CHAR)}]`);
 export const needsEscapedSearch = (q: string): boolean => LIKE_METACHARACTERS.test(q);
 
 /**
- * Resolves `q` to a set of ticket ids with a raw, parameterized `LIKE … ESCAPE`.
+ * Resolves `q` to a set of task ids with a raw, parameterized `LIKE … ESCAPE`.
  *
  * Called only for a `q` that `needsEscapedSearch()` — see the equivalence above.
  *
@@ -143,7 +144,7 @@ export const needsEscapedSearch = (q: string): boolean => LIKE_METACHARACTERS.te
  * fail the query outright rather than merely run slowly. It also costs the
  * ordering index: an `id IN (…)` page plans as `SEARCH … USING INTEGER PRIMARY
  * KEY` plus a `USE TEMP B-TREE FOR ORDER BY`, where the unfiltered page walks
- * `Ticket_createdAt_idx` in order.
+ * `Task_createdAt_idx` in order.
  *
  * All of that is fine at this scale — `docs/engineering/DATABASE.md` already
  * records `q` as a full scan and the seed is 63 rows — and the answer when it
@@ -170,12 +171,12 @@ export async function resolveTextSearch(
    * emits (say) `#%` while SQLite still treats `!` as the escape character, so
    * `#` and `%` both reach `LIKE` as ordinary characters and every wildcard
    * search silently returns zero rows with `meta.total: 0` — no error, no log.
-   * `ticket-query.test.ts` asserts the two agree by round-tripping a term
+   * `task-query.test.ts` asserts the two agree by round-tripping a term
    * containing the escape character against a real row, so the disagreement
    * fails a test rather than a user's search.
    */
   const rows = await client.$queryRaw<{ id: number }[]>`
-    SELECT id FROM "Ticket"
+    SELECT id FROM "Task"
     WHERE title LIKE ${pattern} ESCAPE '!'
        OR description LIKE ${pattern} ESCAPE '!'
   `;
@@ -184,14 +185,16 @@ export async function resolveTextSearch(
 }
 
 /** The filter fields `buildWhere` reads. A subset of the parsed query. */
-export type TicketWhereQuery = Pick<
-  TicketListQuery,
+export type TaskWhereQuery = Pick<
+  TaskListQuery,
   | "status"
   | "priority"
-  | "category"
+  | "project"
   | "assignee"
   | "assigneeIsNull"
-  | "requesterEmail"
+  | "createdBy"
+  | "claimedBy"
+  | "parentId"
   | "q"
   | "createdFrom"
   | "createdTo"
@@ -205,18 +208,18 @@ export type TicketWhereQuery = Pick<
  * nested inside that `AND`. Hoisting the `q` branches up to the top level is the
  * classic bug here: `title contains "vpn"` sitting beside the status filter as a
  * sibling `OR` makes search *widen* the result set past the active filters
- * instead of narrowing it, so a `resolved` ticket appears in a view filtered to
+ * instead of narrowing it, so a `resolved` task appears in a view filtered to
  * `open`. `docs/engineering/TESTING.md` requires a test for precisely that.
  *
  * Three translations that are not one-to-one with the param name:
  *
  * 1. **`status` / `priority` filter on the rank column *and* the text column.**
  *    The rank term is the one an index can serve —
- *    `Ticket_statusRank_createdAt_idx` is what makes the common view (a status
+ *    `Task_statusRank_createdAt_idx` is what makes the common view (a status
  *    filter, newest first) an index search rather than a table scan plus a sort,
  *    and `status` itself carries no index. The text term is what makes the answer
  *    *correct*: the two columns are only in bijection while every writer goes
- *    through `applyTicketRanks()`, and `statusRank` defaults to `0` in the
+ *    through `applyTaskRanks()`, and `statusRank` defaults to `0` in the
  *    schema, so any insert that skips the helper (raw SQL, a seed, a future
  *    service) lands a row under `?status=open` that is not open. Filtering on the
  *    rank alone would make that drift a wrong *result set* and a wrong
@@ -231,7 +234,7 @@ export type TicketWhereQuery = Pick<
  *    rows, and a smaller `meta.total`, than sending no status filter at all.
  *    That is the intended trade (a drifted row is corrupt data, and hiding it
  *    beats reporting it under a status it does not have), and it stays
- *    hypothetical only while `applyTicketRanks()` is the sole writer of the rank
+ *    hypothetical only while `applyTaskRanks()` is the sole writer of the rank
  *    columns. The stage-9 seed is exactly the kind of write that could bypass it.
  *    Both halves are pinned by tests; do not drop either predicate.
  *
@@ -246,13 +249,10 @@ export type TicketWhereQuery = Pick<
  * No `mode: "insensitive"` anywhere — the SQLite connector does not support it.
  * Exact-match filters compare canonical values instead: `category` is an enum,
  * `requesterEmail` is lowercased by the schema and stored lowercase, and
- * `assignee` options come from `GET /tickets/facets`.
+ * `assignee` options come from `GET /tasks/facets`.
  */
-export function buildWhere(
-  query: TicketWhereQuery,
-  matchedIds?: number[],
-): Prisma.TicketWhereInput {
-  const clauses: Prisma.TicketWhereInput[] = [];
+export function buildWhere(query: TaskWhereQuery, matchedIds?: number[]): Prisma.TaskWhereInput {
+  const clauses: Prisma.TaskWhereInput[] = [];
 
   if (query.status !== undefined) {
     clauses.push({
@@ -266,8 +266,8 @@ export function buildWhere(
       priority: { in: query.priority },
     });
   }
-  if (query.category !== undefined) {
-    clauses.push({ category: { in: query.category } });
+  if (query.project !== undefined) {
+    clauses.push({ project: { in: query.project } });
   }
 
   if (query.assignee !== undefined) {
@@ -277,8 +277,14 @@ export function buildWhere(
     clauses.push({ assignee: query.assigneeIsNull ? null : { not: null } });
   }
 
-  if (query.requesterEmail !== undefined) {
-    clauses.push({ requesterEmail: query.requesterEmail });
+  if (query.createdBy !== undefined) {
+    clauses.push({ createdBy: query.createdBy });
+  }
+  if (query.claimedBy !== undefined) {
+    clauses.push({ claimedBy: query.claimedBy });
+  }
+  if (query.parentId !== undefined) {
+    clauses.push({ parentId: query.parentId });
   }
 
   if (query.createdFrom !== undefined) {
@@ -300,13 +306,13 @@ export function buildWhere(
     // Two spellings of the same query. `contains` for a term escaping would not
     // change (see `needsEscapedSearch`), which keeps the ordering index and has
     // no id list; the resolved id set for a term carrying `%`, `_`, or `!`.
-    const branches: Prisma.TicketWhereInput[] =
+    const branches: Prisma.TaskWhereInput[] =
       matchedIds === undefined
         ? [{ title: { contains: query.q } }, { description: { contains: query.q } }]
         : [{ id: { in: matchedIds } }];
 
-    // A `q` that parses as a reference (`HD-42`, `hd-000042`, `#42`, `42`) also
-    // matches that id exactly, so pasting a ticket number into search finds it.
+    // A `q` that parses as a reference (`TASK-42`, `task-000042`, `#42`, `42`) also
+    // matches that id exactly, so pasting a task number into search finds it.
     const referenceId = parseReference(query.q);
     if (referenceId !== null) branches.push({ id: referenceId });
 
@@ -328,10 +334,10 @@ export function buildWhere(
  * `status` and `priority` are the two that are not themselves: SQLite would sort
  * them alphabetically, which puts `high` before `urgent` and `closed` before
  * `open` — both meaningless. The integer rank columns encode lifecycle and
- * severity order instead. Declared as a `Record<TicketSortField, …>` so adding a
+ * severity order instead. Declared as a `Record<TaskSortField, …>` so adding a
  * sortable field to the contract without deciding its column is a compile error.
  */
-const SORT_COLUMN: Record<TicketSort["field"], keyof Prisma.TicketOrderByWithRelationInput> = {
+const SORT_COLUMN: Record<TaskSort["field"], keyof Prisma.TaskOrderByWithRelationInput> = {
   id: "id",
   createdAt: "createdAt",
   updatedAt: "updatedAt",
@@ -352,7 +358,7 @@ const SORT_COLUMN: Record<TicketSort["field"], keyof Prisma.TicketOrderByWithRel
  * It is omitted when `id` is already the sort field — a second clause on the
  * same column can never break a tie, since there are none.
  */
-export function buildOrderBy(sort: TicketSort): Prisma.TicketOrderByWithRelationInput[] {
+export function buildOrderBy(sort: TaskSort): Prisma.TaskOrderByWithRelationInput[] {
   const primary = { [SORT_COLUMN[sort.field]]: sort.direction };
   return sort.field === "id" ? [primary] : [primary, { id: "desc" }];
 }
@@ -362,59 +368,43 @@ export function buildOrderBy(sort: TicketSort): Prisma.TicketOrderByWithRelation
  * ------------------------------------------------------------------ */
 
 /**
- * List summaries are returned with a `commentCount` aggregate rather than a
- * comment array, so the list can never fan out into N comment queries.
- */
-const withCommentCount = {
-  _count: { select: { comments: true } },
-} satisfies Prisma.TicketInclude;
-
-/**
- * A page of tickets plus its `meta`.
+ * A page of tasks plus its `meta`.
  *
- * **Every query runs inside one transaction**, so all of them observe the same
- * snapshot. Issued separately, a write landing between the page query and the
- * count yields a `meta.total` that disagrees with the page it describes — a
+ * **The page and the count run as one batch transaction**, so both observe the
+ * same snapshot. Issued separately, a write landing between the page query and
+ * the count yields a `meta.total` that disagrees with the page it describes — a
  * pager reporting 21 results over one page of 20 with no second page to visit.
  *
- * The `q` prefilter — taken only for a term carrying a `LIKE` metacharacter — is
- * inside the same transaction for exactly that reason: an id set resolved before
- * the transaction opened could name a ticket that no longer exists, or miss one
- * created a millisecond later, and the resulting `total` would describe neither
- * state.
- *
- * That prefilter is why this is the **interactive** form rather than the
- * `$transaction([findMany, count])` array form the plan describes: the array
- * form cannot feed one query's result into the next. Both queries still run as
- * one unit inside it, and the snapshot guarantee is strictly stronger, since it
- * now covers three queries rather than two.
+ * The `q` prefilter — taken only for a term carrying a `LIKE` metacharacter —
+ * runs **before** that batch, not inside it: reads never open an interactive
+ * transaction (`lib/prisma.ts`). The page and the count still agree with each
+ * other, because both filter by the same resolved id set; a task created after
+ * the prefilter ran is simply absent from both until the next request.
  *
  * Returns serialized contract types, not Prisma rows: stage 8's route sends what
  * this returns and therefore cannot forget `serialize.ts`.
  */
-export async function listTickets(query: TicketListQuery): Promise<PaginatedTickets> {
-  const [rows, total] = await prisma.$transaction(async (tx) => {
-    // The raw prefilter is the exception, not the rule: only a `q` carrying a
-    // `LIKE` metacharacter needs it, and only that `q` pays for it.
-    const matchedIds =
-      query.q !== undefined && needsEscapedSearch(query.q)
-        ? await resolveTextSearch(tx, query.q)
-        : undefined;
+export async function listTasks(query: TaskListQuery): Promise<PaginatedTasks> {
+  // The raw prefilter is the exception, not the rule: only a `q` carrying a
+  // `LIKE` metacharacter needs it, and only that `q` pays for it.
+  const matchedIds =
+    query.q !== undefined && needsEscapedSearch(query.q)
+      ? await resolveTextSearch(prisma, query.q)
+      : undefined;
 
-    const where = buildWhere(query, matchedIds);
+  const where = buildWhere(query, matchedIds);
 
-    return Promise.all([
-      tx.ticket.findMany({
-        where,
-        orderBy: buildOrderBy(query.sort),
-        ...toSkipTake(query),
-        include: withCommentCount,
-      }),
-      tx.ticket.count({ where }),
-    ]);
-  });
+  const [rows, total] = await prisma.$transaction([
+    prisma.task.findMany({
+      where,
+      orderBy: buildOrderBy(query.sort),
+      ...toSkipTake(query),
+      include: summaryInclude,
+    }),
+    prisma.task.count({ where }),
+  ]);
 
-  return paginate(rows.map(serializeTicketSummary), {
+  return paginate(rows.map(serializeTaskSummary), {
     page: query.page,
     pageSize: query.pageSize,
     total,

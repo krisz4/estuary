@@ -1,10 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { createTicket, getTicketStatus } from "./helpers";
+import { createTask, getTask, pickOption } from "./helpers";
 
 /**
- * Spec 6 — the board, and the one assertion no component test can make: that a
- * real mouse drag moves a ticket.
+ * The board: ten status columns in four lanes, and the one assertion no
+ * component test can make — that a real mouse drag moves a task.
  *
  * `@dnd-kit` is driven entirely by pointer geometry. Its `MouseSensor` waits for
  * 6px of movement before a press becomes a drag, and its collision detection
@@ -13,14 +13,20 @@ import { createTicket, getTicketStatus } from "./helpers";
  * app. The component suite therefore drives the *other* entry point into the
  * same `move()` (the card's status select), and this spec drives the pointer.
  *
- * It creates its own ticket, like every other mutating spec, and finds it with
- * `?q=` so the board shows one card per column and the drag has an unambiguous
- * target.
+ * The mutating tests create their own task and open the board with `?q=` its
+ * title, so each column holds at most that one card and every drag has an
+ * unambiguous source and target.
  */
 
-/** The `<section>` for one column — labelled with its status and live count. */
+/** One status column — a `<section>` labelled with its status and live count. */
 const column = (page: Page, status: string): Locator =>
   page.getByRole("region", { name: new RegExp(`^${status} —`) });
+
+/** One lane — Plan, Doing, Waiting, Closed — labelled by its heading. */
+const lane = (page: Page, name: string): Locator => page.getByRole("region", { name, exact: true });
+
+const cardIn = (page: Page, status: string, reference: string): Locator =>
+  column(page, status).getByRole("listitem").filter({ hasText: reference });
 
 /**
  * A press-move-release drag, in steps.
@@ -30,111 +36,165 @@ const column = (page: Page, status: string): Locator =>
  * pointer went — one event does both at once and the drop lands wherever the
  * library last believed the cursor was. Ten intermediate moves is what a real
  * hand produces and what the collision detection is written against.
+ *
+ * The card is grabbed by its **title**, a few pixels in from the left edge: the
+ * listeners are on the whole card, but its lower half is the status select,
+ * which stops `pointerdown` so that a press on it opens the listbox instead.
  */
 const dragTo = async (page: Page, card: Locator, target: Locator): Promise<void> => {
+  await card.scrollIntoViewIfNeeded();
   const from = await card.boundingBox();
   const to = await target.boundingBox();
   expect(from, "the card has no layout").not.toBeNull();
   expect(to, "the target column has no layout").not.toBeNull();
 
-  await page.mouse.move(from!.x + from!.width / 2, from!.y + 12);
+  const startX = from!.x + 24;
+  const startY = from!.y + 40;
+  await page.mouse.move(startX, startY);
   await page.mouse.down();
   // Past the 6px activation threshold first, so the sensor is dragging before
   // the pointer is over the target.
-  await page.mouse.move(from!.x + from!.width / 2, from!.y + 32, { steps: 5 });
+  await page.mouse.move(startX + 4, startY + 20, { steps: 5 });
   await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, { steps: 10 });
   await page.mouse.up();
 };
 
-test("drags a ticket from Open to In progress, and the move persists", async ({
-  page,
-  request,
-}) => {
-  const ticket = await createTicket(request);
+test("renders the four lanes, with Closed collapsed until asked for", async ({ page }) => {
+  await page.goto("/tasks/board");
 
-  await page.goto(`/tickets/board?q=${encodeURIComponent(ticket.title)}`);
+  for (const name of ["Plan", "Doing", "Waiting", "Closed"]) {
+    await expect(lane(page, name).getByRole("heading", { level: 2, name })).toBeVisible();
+  }
 
-  const openColumn = column(page, "Open");
-  const inProgressColumn = column(page, "In progress");
+  // Every open status is a column, in its lane.
+  const columns: Record<string, string[]> = {
+    Plan: ["Backlog", "Needs refinement", "To do"],
+    Doing: ["In progress", "Needs QA"],
+    Waiting: ["Blocked", "Needs decision", "Needs action"],
+  };
+  for (const [name, statuses] of Object.entries(columns)) {
+    for (const status of statuses) {
+      await expect(
+        lane(page, name).getByRole("region", { name: new RegExp(`^${status} —`) }),
+      ).toBeVisible();
+    }
+  }
 
-  const card = openColumn.getByRole("listitem").filter({ hasText: ticket.reference });
-  await expect(card).toBeVisible();
-  await expect(openColumn).toHaveAccessibleName("Open — 1 ticket");
-
-  await dragTo(page, card, inProgressColumn);
-
-  await expect(
-    inProgressColumn.getByRole("listitem").filter({ hasText: ticket.reference }),
-  ).toBeVisible();
-  await expect(openColumn.getByRole("listitem")).toHaveCount(0);
-
-  // The counts move with the card, not only the card.
-  await expect(inProgressColumn).toHaveAccessibleName("In progress — 1 ticket");
-  await expect(openColumn).toHaveAccessibleName("Open — 0 tickets");
-
-  /*
-    The reload is what separates a persisted move from an optimistic one. The
-    board holds an in-flight move in local state on purpose, so without this the
-    assertions above would pass just as well against a PATCH that 500'd.
-  */
-  await page.reload();
-  await expect(
-    column(page, "In progress").getByRole("listitem").filter({ hasText: ticket.reference }),
-  ).toBeVisible();
-
-  expect(await getTicketStatus(request, ticket.id)).toBe(200);
-});
-
-test("moves a ticket with the keyboard, through the card's status select", async ({
-  page,
-  request,
-}) => {
-  const ticket = await createTicket(request);
-
-  await page.goto(`/tickets/board?q=${encodeURIComponent(ticket.title)}`);
-
-  const card = column(page, "Open").getByRole("listitem").filter({ hasText: ticket.reference });
-  await expect(card).toBeVisible();
-
-  // The accessible path is a real select, not a floating card moved by arrow
-  // keys — see the note in `BoardCard.tsx`.
-  await page
-    .getByRole("combobox", { name: `Move ticket ${ticket.reference} to another status` })
+  // Finished work is the pile that only grows: not rendered, not fetched, until opened.
+  await expect(column(page, "Done")).toHaveCount(0);
+  await lane(page, "Closed")
+    .getByRole("button", { name: /^Show closed/ })
     .click();
-  await page.getByRole("option", { name: "Resolved" }).click();
-
-  await expect(
-    column(page, "Resolved").getByRole("listitem").filter({ hasText: ticket.reference }),
-  ).toBeVisible();
-
-  await page.reload();
-  await expect(
-    column(page, "Resolved").getByRole("listitem").filter({ hasText: ticket.reference }),
-  ).toBeVisible();
+  await expect(column(page, "Done")).toBeVisible();
+  await expect(column(page, "Deferred")).toBeVisible();
+  await expect(column(page, "Done").getByRole("listitem").first()).toBeVisible();
 });
 
 /**
- * The board is the one screen in the app that scrolls sideways *on purpose* — a
- * kanban column is a queue, and four of them do not fit on a phone. What must
- * not scroll sideways is the **document**: the columns scroll inside their own
- * container, exactly as the design guidelines require of any wide content.
+ * Tall enough that the Waiting lane is on screen without scrolling: a drag
+ * whose target is below the fold would be testing dnd-kit's auto-scroll, not
+ * the board.
  */
-test.describe("at 375px", () => {
-  test.use({ viewport: { width: 375, height: 812 } });
+test.describe("dragging", () => {
+  test.use({ viewport: { width: 1280, height: 1200 } });
 
-  test("scrolls the columns inside their own container, not the page", async ({ page }) => {
-    await page.goto("/tickets/board");
+  test("dropping on Blocked asks why: cancelling puts the card back, confirming moves it", async ({
+    page,
+    request,
+  }) => {
+    const task = await createTask(request);
+    const reason = "Needs the staging database restored first.";
 
-    await expect(column(page, "Open")).toBeVisible();
+    await page.goto(`/tasks/board?q=${encodeURIComponent(task.title)}`);
+
+    await expect(cardIn(page, "Backlog", task.reference)).toBeVisible();
+    await expect(column(page, "Backlog")).toHaveAccessibleName("Backlog — 1 task");
+
+    /* ----------------------- Drop, then cancel ----------------------- */
+
+    await dragTo(page, cardIn(page, "Backlog", task.reference), column(page, "Blocked"));
+
+    const dialog = page.getByRole("dialog", { name: `Move ${task.reference} to Blocked` });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+
+    // Back where it started, and nothing was written.
+    await expect(cardIn(page, "Backlog", task.reference)).toBeVisible();
+    await expect(column(page, "Blocked").getByRole("listitem")).toHaveCount(0);
+    expect((await getTask(request, task.id)).status).toBe("backlog");
+
+    /* ----------------------- Drop, then confirm ---------------------- */
+
+    await dragTo(page, cardIn(page, "Backlog", task.reference), column(page, "Blocked"));
+
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Why is it blocked?").fill(reason);
+    await dialog.getByRole("button", { name: "Move to Blocked" }).click();
+    await expect(dialog).toBeHidden();
+
+    await expect(cardIn(page, "Blocked", task.reference)).toBeVisible();
+    await expect(column(page, "Backlog").getByRole("listitem")).toHaveCount(0);
+    // The counts move with the card, not only the card.
+    await expect(column(page, "Blocked")).toHaveAccessibleName("Blocked — 1 task");
+    await expect(column(page, "Backlog")).toHaveAccessibleName("Backlog — 0 tasks");
+
+    /*
+      The reload is what separates a persisted move from an optimistic one: the
+      board holds an in-flight move in local state on purpose, so without it the
+      assertions above would pass just as well against a transition that 500'd.
+    */
+    await page.reload();
+    await expect(cardIn(page, "Blocked", task.reference)).toBeVisible();
+
+    const stored = await getTask(request, task.id);
+    expect(stored).toMatchObject({ status: "blocked", statusNote: reason });
+  });
+});
+
+test("moves a card with its status select — the keyboard path", async ({ page, request }) => {
+  const task = await createTask(request);
+
+  await page.goto(`/tasks/board?q=${encodeURIComponent(task.title)}`);
+  await expect(cardIn(page, "Backlog", task.reference)).toBeVisible();
+
+  // The task has acceptance criteria, so To do needs nothing more: no dialog.
+  await pickOption(
+    page,
+    page.getByRole("combobox", { name: `Move task ${task.reference} to another status` }),
+    "To do",
+  );
+
+  await expect(cardIn(page, "To do", task.reference)).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.reload();
+  await expect(cardIn(page, "To do", task.reference)).toBeVisible();
+  expect((await getTask(request, task.id)).status).toBe("todo");
+});
+
+/**
+ * Each lane is a sideways-scrolling row below `lg` — ten columns do not fit a
+ * phone. What must not scroll sideways is the **document**: the columns scroll
+ * inside their lane, exactly as the design guidelines require of any wide
+ * content.
+ */
+test.describe("at 360px", () => {
+  test.use({ viewport: { width: 360, height: 800 } });
+
+  test("scrolls each lane's columns inside the lane, not the page", async ({ page }) => {
+    await page.goto("/tasks/board");
+
+    await expect(column(page, "Backlog")).toBeVisible();
 
     const documentOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(documentOverflow).toBeLessThanOrEqual(1);
 
-    // The board itself, on the other hand, has more content than fits — which is
-    // what makes the fourth column reachable.
-    const scroller = page.locator("div.overflow-x-auto").first();
+    // The lane, on the other hand, has more than fits — which is what makes its
+    // third column reachable.
+    const scroller = lane(page, "Plan").locator("div.overflow-x-auto");
     const canScroll = await scroller.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
     expect(canScroll).toBe(true);
   });
@@ -142,109 +202,99 @@ test.describe("at 375px", () => {
 
 /**
  * The board grows with its content, so the document ends where the board ends.
- *
- * It used to cap each column at `calc(100vh - 19rem)`, which made the board one
- * window tall however much it held — and arriving from a long list left a
- * screenful of dead space between the last card and the footer. The assertion is
- * on the gap between the two rather than on any height, because that is the
- * thing the user saw.
+ * The assertion is on the gap between the last lane and the footer rather than
+ * on any height, because that gap is the thing a user would see.
  */
 test("leaves no dead space under the board after switching from the list", async ({ page }) => {
-  await page.goto("/tickets");
-  await expect(page.getByRole("heading", { name: "Tickets", level: 1 })).toBeVisible();
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", level: 1 })).toBeVisible();
 
   await page
-    .getByRole("navigation", { name: "Ticket view" })
+    .getByRole("navigation", { name: "Task view" })
     .getByRole("link", { name: "Board" })
     .click();
-  await expect(column(page, "Open")).toBeVisible();
-  await expect(column(page, "Open").getByRole("listitem").first()).toBeVisible();
+  await expect(column(page, "Backlog").getByRole("listitem").first()).toBeVisible();
 
   const gap = await page.evaluate(() => {
-    const columns = [...document.querySelectorAll("main section")];
-    const boardBottom = Math.max(...columns.map((node) => node.getBoundingClientRect().bottom));
+    const sections = [...document.querySelectorAll("main section")];
+    const boardBottom = Math.max(...sections.map((node) => node.getBoundingClientRect().bottom));
     const footerTop = document.querySelector("footer")!.getBoundingClientRect().top;
     return footerTop - boardBottom;
   });
 
-  // Padding below the board, not a screenful of nothing.
   expect(gap).toBeGreaterThanOrEqual(0);
   expect(gap).toBeLessThan(120);
 });
 
 /**
  * The status filter picks **columns** on this screen rather than filtering rows
- * inside them, which is the one place the board reads the shared URL state
- * differently from the list. Worth an end-to-end check because it is the kind of
- * decision a later refactor "corrects" by accident.
+ * inside them — the one place the board reads the shared URL state differently
+ * from the list. A filter naming a closed status opens the Closed lane, because
+ * selecting a column that stays hidden would look like it did nothing.
  */
 test("shows only the filtered statuses as columns, and keeps filters across the view switch", async ({
   page,
 }) => {
-  await page.goto("/tickets/board?status=open&status=closed&priority=high");
+  await page.goto("/tasks/board?status=todo&status=done&priority=high");
 
-  await expect(column(page, "Open")).toBeVisible();
-  await expect(column(page, "Closed")).toBeVisible();
-  await expect(page.getByRole("region", { name: /^Resolved —/ })).toHaveCount(0);
+  await expect(column(page, "To do")).toBeVisible();
+  await expect(column(page, "Done")).toBeVisible();
+  await expect(column(page, "Backlog")).toHaveCount(0);
+  await expect(column(page, "Blocked")).toHaveCount(0);
 
-  await page.getByRole("link", { name: "List" }).click();
+  const views = page.getByRole("navigation", { name: "Task view" });
+  await views.getByRole("link", { name: "List" }).click();
 
-  await expect(page).toHaveURL(/\/tickets\?.*priority=high/);
+  await expect(page).toHaveURL(/\/tasks\?.*priority=high/);
   await expect(page.locator("table")).toBeVisible();
 
-  await page.getByRole("link", { name: "Board" }).click();
-  await expect(page).toHaveURL(/\/tickets\/board\?.*priority=high/);
+  await views.getByRole("link", { name: "Board" }).click();
+  await expect(page).toHaveURL(/\/tasks\/board\?.*priority=high/);
 });
 
 /**
- * The view survives leaving the board — the regression the ticket-view store
- * was added for.
- *
- * Worth doing in a browser rather than only in jsdom: the preference is held in
- * `localStorage`, which the component environment cannot exercise, and the
- * point of persisting it is that it outlives a *reload* as well as a
- * navigation.
+ * The view survives leaving the board — the regression the task-view store was
+ * added for. Worth doing in a browser: the preference is held in
+ * `localStorage`, and the point of persisting it is that it outlives a reload.
  */
-test("returns to the board, not the list, after opening a ticket from it", async ({
+test("returns to the board, not the list, after opening a task from it", async ({
   page,
   request,
 }) => {
-  const ticket = await createTicket(request);
-  const filtered = `/tickets/board?q=${encodeURIComponent(ticket.title)}`;
+  const task = await createTask(request);
 
-  await page.goto(filtered);
+  await page.goto(`/tasks/board?q=${encodeURIComponent(task.title)}`);
 
-  await page.getByRole("link", { name: ticket.reference }).first().click();
-  await expect(page).toHaveURL(new RegExp(`/tickets/${ticket.id}$`));
+  await page.getByRole("link", { name: task.reference }).first().click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${task.id}$`));
 
-  await page.getByRole("link", { name: /back to tickets/i }).click();
+  await page.getByRole("link", { name: "Back to tasks" }).click();
 
   // The filter rides along as it always did; the *view* is what used to be lost.
-  await expect(page).toHaveURL(new RegExp(`/tickets/board\\?.*q=`));
-  await expect(column(page, "Open")).toBeVisible();
+  await expect(page).toHaveURL(/\/tasks\/board\?.*q=/);
+  await expect(cardIn(page, "Backlog", task.reference)).toBeVisible();
 });
 
 test("still returns to the board after a reload, and to the list once the user switches back", async ({
   page,
   request,
 }) => {
-  const ticket = await createTicket(request);
+  const task = await createTask(request);
 
-  await page.goto("/tickets/board");
+  await page.goto("/tasks/board");
+  await expect(column(page, "Backlog")).toBeVisible();
   // A fresh load of the detail page: no history entry to walk back through and
   // no router state — only the stored preference can answer.
-  await page.goto(`/tickets/${ticket.id}`);
+  await page.goto(`/tasks/${task.id}`);
 
-  await expect(page.getByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Back to tasks" })).toHaveAttribute(
     "href",
-    "/tickets/board",
+    "/tasks/board",
   );
 
-  await page.goto("/tickets");
-  await page.goto(`/tickets/${ticket.id}`);
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks", level: 1 })).toBeVisible();
+  await page.goto(`/tasks/${task.id}`);
 
-  await expect(page.getByRole("link", { name: /back to tickets/i })).toHaveAttribute(
-    "href",
-    "/tickets",
-  );
+  await expect(page.getByRole("link", { name: "Back to tasks" })).toHaveAttribute("href", "/tasks");
 });

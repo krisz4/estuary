@@ -13,8 +13,8 @@ import { cn } from "@/lib/cn";
  * over-the-end page). A second copy of that arithmetic here would be a second
  * chance to get it wrong.
  *
- * Lives in `components/` rather than `features/tickets/` because it knows
- * nothing about tickets — only about `PaginationMeta` and two callbacks.
+ * Lives in `components/` rather than `features/tasks/` because it knows
+ * nothing about tasks — only about `PaginationMeta` and two callbacks.
  */
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -64,7 +64,7 @@ export type PaginationProps = {
   meta: PaginationMeta;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
-  /** The noun in "Showing 1–20 of 63 tickets". */
+  /** The noun in "Showing 1–20 of 63 tasks". */
   itemLabel?: { singular: string; plural: string };
   className?: string;
 };
@@ -73,7 +73,7 @@ export const Pagination = ({
   meta,
   onPageChange,
   onPageSizeChange,
-  itemLabel = { singular: "ticket", plural: "tickets" },
+  itemLabel = { singular: "task", plural: "tasks" },
   className,
 }: PaginationProps) => {
   const { page, pageSize, total, totalPages, hasNextPage, hasPrevPage } = meta;
@@ -115,7 +115,7 @@ export const Pagination = ({
           options={sizeOptions}
           value={String(pageSize)}
           onValueChange={(value) => onPageSizeChange(Number(value))}
-          aria-label="Tickets per page"
+          aria-label="Tasks per page"
           className="h-8 w-auto min-w-[8.5rem] text-xs"
         />
 

@@ -3,9 +3,11 @@ import {
   API_ERROR_CODES,
   API_ERROR_STATUS,
   apiErrorResponseSchema,
+  claimConflictDetailsSchema,
+  dependencyCycleDetailsSchema,
   isApiErrorCode,
-  statusTransitionErrorDetailsSchema,
   validationErrorDetailsSchema,
+  versionConflictDetailsSchema,
 } from "./errors.js";
 
 describe("ApiErrorCode", () => {
@@ -16,9 +18,15 @@ describe("ApiErrorCode", () => {
     expect([...API_ERROR_CODES]).toEqual([
       "VALIDATION_ERROR",
       "AT_LEAST_ONE_FIELD",
-      "TICKET_NOT_FOUND",
+      "UNAUTHORIZED",
+      "ACTOR_NOT_PERMITTED",
+      "TASK_NOT_FOUND",
       "COMMENT_NOT_FOUND",
-      "INVALID_STATUS_TRANSITION",
+      "VERSION_CONFLICT",
+      "TASK_ALREADY_CLAIMED",
+      "NOT_CLAIM_HOLDER",
+      "DEPENDENCY_CYCLE",
+      "NO_OPEN_DECISION",
       "MALFORMED_JSON",
       "PAYLOAD_TOO_LARGE",
       "NOT_FOUND",
@@ -31,13 +39,27 @@ describe("ApiErrorCode", () => {
     expect(API_ERROR_CODES).not.toContain("CONFLICT");
   });
 
+  it("omits INVALID_STATUS_TRANSITION, retired with the helpdesk lifecycle", () => {
+    // What a status requires is now the shape of the transition payload, so a
+    // missing reason is a VALIDATION_ERROR on that field — there is no from→to
+    // table left to violate.
+    expect(API_ERROR_CODES).not.toContain("INVALID_STATUS_TRANSITION");
+    expect(isApiErrorCode("INVALID_STATUS_TRANSITION")).toBe(false);
+  });
+
   it("maps every code to the status the contract documents", () => {
     expect(API_ERROR_STATUS).toEqual({
       VALIDATION_ERROR: 422,
       AT_LEAST_ONE_FIELD: 422,
-      TICKET_NOT_FOUND: 404,
+      UNAUTHORIZED: 401,
+      ACTOR_NOT_PERMITTED: 403,
+      TASK_NOT_FOUND: 404,
       COMMENT_NOT_FOUND: 404,
-      INVALID_STATUS_TRANSITION: 409,
+      VERSION_CONFLICT: 409,
+      TASK_ALREADY_CLAIMED: 409,
+      NOT_CLAIM_HOLDER: 409,
+      DEPENDENCY_CYCLE: 409,
+      NO_OPEN_DECISION: 409,
       MALFORMED_JSON: 400,
       PAYLOAD_TOO_LARGE: 413,
       NOT_FOUND: 404,
@@ -46,7 +68,7 @@ describe("ApiErrorCode", () => {
   });
 
   it("narrows an unknown wire value", () => {
-    expect(isApiErrorCode("TICKET_NOT_FOUND")).toBe(true);
+    expect(isApiErrorCode("TASK_NOT_FOUND")).toBe(true);
     expect(isApiErrorCode("METHOD_NOT_ALLOWED")).toBe(false);
     expect(isApiErrorCode(404)).toBe(false);
   });
@@ -101,8 +123,34 @@ describe("details schemas", () => {
     expect(validationErrorDetailsSchema.safeParse({ title: "too short" }).success).toBe(false);
   });
 
-  it("accepts the { from, to, allowed } transition shape", () => {
-    const details = { from: "closed", to: "resolved", allowed: ["open", "in_progress"] };
-    expect(statusTransitionErrorDetailsSchema.parse(details)).toEqual(details);
+  it("accepts the { expected, current } version-conflict shape", () => {
+    const details = { expected: 3, current: 5 };
+    expect(versionConflictDetailsSchema.parse(details)).toEqual(details);
+    expect(versionConflictDetailsSchema.safeParse({ expected: "3", current: 5 }).success).toBe(
+      false,
+    );
+    expect(versionConflictDetailsSchema.safeParse({ current: 5 }).success).toBe(false);
+    expect(versionConflictDetailsSchema.safeParse({ ...details, taskId: 42 }).success).toBe(false);
+  });
+
+  it("accepts the { claimedBy, expiresAt } claim-conflict shape", () => {
+    const details = { claimedBy: "agent:claude-code", expiresAt: "2026-09-20T10:30:00.000Z" };
+    expect(claimConflictDetailsSchema.parse(details)).toEqual(details);
+    expect(
+      claimConflictDetailsSchema.safeParse({ ...details, expiresAt: "in 30 minutes" }).success,
+    ).toBe(false);
+    expect(claimConflictDetailsSchema.safeParse({ claimedBy: details.claimedBy }).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts the { path } dependency-cycle shape, as task ids", () => {
+    // 42 → 43 → 44 → 42: the chain that adding the dependency would close.
+    const details = { path: [42, 43, 44, 42] };
+    expect(dependencyCycleDetailsSchema.parse(details)).toEqual(details);
+    expect(
+      dependencyCycleDetailsSchema.safeParse({ path: ["TASK-000042", "TASK-000043"] }).success,
+    ).toBe(false);
+    expect(dependencyCycleDetailsSchema.safeParse({}).success).toBe(false);
   });
 });

@@ -6,20 +6,21 @@ Use this file when exploring or changing the helpdesk codebase. Humans: see [REA
 
 - **`apps/api`** — Node + Express + Prisma/SQLite. REST under `/api/v1`, OpenAPI at `/docs`.
 - **`apps/web`** — React + Vite SPA. All four screens of the product.
+- **`apps/mcp`** — stdio MCP server: a thin client over the REST API that coding agents use to claim, work, and hand off tasks. Its Claude Code plugin and the `task-workflow` skill live in `integrations/claude-code/`.
 - **`packages/contracts`** — zod schemas + inferred types shared by both apps. Runtime-agnostic.
 - **`packages/tsconfig`** — shared TS bases.
 
-The product is small enough to hold in your head: **one resource (Ticket) with one child (Comment)**. Most tasks touch three files — a contract, a service, and a page.
+The product is small enough to hold in your head: **one resource (Task) with one child (Comment)**. Most tasks touch three files — a contract, a service, and a page.
 
 ## Which doc type to open
 
 | Question | Read first |
 | -------- | ---------- |
 | What does this screen render, and what does it call? | `docs/pages/<Screen>.md` — index: [pages/README.md](./pages/README.md) |
-| What are the ticket fields, statuses, and CRUD rules? | [features/Tickets.md](./features/Tickets.md) |
-| How do filtering / sorting / paging work end to end? | [features/Ticket_Query_Filter_Sort_Page.md](./features/Ticket_Query_Filter_Sort_Page.md) |
-| Which status transitions are legal? | [features/Ticket_Status_Lifecycle.md](./features/Ticket_Status_Lifecycle.md) |
-| Where does `HD-000042` come from? | [features/Ticket_Numbering.md](./features/Ticket_Numbering.md) |
+| What are the task fields, statuses, and CRUD rules? | [features/Tasks.md](./features/Tasks.md) |
+| How do filtering / sorting / paging work end to end? | [features/Task_Query_Filter_Sort_Page.md](./features/Task_Query_Filter_Sort_Page.md) |
+| Which status transitions are legal? | [features/Task_Status_Lifecycle.md](./features/Task_Status_Lifecycle.md) |
+| Where does `TASK-000042` come from? | [features/Task_Numbering.md](./features/Task_Numbering.md) |
 | How do comments work? | [features/Comments.md](./features/Comments.md) |
 | What JSON does a failure return? | [engineering/API_ERROR_CONTRACT.md](./engineering/API_ERROR_CONTRACT.md) · [features/Error_Handling.md](./features/Error_Handling.md) |
 | How is the OpenAPI spec produced? | [features/API_Documentation.md](./features/API_Documentation.md) |
@@ -34,12 +35,13 @@ The product is small enough to hold in your head: **one resource (Ticket) with o
 | How do I run it in Docker? | [operations/DOCKER.md](./operations/DOCKER.md) |
 | What runs in CI, and what will it fail on? | [operations/CI.md](./operations/CI.md) |
 | What does the seed generate? | [features/Seed_Data.md](./features/Seed_Data.md) |
+| How do coding agents connect (MCP tools, plugin, skill, setup)? | [features/Agent_Integration.md](./features/Agent_Integration.md) |
 
 ## Conventions
 
-1. **`pages/`** — One file per UI route. Filename ≈ PascalCase screen name (`Ticket_Detail.md` → `/tickets/:ticketId`). Cross-link the `features/` docs it depends on. Index: [pages/README.md](./pages/README.md).
+1. **`pages/`** — One file per UI route. Filename ≈ PascalCase screen name (`Task_Detail.md` → `/tasks/:taskId`). Cross-link the `features/` docs it depends on. Index: [pages/README.md](./pages/README.md).
 2. **`features/`** — Domain behavior, data model, API contract, invariants. **Prefer updating the feature doc when changing business rules** — the page doc describes presentation, the feature doc describes truth.
-3. **`engineering/`** — Cross-cutting technical reference. Keep `ENVIRONMENT_VARIABLES.md` in sync with `apps/api/env.example` and `apps/web/env.example`.
+3. **`engineering/`** — Cross-cutting technical reference. Keep `ENVIRONMENT_VARIABLES.md` in sync with `apps/api/env.example`, `apps/web/env.example`, and `apps/mcp/env.example`.
 4. **`operations/`** — How it runs locally, in Docker, and in CI.
 
 ### Frontmatter (`pages/` + `features/` only)
@@ -47,10 +49,10 @@ The product is small enough to hold in your head: **one resource (Ticket) with o
 ```yaml
 ---
 type: Page          # or Feature
-title: Ticket detail
-description: Read-only detail view with comments at /tickets/:ticketId
-resource: apps/web/src/pages/ticket-detail/   # code path this doc describes
-tags: [tickets, detail, comments]
+title: Task detail
+description: Read-only detail view with comments at /tasks/:taskId
+resource: apps/web/src/pages/task-detail/   # code path this doc describes
+tags: [tasks, detail, comments]
 status: canonical   # canonical | plan
 ---
 ```

@@ -1,73 +1,131 @@
 import { expect, test } from "@playwright/test";
 
-import { uniqueTitle } from "./helpers";
+import {
+  ANONYMOUS,
+  getTask,
+  pickOption,
+  statusPicker,
+  tableRows,
+  uniqueProject,
+  uniqueTitle,
+} from "./helpers";
 
 /**
- * Spec 1 — create a ticket, land on its detail page, find it at the top of the
- * list.
+ * Create a task through the form, land on its detail page, find it in the list,
+ * and narrow the list to its project.
  *
  * The one spec that drives the **create form** rather than the API: it is the
- * proof that the form, its zod resolver, the POST, and the redirect all agree.
- * Every other spec builds its fixtures over HTTP for exactly that reason — this
- * one already covers the form, and repeating it elsewhere would only widen the
- * surface a failure could come from.
+ * proof that the form, its zod resolver (the contract's own schema), the POST,
+ * and the redirect all agree. Every other spec builds its fixtures over HTTP.
+ *
+ * It starts the task in **To do**, which is the one starting status with a
+ * precondition — acceptance criteria — so the first submit is made without them
+ * on purpose: the contract's message has to appear on the field, and nothing
+ * already typed may be lost (`A failed submit never clears the form`).
  *
  * "At the top of the list" is a real assertion rather than a decoration: the
- * default sort is `createdAt:desc`, and a ticket created a second ago is the
+ * default sort is `createdAt:desc`, and a task created a second ago is the
  * newest row there is. It is what proves the list is not serving a cached page
- * from before the mutation — the invalidation in `useCreateTicketMutation`.
+ * from before the mutation — the invalidation in `useCreateTaskMutation`.
  */
-test("creates a ticket from the form and shows it at the top of the list", async ({ page }) => {
+test("creates a To do task with a project and criteria, then finds it by project in the list", async ({
+  page,
+  request,
+}) => {
   const title = uniqueTitle("create");
+  const project = uniqueProject("create");
+  const criteria = "Duplex jobs print without jamming on floor 3.";
 
-  await page.goto("/tickets");
+  await page.goto("/tasks");
 
   // Through the header button, which is how a user actually reaches the form —
   // and the only thing that carries the return state onto it.
-  await page.getByRole("link", { name: "New ticket" }).click();
-  await expect(page).toHaveURL(/\/tickets\/new$/);
+  await page.getByRole("link", { name: "New task" }).click();
+  await expect(page).toHaveURL(/\/tasks\/new$/);
 
   await page.getByLabel("Title").fill(title);
   await page
     .getByLabel("Description")
     .fill("The printer on floor 3 jams on every duplex job.\nSingle-sided prints are fine.");
-  await page.getByLabel("Requester name").fill("Dana Whitfield");
-  await page.getByLabel("Requester email").fill("Dana.Whitfield@Example.com");
+  await page.getByLabel("Project", { exact: true }).fill(project);
+  await pickOption(page, page.getByRole("combobox", { name: "Starting status" }), "To do");
 
-  await page.getByRole("button", { name: "Create ticket" }).click();
+  /* ------------- To do without criteria: refused, nothing lost ------------- */
 
-  // Redirected to the created ticket, whose id is in the URL.
-  await expect(page).toHaveURL(/\/tickets\/\d+$/);
+  await page.getByRole("button", { name: "Create task" }).click();
+
+  const criteriaField = page.getByLabel(/^Acceptance criteria/);
+  await expect(criteriaField).toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.getByText("Acceptance criteria are required before a task can be todo"),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/tasks\/new$/);
+  await expect(page.getByLabel("Title")).toHaveValue(title);
+  await expect(page.getByLabel("Project", { exact: true })).toHaveValue(project);
+
+  await criteriaField.fill(criteria);
+  await page.getByRole("button", { name: "Create task" }).click();
+
+  /* ---------------------------- Detail page ---------------------------- */
+
+  await expect(page).toHaveURL(/\/tasks\/\d+$/);
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
 
-  const reference = (
-    await page
-      .getByText(/^HD-\d{6}$/)
-      .first()
-      .innerText()
-  ).trim();
-  expect(reference).toMatch(/^HD-\d{6}$/);
+  const taskId = Number(new URL(page.url()).pathname.split("/").pop());
+  const reference = `TASK-${String(taskId).padStart(6, "0")}`;
+  // The eyebrow above the title.
+  await expect(page.getByText(reference, { exact: true }).first()).toBeVisible();
 
-  // The email is lowercased on write (`docs/features/Tickets.md` § Rules), so
-  // this also pins that the value round-trips through the API rather than being
-  // echoed back from the form's own state.
-  await expect(page.getByRole("link", { name: "dana.whitfield@example.com" })).toBeVisible();
+  await expect(statusPicker(page)).toHaveText("To do");
+  await expect(page.getByRole("region", { name: "Acceptance criteria" })).toContainText(criteria);
+  await expect(page.getByText(project, { exact: true })).toBeVisible();
 
-  // Defaults the form never asked about.
-  await expect(page.getByRole("combobox", { name: "Status" })).toHaveText("Open");
-  await expect(page.getByText("Unassigned")).toBeVisible();
+  // What the server stored, not what the form echoed back.
+  const stored = await getTask(request, taskId);
+  expect(stored).toMatchObject({
+    reference,
+    title,
+    status: "todo",
+    project,
+    acceptanceCriteria: criteria,
+    createdBy: ANONYMOUS,
+    version: 1,
+  });
+
+  /* ------------------------------- List -------------------------------- */
 
   /*
-    Back to the list through the app's own header link — a client-side
-    navigation, not a `page.goto`. A full reload would start from an empty query
-    cache and prove nothing about invalidation; this way the list is served by
-    the same TanStack Query cache the mutation had to invalidate, which is where
-    "created it, and the list still shows the old page" actually lives.
+    Back to the list through the header's own link — a client-side navigation,
+    not a `page.goto`. A full reload would start from an empty query cache and
+    prove nothing about invalidation.
   */
-  await page.getByRole("link", { name: "Helpdesk" }).click();
-  await expect(page).toHaveURL(/\/tickets$/);
+  await page.getByRole("banner").getByRole("link", { name: "Tasks", exact: true }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
 
-  const firstRow = page.locator("table tbody tr").first();
+  const firstRow = tableRows(page).first();
   await expect(firstRow).toContainText(reference);
   await expect(firstRow).toContainText(title);
+
+  /* -------------------------- Filter by project ------------------------ */
+
+  /*
+    The project chips are the facets, so the new project being offered at all
+    is the create mutation's invalidation of `facets` at work. The chip's own
+    checkbox is `sr-only` under a styled span; clicking the text is what a user
+    does and what actually toggles it.
+  */
+  const projectFilter = page.getByRole("group", { name: "Project" });
+  await projectFilter.getByText(project, { exact: true }).click();
+
+  await expect(page).toHaveURL(new RegExp(`[?&]project=${project}(&|$)`));
+  await expect(
+    page.getByRole("button", { name: `Remove filter: Project: ${project}` }),
+  ).toBeVisible();
+  await expect.poll(() => tableRows(page).count()).toBe(1);
+  await expect(tableRows(page).first()).toContainText(reference);
+
+  // The filter is the URL's, so it survives a reload.
+  await page.reload();
+  await expect.poll(() => tableRows(page).count()).toBe(1);
+  await expect(tableRows(page).first()).toContainText(reference);
 });

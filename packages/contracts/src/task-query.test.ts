@@ -1,21 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_TICKET_SORT,
+  DEFAULT_TASK_SORT,
   dropEmptyQueryValues,
-  formatTicketSort,
-  paginatedTicketsSchema,
-  TICKET_SORT_FIELDS,
-  ticketListQuerySchema,
-} from "./ticket-query.js";
+  formatTaskSort,
+  paginatedTasksSchema,
+  TASK_SORT_FIELDS,
+  taskListQuerySchema,
+  taskStatsQuerySchema,
+} from "./task-query.js";
 import { buildPaginationMeta, MAX_PAGE, MAX_PAGE_SIZE } from "./pagination.js";
+import { TASK_STATUSES } from "./task.js";
 
-const parse = (query: Record<string, unknown>) => ticketListQuerySchema.safeParse(query);
+const parse = (query: Record<string, unknown>) => taskListQuerySchema.safeParse(query);
 const fieldErrors = (query: Record<string, unknown>) =>
   new Set(parse(query).error?.issues.map((issue) => issue.path[0]));
 
 describe("defaults", () => {
   it("fills page, pageSize, and sort from an empty query", () => {
-    expect(ticketListQuerySchema.parse({})).toEqual({
+    expect(taskListQuerySchema.parse({})).toEqual({
       page: 1,
       pageSize: 20,
       sort: { field: "createdAt", direction: "desc" },
@@ -23,8 +25,8 @@ describe("defaults", () => {
   });
 
   it("exposes the default sort in its wire form", () => {
-    expect(DEFAULT_TICKET_SORT).toBe("createdAt:desc");
-    expect(formatTicketSort({ field: "createdAt", direction: "desc" })).toBe(DEFAULT_TICKET_SORT);
+    expect(DEFAULT_TASK_SORT).toBe("createdAt:desc");
+    expect(formatTaskSort({ field: "createdAt", direction: "desc" })).toBe(DEFAULT_TASK_SORT);
   });
 });
 
@@ -34,48 +36,50 @@ describe("empty query values", () => {
   it("treats ?page=&pageSize= as absent and falls back to the defaults", () => {
     // Without the preprocessor, z.coerce.number() turns "" into 0, which fails
     // min(1) and 422s a request the user never meant to make.
-    const parsed = ticketListQuerySchema.parse({ page: "", pageSize: "" });
+    const parsed = taskListQuerySchema.parse({ page: "", pageSize: "" });
     expect(parsed).toMatchObject({ page: 1, pageSize: 20 });
   });
 
   it("makes ?page=&status=&q=&sort= behave exactly like ?", () => {
     expect(
-      ticketListQuerySchema.parse({
+      taskListQuerySchema.parse({
         page: "",
         status: "",
         q: "",
         sort: "",
         assignee: "",
         createdFrom: "",
-        requesterEmail: "",
+        project: "",
+        createdBy: "",
+        parentId: "",
       }),
-    ).toEqual(ticketListQuerySchema.parse({}));
+    ).toEqual(taskListQuerySchema.parse({}));
   });
 
   it("drops empty entries from a repeated param and the param itself when none remain", () => {
-    expect(ticketListQuerySchema.parse({ status: ["", "open", ""] }).status).toEqual(["open"]);
-    expect(ticketListQuerySchema.parse({ status: ["", ""] }).status).toBeUndefined();
+    expect(taskListQuerySchema.parse({ status: ["", "todo", ""] }).status).toEqual(["todo"]);
+    expect(taskListQuerySchema.parse({ status: ["", ""] }).status).toBeUndefined();
   });
 
   it("does not mutate the input object", () => {
-    const input = { page: "", status: "open" };
+    const input = { page: "", status: "todo" };
     dropEmptyQueryValues(input);
-    expect(input).toEqual({ page: "", status: "open" });
+    expect(input).toEqual({ page: "", status: "todo" });
   });
 
   it("treats a whitespace-only value as absent, exactly like an empty one", () => {
     // ?q=%20 is what typing a single space into the search box produces. It
     // carries as little intent as ?q=, and 422ing one but not the other is a
     // distinction the user cannot see.
-    expect(ticketListQuerySchema.parse({ q: " " })).toEqual(ticketListQuerySchema.parse({}));
+    expect(taskListQuerySchema.parse({ q: " " })).toEqual(taskListQuerySchema.parse({}));
     expect(parse({ assignee: "   " }).success).toBe(true);
-    expect(ticketListQuerySchema.parse({ status: [" ", "open"] }).status).toEqual(["open"]);
+    expect(taskListQuerySchema.parse({ status: [" ", "todo"] }).status).toEqual(["todo"]);
   });
 });
 
 describe("paging", () => {
   it("coerces numeric strings", () => {
-    expect(ticketListQuerySchema.parse({ page: "3", pageSize: "50" })).toMatchObject({
+    expect(taskListQuerySchema.parse({ page: "3", pageSize: "50" })).toMatchObject({
       page: 3,
       pageSize: 50,
     });
@@ -96,7 +100,7 @@ describe("paging", () => {
 
   it("rejects pageSize=101 rather than clamping it to 100 — clamping hides a client bug", () => {
     expect(parse({ pageSize: "101" }).success).toBe(false);
-    expect(ticketListQuerySchema.parse({ pageSize: "100" }).pageSize).toBe(100);
+    expect(taskListQuerySchema.parse({ pageSize: "100" }).pageSize).toBe(100);
   });
 
   it("bounds page, so an absurd one is a 422 and not an Int32 overflow in the service", () => {
@@ -104,7 +108,7 @@ describe("paging", () => {
     // unbounded, ?page=99999999999 overflows and 500s instead of returning the
     // documented empty page with correct meta.
     expect(parse({ page: "99999999999" }).success).toBe(false);
-    expect(ticketListQuerySchema.parse({ page: String(MAX_PAGE) }).page).toBe(MAX_PAGE);
+    expect(taskListQuerySchema.parse({ page: String(MAX_PAGE) }).page).toBe(MAX_PAGE);
     expect((MAX_PAGE - 1) * MAX_PAGE_SIZE).toBeLessThan(2 ** 31 - 1);
   });
 });
@@ -121,7 +125,7 @@ describe("created date range", () => {
   });
 
   it("rejects an inverted range instead of silently returning nothing", () => {
-    // An empty list with no explanation reads as "no tickets exist", not as
+    // An empty list with no explanation reads as "no tasks exist", not as
     // "your two date pickers disagree".
     const result = parse({ createdFrom: "2026-08-11", createdTo: "2026-01-01" });
     expect(result.success).toBe(false);
@@ -132,12 +136,12 @@ describe("created date range", () => {
 });
 
 describe("sorting", () => {
-  it.each(TICKET_SORT_FIELDS)("accepts %s in both directions", (field) => {
-    expect(ticketListQuerySchema.parse({ sort: `${field}:asc` }).sort).toEqual({
+  it.each(TASK_SORT_FIELDS)("accepts %s in both directions", (field) => {
+    expect(taskListQuerySchema.parse({ sort: `${field}:asc` }).sort).toEqual({
       field,
       direction: "asc",
     });
-    expect(ticketListQuerySchema.parse({ sort: `${field}:desc` }).sort).toEqual({
+    expect(taskListQuerySchema.parse({ sort: `${field}:desc` }).sort).toEqual({
       field,
       direction: "desc",
     });
@@ -160,46 +164,99 @@ describe("sorting", () => {
 
 describe("filters", () => {
   it("wraps a single value into an array (OR within one param)", () => {
-    expect(ticketListQuerySchema.parse({ status: "open" }).status).toEqual(["open"]);
+    expect(taskListQuerySchema.parse({ status: "todo" }).status).toEqual(["todo"]);
   });
 
   it("keeps repeated values as an array", () => {
-    expect(ticketListQuerySchema.parse({ status: ["open", "in_progress"] }).status).toEqual([
-      "open",
+    expect(taskListQuerySchema.parse({ status: ["todo", "in_progress"] }).status).toEqual([
+      "todo",
       "in_progress",
     ]);
   });
 
+  it("accepts every one of the ten statuses", () => {
+    expect(taskListQuerySchema.parse({ status: [...TASK_STATUSES] }).status).toEqual([
+      ...TASK_STATUSES,
+    ]);
+  });
+
   it("combines different params (AND across params)", () => {
-    const parsed = ticketListQuerySchema.parse({
-      status: ["open", "resolved"],
+    const parsed = taskListQuerySchema.parse({
+      status: ["todo", "blocked"],
       priority: "urgent",
-      category: "network",
+      project: "helpdesk",
     });
     expect(parsed).toMatchObject({
-      status: ["open", "resolved"],
+      status: ["todo", "blocked"],
       priority: ["urgent"],
-      category: ["network"],
+      project: ["helpdesk"],
     });
   });
 
-  it("rejects a value outside the enum", () => {
-    expect(parse({ status: "backlog" }).success).toBe(false);
-    expect(parse({ status: ["open", "backlog"] }).success).toBe(false);
+  it("rejects a value outside the enum, including the retired helpdesk statuses", () => {
+    expect(parse({ status: "open" }).success).toBe(false);
+    expect(parse({ status: ["todo", "resolved"] }).success).toBe(false);
   });
 
-  it("lowercases requesterEmail to match how it is stored", () => {
-    expect(
-      ticketListQuerySchema.parse({ requesterEmail: " Dana@Example.COM " }).requesterEmail,
-    ).toBe("dana@example.com");
+  it("rejects the retired category and requesterEmail filters as unknown params", () => {
+    expect(parse({ category: "network" }).success).toBe(false);
+    expect(parse({ requesterEmail: "dana@example.com" }).success).toBe(false);
   });
+
+  // --- project --------------------------------------------------------------
+
+  it("lowercases project to match how it is stored, one value or several", () => {
+    expect(taskListQuerySchema.parse({ project: " Helpdesk " }).project).toEqual(["helpdesk"]);
+    expect(taskListQuerySchema.parse({ project: ["Helpdesk", "INFRA"] }).project).toEqual([
+      "helpdesk",
+      "infra",
+    ]);
+  });
+
+  it("rejects a project that is not a slug, naming the field", () => {
+    const result = parse({ project: ["helpdesk", "my project"] });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path[0]).toBe("project");
+  });
+
+  // --- createdBy ------------------------------------------------------------
+
+  it("lowercases createdBy to match how actors are stored", () => {
+    expect(taskListQuerySchema.parse({ createdBy: " Agent:Claude-Code " }).createdBy).toBe(
+      "agent:claude-code",
+    );
+  });
+
+  it("accepts system:taskmanager as a creator — it is a stored actor, not a wire one", () => {
+    expect(taskListQuerySchema.parse({ createdBy: "system:taskmanager" }).createdBy).toBe(
+      "system:taskmanager",
+    );
+  });
+
+  it("bounds createdBy", () => {
+    expect(parse({ createdBy: `agent:${"a".repeat(200)}` }).success).toBe(false);
+  });
+
+  // --- parentId -------------------------------------------------------------
+
+  it("parses parentId from the query string", () => {
+    expect(taskListQuerySchema.parse({ parentId: "7" }).parentId).toBe(7);
+  });
+
+  it.each(["0", "-1", "1.5", "abc"])("rejects parentId=%s", (parentId) => {
+    const result = parse({ parentId });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["parentId"]);
+  });
+
+  // --- assignee -------------------------------------------------------------
 
   it("keeps assignee exactly as sent — matching is case-sensitive by design", () => {
-    expect(ticketListQuerySchema.parse({ assignee: "Marcus Feld" }).assignee).toBe("Marcus Feld");
+    expect(taskListQuerySchema.parse({ assignee: "Marcus Feld" }).assignee).toBe("Marcus Feld");
   });
 
   it("accepts an assignee literally named None, which a sentinel value would have broken", () => {
-    expect(ticketListQuerySchema.parse({ assignee: "None" }).assignee).toBe("None");
+    expect(taskListQuerySchema.parse({ assignee: "None" }).assignee).toBe("None");
   });
 
   it.each([
@@ -208,7 +265,7 @@ describe("filters", () => {
     ["false", false],
     ["0", false],
   ])("parses assigneeIsNull=%s as %s", (input, expected) => {
-    expect(ticketListQuerySchema.parse({ assigneeIsNull: input }).assigneeIsNull).toBe(expected);
+    expect(taskListQuerySchema.parse({ assigneeIsNull: input }).assigneeIsNull).toBe(expected);
   });
 
   it("rejects an ambiguous boolean instead of silently inverting the filter", () => {
@@ -217,13 +274,13 @@ describe("filters", () => {
   });
 
   it("accepts q up to 120 characters and rejects longer", () => {
-    expect(ticketListQuerySchema.parse({ q: "vpn" }).q).toBe("vpn");
+    expect(taskListQuerySchema.parse({ q: "mcp" }).q).toBe("mcp");
     expect(parse({ q: "x".repeat(121) }).success).toBe(false);
   });
 
   it("accepts YYYY-MM-DD date bounds and rejects anything else", () => {
     expect(
-      ticketListQuerySchema.parse({ createdFrom: "2026-08-01", createdTo: "2026-08-11" }),
+      taskListQuerySchema.parse({ createdFrom: "2026-08-01", createdTo: "2026-08-11" }),
     ).toMatchObject({ createdFrom: "2026-08-01", createdTo: "2026-08-11" });
 
     for (const bad of ["11-08-2026", "2026-08-11T00:00:00Z", "2026-02-30", "yesterday"]) {
@@ -259,7 +316,7 @@ describe("assignee / assigneeIsNull mutual exclusion", () => {
 
 describe("unknown parameters", () => {
   it("rejects a typo'd filter rather than silently returning everything", () => {
-    expect(parse({ statuses: "open" }).success).toBe(false);
+    expect(parse({ statuses: "todo" }).success).toBe(false);
     expect(parse({ utm_source: "slack" }).success).toBe(false);
   });
 
@@ -268,35 +325,69 @@ describe("unknown parameters", () => {
   });
 });
 
-describe("paginatedTicketsSchema", () => {
-  it("envelopes ticket summaries with pagination meta", () => {
+describe("taskStatsQuerySchema", () => {
+  it("accepts an empty query — count every project", () => {
+    expect(taskStatsQuerySchema.parse({})).toEqual({});
+  });
+
+  it("takes a repeatable, lowercased project filter", () => {
+    expect(taskStatsQuerySchema.parse({ project: "Helpdesk" })).toEqual({ project: ["helpdesk"] });
+    expect(taskStatsQuerySchema.parse({ project: ["helpdesk", "", "Infra"] })).toEqual({
+      project: ["helpdesk", "infra"],
+    });
+  });
+
+  it("treats an empty project as absent", () => {
+    expect(taskStatsQuerySchema.parse({ project: "" })).toEqual({});
+  });
+
+  it("rejects every other list filter — a per-status count cannot be filtered by status", () => {
+    for (const key of ["status", "priority", "assignee", "page", "q"]) {
+      expect(taskStatsQuerySchema.safeParse({ [key]: "x" }).success, key).toBe(false);
+    }
+  });
+
+  it("rejects a project that is not a slug", () => {
+    expect(taskStatsQuerySchema.safeParse({ project: "my project" }).success).toBe(false);
+  });
+});
+
+describe("paginatedTasksSchema", () => {
+  it("envelopes task summaries with pagination meta", () => {
     const payload = {
       data: [
         {
           id: 42,
-          reference: "HD-000042",
-          title: "Laptop won't connect to the VPN",
-          description: "Fails with error 809.",
-          status: "open",
+          reference: "TASK-000042",
+          title: "Wire the MCP server to the task API",
+          description: "Expose list, next, transition and comment as MCP tools.",
+          status: "in_progress",
+          statusNote: null,
           priority: "high",
-          category: "network",
-          requesterName: "Dana Whitfield",
-          requesterEmail: "dana.whitfield@example.com",
+          project: "helpdesk",
           assignee: null,
-          createdAt: "2026-08-03T09:14:22.000Z",
-          updatedAt: "2026-08-04T11:02:41.000Z",
-          resolvedAt: null,
-          closedAt: null,
+          acceptanceCriteria: "All five tools callable from Claude Code.",
+          links: [],
+          parentId: null,
+          createdBy: "human:krisz",
+          claim: { actor: "agent:claude-code", expiresAt: "2026-09-20T10:30:00.000Z" },
+          version: 3,
+          openDependencyCount: 0,
+          openDecision: null,
+          createdAt: "2026-09-18T09:14:22.000Z",
+          updatedAt: "2026-09-20T10:00:00.000Z",
+          startedAt: "2026-09-20T10:00:00.000Z",
+          completedAt: null,
           commentCount: 3,
         },
       ],
       meta: buildPaginationMeta({ page: 1, pageSize: 20, total: 1 }),
     };
-    expect(paginatedTicketsSchema.parse(payload)).toEqual(payload);
+    expect(paginatedTasksSchema.parse(payload)).toEqual(payload);
   });
 
   it("rejects rows carrying comments — the list must not fan out into N queries", () => {
-    const result = paginatedTicketsSchema.safeParse({
+    const result = paginatedTasksSchema.safeParse({
       data: [{ id: 1, comments: [] }],
       meta: buildPaginationMeta({ page: 1, pageSize: 20, total: 1 }),
     });

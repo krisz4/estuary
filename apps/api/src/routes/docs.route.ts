@@ -1,14 +1,16 @@
 import { Router } from "express";
 import swaggerUi from "swagger-ui-express";
 
+import { OPENAPI_TITLE } from "../lib/openapi.js";
 import { getOpenApiDocument } from "../openapi.js";
 
 /**
  * `GET /docs` — Swagger UI, and `GET /docs/openapi.json` — the raw spec.
  *
  * Mounted only when `DOCS_ENABLED` is true (`app.ts` decides; this module has no
- * opinion). There is no authentication on it, because there is no authentication
- * anywhere in this product — see `docs/features/API_Documentation.md`.
+ * opinion). It stays open even when `API_TOKEN` is set: the token gates
+ * `/api/v1` only, and the page documents how to send it (the `bearerAuth`
+ * scheme) — see `docs/features/API_Documentation.md`.
  *
  * **The document served here is generated at runtime from the same zod schemas
  * the handlers validate with**, not read from the committed `openapi.json`. Two
@@ -78,7 +80,7 @@ export function createDocsRouter(): Router {
     "/",
     swaggerUi.serve,
     swaggerUi.setup(getOpenApiDocument(), {
-      customSiteTitle: "Helpdesk API",
+      customSiteTitle: OPENAPI_TITLE,
       swaggerOptions: {
         // Collapsed by default would hide the thing the page exists to show;
         // "list" expands the operations without expanding every schema.

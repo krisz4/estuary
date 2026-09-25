@@ -36,11 +36,11 @@ export const SM_BREAKPOINT_QUERY = "(min-width: 640px)";
 
 /**
  * Tailwind's `md` breakpoint — the one the design guidelines call "the important
- * one", where the ticket list flips between two genuinely different components.
+ * one", where the task list flips between two genuinely different components.
  *
  * This is the exception the note above allows for. `hidden md:block` on the
  * table plus `md:hidden` on the cards would put **both** trees in the DOM at
- * every width: two sets of links to every ticket, two rendered lists to keep in
+ * every width: two sets of links to every task, two rendered lists to keep in
  * step, and a "which one is showing?" question that can only be answered by
  * reading CSS. Rendering exactly one keeps the DOM the honest answer.
  */

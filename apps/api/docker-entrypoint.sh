@@ -14,8 +14,8 @@
 #      onto the database, which silently papers over a schema change that
 #      shipped without its migration — the exact failure the clean-volume start
 #      exists to catch.
-#   2. Seed only when SEED_ON_START is truthy **and the ticket table is empty**.
-#      The seed deletes every ticket and comment first, so an unconditional seed
+#   2. Seed only when SEED_ON_START is truthy **and the task table is empty**.
+#      The seed deletes every task and comment first, so an unconditional seed
 #      would wipe a reviewer's data on every restart.
 #   3. Never `db:reset`. It has no `--force`, prompts, and drops the database
 #      before ALLOW_SEED is ever consulted. Its only caller is a human.
@@ -45,9 +45,9 @@ log "applying migrations (prisma migrate deploy)"
 # `schema.prisma` grew a column nobody wrote a migration for — it reports "all
 # migrations have been successfully applied" and the container comes up healthy,
 # because /health touches no database. **Measured**: with a nullable column
-# added to `model Ticket` and no migration, a clean-volume start migrated, then
-# seeded 63 tickets (the seed never writes the new column), then answered every
-# read with a 500 — `The column main.Ticket.slaBreachedAt does not exist in the
+# added to `model Task` and no migration, a clean-volume start migrated, then
+# seeded 63 tasks (the seed never writes the new column), then answered every
+# read with a 500 — `The column main.Task.slaBreachedAt does not exist in the
 # current database`. Healthy container, dead app.
 #
 # `migrate diff` compares the live database against the datamodel and exits 2
@@ -79,11 +79,11 @@ if is_true "${SEED_ON_START:-false}"; then
   # the image, and rather than `prisma db execute`, which cannot return a value.
   # A failure here must not be read as "empty" — `set -e` aborts the container
   # instead, because seeding a database whose state is unknown is destructive.
-  ticket_count=$(
+  task_count=$(
     node -e '
       const { PrismaClient } = require("@prisma/client");
       const prisma = new PrismaClient();
-      prisma.ticket
+      prisma.task
         .count()
         .then((n) => { process.stdout.write(String(n)); })
         .catch((err) => { console.error(err); process.exit(1); })
@@ -91,15 +91,15 @@ if is_true "${SEED_ON_START:-false}"; then
     '
   )
 
-  if [ "$ticket_count" = "0" ]; then
-    log "SEED_ON_START is set and the ticket table is empty — seeding"
+  if [ "$task_count" = "0" ]; then
+    log "SEED_ON_START is set and the task table is empty — seeding"
     # ALLOW_SEED is set here and nowhere else: the guard exists so that seeding
     # is an explicit act, and this line is that act. NODE_ENV stays `production`
     # (the image serves a production build), which is precisely why the guard
     # keys off ALLOW_SEED and not NODE_ENV.
     ALLOW_SEED=true node dist/seed/index.js
   else
-    log "SEED_ON_START is set but the ticket table holds $ticket_count rows — skipping seed"
+    log "SEED_ON_START is set but the task table holds $task_count rows — skipping seed"
   fi
 else
   log "SEED_ON_START is not set — skipping seed"

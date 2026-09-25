@@ -2,12 +2,15 @@ import cors from "cors";
 import express, { type Express, type Request, type Response, type Router } from "express";
 
 import { env } from "./lib/env.js";
+import { actor } from "./middleware/actor.js";
+import { apiToken } from "./middleware/apiToken.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFound } from "./middleware/notFound.js";
 import { requestId } from "./middleware/requestId.js";
 import { commentsRouter } from "./routes/comments.route.js";
 import { createDocsRouter } from "./routes/docs.route.js";
-import { ticketsRouter } from "./routes/tickets.route.js";
+import { eventsRouter } from "./routes/events.route.js";
+import { tasksRouter } from "./routes/tasks.route.js";
 
 /**
  * The API version prefix. `GET /health` deliberately sits outside it, at the
@@ -33,13 +36,14 @@ export const DOCS_PATH = "/docs";
  * after the fact cannot recover these strings. Declaring them once, here, is the
  * alternative to a second hand-maintained copy in the test.
  *
- * Order between the two does not matter — `ticketsRouter` declares nothing that
+ * Order between the two does not matter — `tasksRouter` declares nothing that
  * matches a three-segment path — but comments are listed first so the more
  * specific mount reads first.
  */
 export const ROUTER_MOUNTS: readonly { path: string; router: Router }[] = [
-  { path: `${API_V1}/tickets/:ticketId/comments`, router: commentsRouter },
-  { path: `${API_V1}/tickets`, router: ticketsRouter },
+  { path: `${API_V1}/tasks/:taskId/comments`, router: commentsRouter },
+  { path: `${API_V1}/tasks`, router: tasksRouter },
+  { path: `${API_V1}/events`, router: eventsRouter },
 ];
 
 /**
@@ -54,7 +58,9 @@ export const ROUTER_MOUNTS: readonly { path: string; router: Router }[] = [
  *   requestId    →  every response, including a body-parser failure, carries an id
  *   cors         →  ALLOWED_ORIGINS
  *   json         →  BODY_LIMIT; failures surface as entity.parse.failed / entity.too.large
- *   routers      →  /health at the root, /api/v1/tickets(/…/comments) below it
+ *   apiToken     →  /api/v1 only, and only when API_TOKEN is set → UNAUTHORIZED
+ *   actor        →  /api/v1 only; X-Actor → req.actor, malformed → VALIDATION_ERROR
+ *   routers      →  /health at the root, /api/v1/tasks(/…/comments) and /api/v1/events below it
  *   notFound     →  unmatched path or verb → NOT_FOUND 404
  *   errorHandler →  the single exit for every failure
  * ```
@@ -65,7 +71,7 @@ export const ROUTER_MOUNTS: readonly { path: string; router: Router }[] = [
  * `PAYLOAD_TOO_LARGE` go out with no `Access-Control-Allow-Origin` header at
  * all. The browser then rejects them as opaque network errors: the web client
  * never sees the code, and cannot read `x-request-id` off the response either.
- * A ticket description over `BODY_LIMIT` is the realistic way a user hits this.
+ * A task description over `BODY_LIMIT` is the realistic way a user hits this.
  *
  * `docs/engineering/ARCHITECTURE.md` and the implementation plan originally
  * specified the opposite order; both were corrected in stage 4 once the
@@ -82,7 +88,7 @@ export function createApp(): Express {
 
   // Nothing gains from advertising the framework.
   app.disable("x-powered-by");
-  // `/tickets` and `/tickets/` are the same resource.
+  // `/tasks` and `/tasks/` are the same resource.
   app.set("strict routing", false);
 
   app.use(requestId);
@@ -91,7 +97,7 @@ export function createApp(): Express {
     cors({
       origin: env.ALLOWED_ORIGINS,
       methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "x-request-id"],
+      allowedHeaders: ["Content-Type", "x-request-id", "x-actor", "authorization"],
       // Without this the browser cannot read the id off a failed response, so a
       // user cannot quote it back.
       exposedHeaders: ["x-request-id"],
@@ -121,9 +127,12 @@ export function createApp(): Express {
    * (assigned above) and the error envelope (written below).
    *
    * The comment router is mounted at its own absolute path rather than nested
-   * inside `ticketsRouter`, so the two files stay independent of each other and
+   * inside `tasksRouter`, so the two files stay independent of each other and
    * the full URL of every endpoint is readable from `ROUTER_MOUNTS` above.
    */
+  if (env.API_TOKEN !== undefined) app.use(API_V1, apiToken(env.API_TOKEN));
+  app.use(API_V1, actor);
+
   for (const mount of ROUTER_MOUNTS) {
     app.use(mount.path, mount.router);
   }

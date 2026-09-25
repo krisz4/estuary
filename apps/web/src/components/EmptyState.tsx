@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
  *
  * The design guidelines make one demand of this component that is easy to miss:
  * **"nothing exists" and "nothing matches" are different states with different
- * actions.** Offering "Create the first ticket" to someone whose filter is
+ * actions.** Offering "Create the first task" to someone whose filter is
  * simply too narrow is the wrong answer, and offering "Clear filters" to someone
  * with an empty database is a dead end. The caller picks; this renders.
  */

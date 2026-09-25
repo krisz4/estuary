@@ -8,10 +8,10 @@
 
     // NodeNext, not the Bundler resolution in base.json. A library consumed by
     // apps/api must emit declarations whose relative specifiers carry an explicit
-    // `.js` extension — a NodeNext consumer cannot resolve `export * from "./ticket"`.
+    // `.js` extension — a NodeNext consumer cannot resolve `export * from "./task"`.
     // Bundler-side consumers (Vite/apps/web) resolve explicit extensions fine, so
     // NodeNext is the setting that satisfies both. Source imports in a package using
-    // this base must therefore be written as `from "./ticket.js"`.
+    // this base must therefore be written as `from "./task.js"`.
     "module": "NodeNext",
     "moduleResolution": "NodeNext"
   }

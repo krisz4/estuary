@@ -84,7 +84,7 @@ const resolve = (err: unknown): Resolved => {
   }
 
   // Backstop only. Services check existence explicitly and throw the specific
-  // 404, because this handler has no way to tell a missing ticket from a
+  // 404, because this handler has no way to tell a missing task from a
   // missing comment.
   if (prismaErrorCode(err) === "P2025") {
     return { code: "NOT_FOUND", message: "Resource not found" };

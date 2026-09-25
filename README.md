@@ -1,16 +1,19 @@
-# Helpdesk
+# Helpdesk → AI task manager
 
-A helpdesk ticketing system — file, track, comment on, and close IT support tickets. Built for the code challenge in [instructions.md](instructions.md).
+A task manager built for coding agents and the humans working alongside them. Tasks move through a ten-status lifecycle (`backlog` → … → `done`/`deferred`), carry a claim/lease so two agents never grab the same work, and support dependencies, decisions ("ask a human, then keep going"), and an append-only event feed. Agents drive it through an MCP server (`apps/mcp`) that wraps the same REST API the web app calls — see [docs/features/Agent_Integration.md](docs/features/Agent_Integration.md). There is still no authentication in the accounts sense: actors self-declare who they are (`X-Actor: agent:claude-code` / `human:dana`), and an optional shared `API_TOKEN` gates a self-hosted instance — see [docs/features/Actors.md](docs/features/Actors.md).
 
-Tickets have a reference (`HD-000042`), a status lifecycle, a priority, a category, a requester, an optional assignee, and a comment thread. The list screen filters, sorts, and pages entirely through the URL, so any view is shareable — and the [board](docs/pages/Tickets_Board.md) at `/tickets/board` is a second reading of that same URL state, with one column per status and drag-and-drop between them. There is no authentication — that is a deliberate scope decision from the brief, not an omission.
+## History
+
+This started as a helpdesk-ticketing code challenge (see [instructions.md](instructions.md), kept unedited) and was rebuilt into an AI task manager afterward. Some historical docs (`docs/engineering/IMPLEMENTATION_PLAN.md`, `docs/engineering/BUILD_LOG.md`) still describe that original build; they say so at the top and link forward to the current docs.
 
 ## Stack
 
 | Part | Tech |
 | ---- | ---- |
-| API | Node (20+ at runtime, 22.5+ to develop — see below), Express 5, TypeScript, Prisma, SQLite |
-| Web | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind, dnd-kit (board) |
-| Shared | zod contracts consumed by both |
+| API | Node 24 (see below for the floor), Express 5, TypeScript, Prisma, SQLite |
+| Web | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind |
+| MCP server | `apps/mcp` — stdio server for Claude Code and other MCP clients, thin HTTP client over the API |
+| Shared | zod contracts (`packages/contracts`) consumed by all three |
 | Tooling | pnpm workspaces, Turborepo, vitest, Playwright, Docker |
 
 ## Run with Docker (one command)
@@ -23,14 +26,14 @@ docker compose up --build
 - API → http://localhost:4000
 - API docs (Swagger UI) → http://localhost:4000/docs — also proxied at http://localhost:5173/docs
 
-The database is migrated and seeded with 63 tickets automatically on a clean volume. The web container serves the app *and* proxies `/api/` to the API on the same origin, so nothing the browser does is cross-origin.
+The database is migrated and seeded with 62 tasks automatically on a clean volume. The web container serves the app *and* proxies `/api/` to the API on the same origin, so nothing the browser does is cross-origin.
 
 ```bash
 docker compose down       # stop, keep the database (it lives on a named volume)
 docker compose down -v    # stop and wipe the database
 ```
 
-Details and caveats: [docs/operations/DOCKER.md](docs/operations/DOCKER.md).
+Details, caveats, and how to self-host this for agents on other machines (set `API_TOKEN`, put it behind HTTPS): [docs/operations/DOCKER.md](docs/operations/DOCKER.md).
 
 ## Run locally
 
@@ -49,7 +52,7 @@ pnpm dev                                 # API on :4000, web on :5173
 
 Open http://localhost:5173.
 
-On a fresh database `db:migrate` runs the seed itself, through Prisma's `seed` hook — you should see `Seed complete … "tickets":63`. To re-seed later (it wipes tickets and comments first, then recreates the same 63 deterministically):
+On a fresh database `db:migrate` runs the seed itself, through Prisma's `seed` hook — you should see `Seed complete … "tasks":62`. To re-seed later (it wipes tasks, comments, decisions, dependencies, and events first, then recreates the same 62 deterministically):
 
 ```bash
 pnpm --filter @helpdesk/api db:seed
@@ -60,8 +63,8 @@ Run one side at a time with `pnpm dev:api` or `pnpm dev:web`. Every `db:*` scrip
 ## Tests
 
 ```bash
-pnpm test          # 765 unit + integration tests (contracts, API, web)
-pnpm test:e2e      # 6 Playwright spec files — boots both apps itself
+pnpm test          # unit + integration tests across contracts, API, web, and the MCP server
+pnpm test:e2e      # Playwright — boots both apps itself
 pnpm typecheck
 pnpm lint
 pnpm format:check
@@ -73,43 +76,61 @@ CI runs the same sequence plus an OpenAPI freshness check and a schema/migration
 
 ## API
 
-Base path `/api/v1`. Full reference is the generated OpenAPI spec at `/docs`.
+Base path `/api/v1`. Full reference is the generated OpenAPI spec at `/docs`, or [docs/features/Task_Workflow_API.md](docs/features/Task_Workflow_API.md) for the behavior behind every endpoint.
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
-| `GET` | `/tickets` | List with filtering, sorting, paging |
-| `GET` | `/tickets/facets` | Distinct assignees and categories, for the filter selects |
-| `GET` | `/tickets/:id` | One ticket with its comments |
-| `POST` | `/tickets` | Create |
-| `PATCH` | `/tickets/:id` | Update |
-| `DELETE` | `/tickets/:id` | Delete (comments cascade) |
-| `POST` | `/tickets/:id/comments` | Add a comment |
-| `DELETE` | `/tickets/:id/comments/:commentId` | Delete a comment |
+| `GET` | `/tasks` | List with filtering, sorting, paging |
+| `GET` | `/tasks/facets` | Distinct assignees, projects, creators, for filter selects |
+| `GET` | `/tasks/stats` | Count per status, plus how many need human attention |
+| `GET` | `/tasks/:id` | One task with comments, decisions, dependencies |
+| `POST` | `/tasks` | Create (idempotent — a repeated `idempotencyKey` replays the same task) |
+| `PATCH` | `/tasks/:id` | Update (never `status` — see below) |
+| `DELETE` | `/tasks/:id` | Delete (comments/decisions/dependencies cascade) |
+| `POST` | `/tasks/:id/transition` | Move to any of the ten statuses, with the payload it requires |
+| `POST` | `/tasks/next` \| `/tasks/:id/claim` \| `/tasks/:id/heartbeat` \| `/tasks/:id/release` | Claim, extend, or give up the lease an agent works under |
+| `POST` | `/tasks/:id/decision/answer` | Answer an open "ask a human" decision |
+| `POST`/`DELETE` | `/tasks/:id/dependencies[/:dependsOnId]` | Add or remove a blocking dependency |
+| `POST`/`DELETE` | `/tasks/:id/comments[/:commentId]` | Add or delete a comment |
+| `GET` | `/events` | Cursor-paged change feed |
 
 Plus `GET /health` at the root, outside `/api/v1`.
 
 ```bash
-curl 'http://localhost:4000/api/v1/tickets?status=open&priority=urgent&sort=createdAt:desc&page=1&pageSize=20'
+curl -H 'X-Actor: human:you' \
+  'http://localhost:4000/api/v1/tasks?status=todo&priority=urgent&sort=createdAt:desc&page=1&pageSize=20'
 ```
 
 List responses are enveloped as `{ data, meta }`; a single resource is returned as the object. Failures always return `{ error: { code, message, details?, requestId } }`, and clients branch on `code` rather than on the HTTP status — see [docs/engineering/API_ERROR_CONTRACT.md](docs/engineering/API_ERROR_CONTRACT.md).
 
-Ticket ids are integers and double as the ticket number — `/api/v1/tickets/42` is `HD-000042`.
+Every write is attributed to an `X-Actor` (`agent:<name>` / `human:<name>`, defaults to `human:anonymous`) — see [docs/features/Actors.md](docs/features/Actors.md). Task ids are integers and double as the task number — `/api/v1/tasks/42` is `TASK-000042`.
 
-Every list parameter is documented in [docs/features/Ticket_Query_Filter_Sort_Page.md](docs/features/Ticket_Query_Filter_Sort_Page.md).
+Every list parameter is documented in [docs/features/Task_Query_Filter_Sort_Page.md](docs/features/Task_Query_Filter_Sort_Page.md).
+
+## Connecting Claude Code (or another MCP client)
+
+```bash
+pnpm --filter @helpdesk/mcp build
+pnpm dev:api
+claude   # approve the "tasks" server from the repo's .mcp.json when prompted
+```
+
+That gives Claude Code tools like `task_next`, `task_transition`, and `task_submit_for_qa` against this repo's API. For other repositories, a self-hosted server, or the Claude Code plugin (skill + SessionStart hook): [docs/features/Agent_Integration.md](docs/features/Agent_Integration.md).
 
 ## Layout
 
 ```
 apps/api               Express + Prisma. routes/ → services/ → lib/
 apps/web               React SPA. pages/ features/ components/ api/ lib/
+apps/mcp               Stdio MCP server — thin HTTP client over apps/api, for coding agents
+integrations/          Claude Code plugin wrapping apps/mcp for use in other repos
 packages/contracts     zod schemas + inferred types — the single source of truth
 packages/tsconfig      shared tsconfig bases
 e2e/                   Playwright specs
 docs/                  see below
 ```
 
-`apps/*` depend on `packages/contracts` and never on each other. Layer rules and the request lifecycle: [docs/engineering/ARCHITECTURE.md](docs/engineering/ARCHITECTURE.md).
+`apps/*` depend on `packages/contracts` and never on each other — `apps/mcp` reaches `apps/api` only over HTTP, never Prisma, so it can point at a self-hosted server on another machine. Layer rules and the request lifecycle: [docs/engineering/ARCHITECTURE.md](docs/engineering/ARCHITECTURE.md).
 
 ## Documentation
 
@@ -121,7 +142,7 @@ docs/                  see below
 
 ## Scope
 
-No authentication and no user management, per the brief. Requester name and email are plain ticket fields, not accounts. Attachments, notifications, and real-time updates are out of scope — see [docs/features/Attachments.md](docs/features/Attachments.md) for the reasoning on the most conspicuous omission.
+No accounts, roles, or logins. Who did what is a self-declared `X-Actor` header (`agent:claude-code`, `human:dana`), and a self-hosted instance can require a shared `Authorization: Bearer <API_TOKEN>` on top of that — see [docs/features/Actors.md](docs/features/Actors.md). Attachments, notifications, and real-time updates are out of scope — see [docs/features/Attachments.md](docs/features/Attachments.md) for the reasoning on the most conspicuous omission.
 
 ## Implementation and key decisions
 

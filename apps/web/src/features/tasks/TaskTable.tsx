@@ -1,19 +1,21 @@
 import {
   formatReference,
-  type TicketSort,
-  type TicketSortField,
-  type TicketSummary,
+  type TaskSort,
+  type TaskSortField,
+  type TaskSummary,
 } from "@helpdesk/contracts";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatAbsolute, formatRelative, toDateTimeAttribute } from "@/lib/formatting";
-import { PriorityBadge } from "@/features/tickets/PriorityBadge";
-import { StatusBadge } from "@/features/tickets/StatusBadge";
+import { ActorBadge } from "@/features/tasks/ActorBadge";
+import { ClaimIndicator } from "@/features/tasks/ClaimIndicator";
+import { PriorityBadge } from "@/features/tasks/PriorityBadge";
+import { StatusBadge } from "@/features/tasks/StatusBadge";
 
 /**
- * The desktop (`md` and up) ticket table.
+ * The desktop (`md` and up) task table.
  *
  * A real `<table>` with `<caption class="sr-only">`, `<th scope="col">`, and
  * `aria-sort` on the active header — not a grid of divs. Screen readers announce
@@ -27,7 +29,7 @@ import { StatusBadge } from "@/features/tickets/StatusBadge";
  * a smaller target, which is why the mobile card is one big link instead.
  */
 
-const SORTABLE: Partial<Record<string, TicketSortField>> = {
+const SORTABLE: Partial<Record<string, TaskSortField>> = {
   reference: "id",
   title: "title",
   status: "status",
@@ -56,26 +58,27 @@ type Column = {
 const COLUMNS: Column[] = [
   { key: "reference", label: "Reference", className: "w-[6.5rem]" },
   { key: "title", label: "Title" },
-  { key: "status", label: "Status", className: "w-[7rem]" },
-  { key: "priority", label: "Priority", className: "w-[7rem]" },
-  { key: "requester", label: "Requester", className: "w-[7.5rem]" },
-  { key: "assignee", label: "Assignee", className: "hidden w-[9rem] lg:table-cell" },
-  { key: "created", label: "Created", className: "w-[7rem]" },
+  // "Needs decision" is the widest label at `text-xs`, and it must not wrap.
+  { key: "status", label: "Status", className: "w-[8.5rem]" },
+  { key: "priority", label: "Priority", className: "w-[6.5rem]" },
+  { key: "project", label: "Project", className: "hidden w-[7.5rem] lg:table-cell" },
+  { key: "createdBy", label: "Created by", className: "w-[8rem]" },
+  { key: "created", label: "Created", className: "w-[6.5rem]" },
 ];
 
 const DIRECTION_LABEL = { asc: "ascending", desc: "descending" } as const;
 
-export type TicketTableProps = {
-  tickets: TicketSummary[];
-  sort: TicketSort;
-  onSortChange: (sort: TicketSort) => void;
+export type TaskTableProps = {
+  tasks: TaskSummary[];
+  sort: TaskSort;
+  onSortChange: (sort: TaskSort) => void;
 };
 
-export const TicketTable = ({ tickets, sort, onSortChange }: TicketTableProps) => {
+export const TaskTable = ({ tasks, sort, onSortChange }: TaskTableProps) => {
   /*
     The search string this list is rendered under, carried into the detail page's
-    history state so its "Back to tickets" link returns to *this* filtered,
-    sorted, paged view rather than to a bare `/tickets`. State rather than a
+    history state so its "Back to tasks" link returns to *this* filtered,
+    sorted, paged view rather than to a bare `/tasks`. State rather than a
     query param on the detail URL: that URL is meant to be shareable, and a
     pasted link should not resurrect a stranger's filters.
   */
@@ -85,7 +88,7 @@ export const TicketTable = ({ tickets, sort, onSortChange }: TicketTableProps) =
     <div className="overflow-hidden rounded-lg border border-border">
       <table className="w-full table-fixed border-collapse text-sm">
         <caption className="sr-only">
-          Tickets, sorted by {sort.field} {DIRECTION_LABEL[sort.direction]}
+          Tasks, sorted by {sort.field} {DIRECTION_LABEL[sort.direction]}
         </caption>
 
         <thead className="bg-muted/60">
@@ -121,61 +124,57 @@ export const TicketTable = ({ tickets, sort, onSortChange }: TicketTableProps) =
         </thead>
 
         <tbody>
-          {tickets.map((ticket) => (
-            <tr key={ticket.id} className="border-t border-border align-top hover:bg-muted/40">
+          {tasks.map((task) => (
+            <tr key={task.id} className="border-t border-border align-top hover:bg-muted/40">
               <td className="px-3 py-3">
                 <Link
-                  to={`/tickets/${ticket.id}`}
+                  to={`/tasks/${task.id}`}
                   state={{ from: search }}
                   className="font-mono text-xs text-primary hover:underline"
                 >
-                  {formatReference(ticket.id)}
+                  {formatReference(task.id)}
                 </Link>
               </td>
 
               <td className="px-3 py-3">
                 <Link
-                  to={`/tickets/${ticket.id}`}
+                  to={`/tasks/${task.id}`}
                   state={{ from: search }}
                   className="text-foreground hover:underline"
                 >
-                  <span className="line-clamp-2">{ticket.title}</span>
+                  <span className="line-clamp-2">{task.title}</span>
                 </Link>
-                {ticket.commentCount > 0 ? (
-                  <span className="mt-0.5 block text-xs whitespace-nowrap text-muted-foreground">
-                    {ticket.commentCount} {ticket.commentCount === 1 ? "comment" : "comments"}
-                  </span>
-                ) : null}
+                <TaskRowMeta task={task} />
               </td>
 
               <td className="px-3 py-3">
-                <StatusBadge status={ticket.status} />
+                <StatusBadge status={task.status} />
               </td>
 
               <td className="px-3 py-3">
-                <PriorityBadge priority={ticket.priority} />
-              </td>
-
-              <td className="px-3 py-3">
-                <span className="block truncate text-foreground" title={ticket.requesterEmail}>
-                  {ticket.requesterName}
-                </span>
+                <PriorityBadge priority={task.priority} />
               </td>
 
               <td className="hidden px-3 py-3 lg:table-cell">
-                {ticket.assignee === null ? (
-                  <span className="text-muted-foreground">Unassigned</span>
+                {task.project === null ? (
+                  <span className="text-muted-foreground">—</span>
                 ) : (
-                  <span className="block truncate">{ticket.assignee}</span>
+                  <span className="block truncate" title={task.project}>
+                    {task.project}
+                  </span>
                 )}
+              </td>
+
+              <td className="px-3 py-3">
+                <ActorBadge actor={task.createdBy} plain className="text-foreground" />
               </td>
 
               <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
                 <time
-                  dateTime={toDateTimeAttribute(ticket.createdAt)}
-                  title={formatAbsolute(ticket.createdAt)}
+                  dateTime={toDateTimeAttribute(task.createdAt)}
+                  title={formatAbsolute(task.createdAt)}
                 >
-                  {formatRelative(ticket.createdAt)}
+                  {formatRelative(task.createdAt)}
                 </time>
               </td>
             </tr>
@@ -183,6 +182,43 @@ export const TicketTable = ({ tickets, sort, onSortChange }: TicketTableProps) =
         </tbody>
       </table>
     </div>
+  );
+};
+
+/**
+ * The line under a title: who is on it, what it waits on, what it asks.
+ *
+ * Only what is *true* is drawn — a task with no claim, no open dependencies,
+ * no question and no comments gets no line at all. These are the facts an
+ * agent-driven board changes most, and the ones a human scanning the list is
+ * looking for.
+ */
+export const TaskRowMeta = ({ task }: { task: TaskSummary }) => {
+  const parts = [
+    task.claim === null ? null : <ClaimIndicator key="claim" claim={task.claim} />,
+    task.openDependencyCount === 0 ? null : (
+      <span key="deps">
+        Waits on {task.openDependencyCount} {task.openDependencyCount === 1 ? "task" : "tasks"}
+      </span>
+    ),
+    task.openDecision === null ? null : (
+      <span key="decision" className="text-primary-subtle-foreground">
+        Question open
+      </span>
+    ),
+    task.commentCount === 0 ? null : (
+      <span key="comments">
+        {task.commentCount} {task.commentCount === 1 ? "comment" : "comments"}
+      </span>
+    ),
+  ].filter((part) => part !== null);
+
+  if (parts.length === 0) return null;
+
+  return (
+    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+      {parts}
+    </span>
   );
 };
 
@@ -201,9 +237,9 @@ const SortButton = ({
   onSortChange,
 }: {
   label: string;
-  field: TicketSortField;
-  sort: TicketSort;
-  onSortChange: (sort: TicketSort) => void;
+  field: TaskSortField;
+  sort: TaskSort;
+  onSortChange: (sort: TaskSort) => void;
 }) => {
   const isActive = sort.field === field;
   // Clicking the active column flips it; clicking a new one starts descending —
@@ -235,10 +271,10 @@ const SortButton = ({
  * the header row, column widths, and row height are already correct when the
  * data lands and nothing jumps.
  */
-export const TicketTableSkeleton = ({ rows = 8 }: { rows?: number }) => (
+export const TaskTableSkeleton = ({ rows = 8 }: { rows?: number }) => (
   <div className="overflow-hidden rounded-lg border border-border">
     <table className="w-full table-fixed border-collapse text-sm">
-      <caption className="sr-only">Loading tickets</caption>
+      <caption className="sr-only">Loading tasks</caption>
       <thead className="bg-muted/60">
         <tr>
           {COLUMNS.map((column) => (

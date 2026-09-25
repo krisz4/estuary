@@ -28,8 +28,8 @@ Then exercise the running system:
 ```bash
 pnpm dev:api &                                    # or docker compose up
 curl -s localhost:4000/health
-curl -s 'localhost:4000/api/v1/tickets?pageSize=2&sort=priority:desc' | jq
-curl -s -X POST localhost:4000/api/v1/tickets -H 'content-type: application/json' -d '{"title":"x"}' | jq
+curl -s 'localhost:4000/api/v1/tasks?pageSize=2&sort=priority:desc' | jq
+curl -s -X POST localhost:4000/api/v1/tasks -H 'content-type: application/json' -d '{"title":"x"}' | jq
 ```
 
 The third call must return a 422 with a `VALIDATION_ERROR` envelope and per-field `details` — a change that quietly breaks the error contract passes every unit test.
@@ -37,8 +37,8 @@ The third call must return a 422 with a `VALIDATION_ERROR` envelope and per-fiel
 Also confirm the two failure modes that most often regress to 500:
 
 ```bash
-curl -s -X POST localhost:4000/api/v1/tickets -H 'content-type: application/json' -d '{bad json' | jq .error.code   # MALFORMED_JSON
-curl -s localhost:4000/api/v1/tickets/abc | jq .error.code                                                          # TICKET_NOT_FOUND
+curl -s -X POST localhost:4000/api/v1/tasks -H 'content-type: application/json' -d '{bad json' | jq .error.code   # MALFORMED_JSON
+curl -s localhost:4000/api/v1/tasks/abc | jq .error.code                                                          # TASK_NOT_FOUND
 ```
 
 ## Checks that matter most
@@ -49,7 +49,7 @@ curl -s localhost:4000/api/v1/tickets/abc | jq .error.code                      
 | Sorting | `sort=priority:desc` puts `urgent` first (not alphabetical); `sort=status:asc` follows lifecycle order |
 | Filtering | Repeated params OR; different params AND; `assigneeIsNull=true` returns only unassigned; `q` combined with a filter **narrows**, never widens |
 | Errors | Every failure returns `code` + `message` + `requestId`; no stack trace on a 500; malformed JSON is 400 and an oversized body is 413, **not** 500 |
-| Cascade | Deleting a ticket removes its comments |
+| Cascade | Deleting a task removes its comments |
 | Mobile | List renders as cards, not a scrolling table, at 360px; forms have reachable actions |
 | States | Loading, empty ("nothing exists" vs "nothing matches"), and error-with-retry all render |
 

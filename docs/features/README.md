@@ -10,12 +10,15 @@ Prefer this index (or the frontmatter) before opening every file.
 
 | Doc | Description |
 | --- | ----------- |
-| [Tickets.md](./Tickets.md) | The Ticket resource: fields, CRUD endpoints, validation, delete semantics |
-| [Ticket_Numbering.md](./Ticket_Numbering.md) | The integer primary key **is** the ticket number, displayed as `HD-000042` |
-| [Ticket_Status_Lifecycle.md](./Ticket_Status_Lifecycle.md) | Status values, legal transitions, `resolvedAt`/`closedAt` side effects |
-| [Ticket_Priority.md](./Ticket_Priority.md) | Priority scale, ordering rules, UI mapping |
-| [Ticket_Query_Filter_Sort_Page.md](./Ticket_Query_Filter_Sort_Page.md) | The list query: every param, the envelope, and how the UI binds it to the URL |
-| [Comments.md](./Comments.md) | Ticket comment thread: model, endpoints, ordering, cascade |
+| [Tasks.md](./Tasks.md) | The Task resource: fields, CRUD endpoints, validation, delete semantics |
+| [Task_Numbering.md](./Task_Numbering.md) | The integer primary key **is** the task number, displayed as `TASK-000042` |
+| [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) | The ten statuses, what a transition into each requires, side effects |
+| [Task_Workflow_API.md](./Task_Workflow_API.md) | Every endpoint incl. transitions, claims/`next`, decisions, dependencies, events; versions and idempotency |
+| [Actors.md](./Actors.md) | `X-Actor` attribution, the optional `API_TOKEN`, and the agent-vs-human rules |
+| [Agent_Integration.md](./Agent_Integration.md) | The MCP server (`apps/mcp`), its tools, the Claude Code plugin + `task-workflow` skill, and setup for this repo, other repos, and self-hosted servers |
+| [Task_Priority.md](./Task_Priority.md) | Priority scale, ordering rules, UI mapping |
+| [Task_Query_Filter_Sort_Page.md](./Task_Query_Filter_Sort_Page.md) | The list query: every param, the envelope, and how the UI binds it to the URL |
+| [Comments.md](./Comments.md) | Task comment thread: model, endpoints, ordering, cascade |
 
 ## Platform
 
@@ -30,7 +33,7 @@ Prefer this index (or the frontmatter) before opening every file.
 
 | Doc | Description |
 | --- | ----------- |
-| [Attachments.md](./Attachments.md) | File attachments on tickets — deliberately out of scope for the challenge |
+| [Attachments.md](./Attachments.md) | File attachments on tasks — deliberately out of scope, not just deferred |
 
 ## Related
 

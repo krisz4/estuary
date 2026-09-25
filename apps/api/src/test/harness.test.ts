@@ -6,7 +6,16 @@ import { describe, expect, it } from "vitest";
 
 import { dbFileUrl, testDbPath } from "../../vitest.globalSetup.js";
 import { prisma } from "../lib/prisma.js";
-import { makeComment, makeTicket, makeTickets } from "./factories.js";
+import {
+  claimedBy,
+  expiredClaimBy,
+  makeComment,
+  makeDecision,
+  makeDependency,
+  makeEvent,
+  makeTask,
+  makeTasks,
+} from "./factories.js";
 
 /**
  * Tests for the test harness itself.
@@ -55,62 +64,89 @@ describe("database isolation", () => {
 
   it("starts each test with an empty database", async () => {
     // This test only means something next to the one below, which fills it.
-    expect(await prisma.ticket.count()).toBe(0);
+    expect(await prisma.task.count()).toBe(0);
     expect(await prisma.comment.count()).toBe(0);
+    expect(await prisma.decision.count()).toBe(0);
+    expect(await prisma.taskDependency.count()).toBe(0);
+    expect(await prisma.taskEvent.count()).toBe(0);
   });
 
-  it("leaves rows behind for the truncation above to clear", async () => {
-    const ticket = await makeTicket();
-    await makeComment({ ticketId: ticket.id });
+  it("leaves rows behind in every table for the truncation above to clear", async () => {
+    const task = await makeTask();
+    const other = await makeTask();
+    await makeComment({ taskId: task.id });
+    await makeDecision({ taskId: task.id });
+    await makeDependency(task.id, other.id);
+    await makeEvent({ taskId: task.id });
 
-    expect(await prisma.ticket.count()).toBe(1);
+    expect(await prisma.task.count()).toBe(2);
     expect(await prisma.comment.count()).toBe(1);
+    expect(await prisma.decision.count()).toBe(1);
+    expect(await prisma.taskDependency.count()).toBe(1);
+    expect(await prisma.taskEvent.count()).toBe(1);
   });
 
   it("restarts autoincrement ids from 1 in every test", async () => {
-    const ticket = await makeTicket();
-    expect(ticket.id).toBe(1);
+    // Runs after the test above, so this is also the proof that the feed —
+    // which nothing cascades into — was cleared rather than carried over.
+    expect(await prisma.taskEvent.count()).toBe(0);
+
+    const task = await makeTask();
+    const event = await makeEvent({ taskId: task.id });
+    expect(task.id).toBe(1);
+    expect(event.id).toBe(1);
   });
 });
 
 describe("factories", () => {
-  it("defaults a ticket to open/medium with matching rank columns", async () => {
-    const ticket = await makeTicket();
+  it("defaults a task to backlog/medium, created by a human, with matching rank columns", async () => {
+    const task = await makeTask();
 
-    expect(ticket.status).toBe("open");
-    expect(ticket.priority).toBe("medium");
-    expect(ticket.statusRank).toBe(0);
-    expect(ticket.priorityRank).toBe(1);
-    expect(ticket.resolvedAt).toBeNull();
+    expect(task.status).toBe("backlog");
+    expect(task.priority).toBe("medium");
+    expect(task.createdBy).toBe("human:tester");
+    expect(task.version).toBe(1);
+    expect(task.startedAt).toBeNull();
+    expect(task.claimedBy).toBeNull();
   });
 
-  it("derives rank columns from an overridden status and priority", async () => {
-    const ticket = await makeTicket({ status: "closed", priority: "urgent" });
+  it("sorts by lifecycle and severity rather than alphabetically, because the ranks are derived", async () => {
+    await makeTask({ status: "done", priority: "high" });
+    await makeTask({ status: "backlog", priority: "urgent" });
+    await makeTask({ status: "in_progress", priority: "low" });
 
-    expect(ticket.statusRank).toBe(3);
-    expect(ticket.priorityRank).toBe(3);
-    // A closed fixture carries the timestamps its own invariants require.
-    expect(ticket.resolvedAt).not.toBeNull();
-    expect(ticket.closedAt).not.toBeNull();
+    const byStatus = await prisma.task.findMany({ orderBy: { statusRank: "asc" } });
+    const byPriority = await prisma.task.findMany({ orderBy: { priorityRank: "desc" } });
+
+    expect(byStatus.map((t) => t.status)).toEqual(["backlog", "in_progress", "done"]);
+    expect(byPriority.map((t) => t.priority)).toEqual(["urgent", "high", "low"]);
   });
 
-  it("sorts by severity rather than alphabetically when ordered by priorityRank", async () => {
-    await makeTicket({ priority: "high" });
-    await makeTicket({ priority: "urgent" });
-    await makeTicket({ priority: "low" });
+  it("gives an in_progress fixture a startedAt, and a done one a completedAt too", async () => {
+    const started = await makeTask({ status: "in_progress" });
+    const done = await makeTask({ status: "done" });
 
-    const ordered = await prisma.ticket.findMany({ orderBy: { priorityRank: "desc" } });
-
-    expect(ordered.map((t) => t.priority)).toEqual(["urgent", "high", "low"]);
+    expect(started.startedAt).not.toBeNull();
+    expect(started.completedAt).toBeNull();
+    expect(done.completedAt).not.toBeNull();
   });
 
-  it("creates tickets in id order, with per-index overrides", async () => {
-    const tickets = await makeTickets(3, (index) => ({
+  it("builds live and expired claims relative to the clock", async () => {
+    const live = await makeTask(claimedBy("agent:a"));
+    const expired = await makeTask(expiredClaimBy("agent:b"));
+
+    expect(live.claimExpiresAt!.getTime()).toBeGreaterThan(Date.now());
+    expect(expired.claimExpiresAt!.getTime()).toBeLessThan(Date.now());
+    expect(expired.claimedBy).toBe("agent:b");
+  });
+
+  it("creates tasks in id order, with per-index overrides", async () => {
+    const tasks = await makeTasks(3, (index) => ({
       createdAt: new Date(Date.UTC(2026, 0, index + 1)),
     }));
 
-    expect(tickets.map((t) => t.id)).toEqual([1, 2, 3]);
-    expect(tickets.map((t) => t.createdAt.toISOString())).toEqual([
+    expect(tasks.map((t) => t.id)).toEqual([1, 2, 3]);
+    expect(tasks.map((t) => t.createdAt.toISOString())).toEqual([
       "2026-01-01T00:00:00.000Z",
       "2026-01-02T00:00:00.000Z",
       "2026-01-03T00:00:00.000Z",
@@ -125,20 +161,20 @@ describe("factories", () => {
  * none yet), just the seam those will sit on.
  */
 describe("a service-shaped round trip", () => {
-  it("writes a ticket with comments and cascades the delete", async () => {
-    const ticket = await makeTicket({ status: "in_progress", assignee: "Dana Ruiz" });
-    await makeComment({ ticketId: ticket.id, body: "first" });
-    await makeComment({ ticketId: ticket.id, body: "second" });
+  it("writes a task with comments and cascades the delete", async () => {
+    const task = await makeTask({ status: "in_progress", assignee: "Dana Ruiz" });
+    await makeComment({ taskId: task.id, body: "first" });
+    await makeComment({ taskId: task.id, body: "second" });
 
-    const loaded = await prisma.ticket.findUnique({
-      where: { id: ticket.id },
+    const loaded = await prisma.task.findUnique({
+      where: { id: task.id },
       include: { comments: { orderBy: { id: "asc" } } },
     });
 
     expect(loaded?.assignee).toBe("Dana Ruiz");
     expect(loaded?.comments.map((c) => c.body)).toEqual(["first", "second"]);
 
-    await prisma.ticket.delete({ where: { id: ticket.id } });
+    await prisma.task.delete({ where: { id: task.id } });
 
     expect(await prisma.comment.count()).toBe(0);
   });

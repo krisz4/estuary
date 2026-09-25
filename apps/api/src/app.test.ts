@@ -74,7 +74,7 @@ describe("unknown route", () => {
 describe("body parser failures", () => {
   it("turns malformed JSON into 400 MALFORMED_JSON, not 500", async () => {
     const res = await request(app)
-      .post("/api/v1/tickets")
+      .post("/api/v1/tasks")
       .set("Content-Type", "application/json")
       .send('{"title": "unterminated');
 
@@ -87,7 +87,7 @@ describe("body parser failures", () => {
     const oversized = JSON.stringify({ description: "x".repeat(2 * 1024 * 1024) });
 
     const res = await request(app)
-      .post("/api/v1/tickets")
+      .post("/api/v1/tasks")
       .set("Content-Type", "application/json")
       .send(oversized);
 
@@ -138,14 +138,14 @@ describe("cors", () => {
   // next(err) on a bad body, which skips every remaining non-error middleware —
   // so if cors is mounted after the parser, these two responses go out with no
   // CORS headers and the browser turns them into opaque network errors. The
-  // user-visible symptom is a ticket description over BODY_LIMIT failing with
+  // user-visible symptom is a task description over BODY_LIMIT failing with
   // no message and no request id to quote back.
   it.each([
     ["malformed JSON", "{ not json", undefined],
     ["an oversized body", JSON.stringify({ description: "x".repeat(1_200_000) }), undefined],
   ])("still sends CORS headers when the body parser rejects %s", async (_label, body) => {
     const res = await request(app)
-      .post("/api/v1/tickets")
+      .post("/api/v1/tasks")
       .set("Origin", "http://localhost:5173")
       .set("Content-Type", "application/json")
       .send(body);

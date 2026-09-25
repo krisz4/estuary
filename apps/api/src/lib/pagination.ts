@@ -18,7 +18,7 @@ import { buildPaginationMeta, type Paginated, type PaginationMeta } from "@helpd
  * - `hasNextPage` is `page < totalPages`, so an over-the-end page reports
  *   `false` rather than "there might be more".
  *
- * See `docs/features/Ticket_Query_Filter_Sort_Page.md` § Response envelope.
+ * See `docs/features/Task_Query_Filter_Sort_Page.md` § Response envelope.
  */
 
 export interface PageRequest {

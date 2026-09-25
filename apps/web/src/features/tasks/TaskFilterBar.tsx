@@ -1,6 +1,15 @@
-import { TICKET_Q_MAX, type TicketFacets, type TicketSort } from "@helpdesk/contracts";
+import {
+  HUMAN_ATTENTION_STATUSES,
+  actorKindOf,
+  TASK_Q_MAX,
+  TASK_STATUSES,
+  TERMINAL_TASK_STATUSES,
+  type TaskFacets,
+  type TaskSort,
+  type TaskStatus,
+} from "@helpdesk/contracts";
 import { Search, SlidersHorizontal, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   Button,
   Dialog,
@@ -12,20 +21,20 @@ import {
 } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
-  TICKET_CATEGORY_LABELS,
-  TICKET_PRIORITY_LABELS,
-  TICKET_STATUS_LABELS,
-  categoryOptions,
+  ACTOR_KIND_LABELS,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+  actorDisplayName,
   formatDateOnly,
   priorityOptions,
   statusOptions,
 } from "@/lib/formatting";
-import { SortSelect } from "@/features/tickets/SortSelect";
+import { SortSelect } from "@/features/tasks/SortSelect";
 import {
-  type TicketListFilterPatch,
-  type TicketListFilters,
-  type TicketListParams,
-} from "@/pages/tickets-list/useTicketListParams";
+  type TaskListFilterPatch,
+  type TaskListFilters,
+  type TaskListParams,
+} from "@/pages/tasks-list/useTaskListParams";
 
 /**
  * Search, filters, and (on mobile) sort.
@@ -38,12 +47,13 @@ import {
  * 2. **Assignee is one control, not a select plus an "unassigned" toggle.**
  *    `assignee` and `assigneeIsNull` are mutually exclusive on the wire — two
  *    controls make the 422 reachable by clicking, one makes it unrepresentable.
- *    Its options come from `GET /tickets/facets`, which is what makes the
- *    server's case-sensitive exact match safe (`equals` in SQLite is
- *    case-sensitive and Prisma's connector has no `mode: "insensitive"`).
+ *    Its options — like the project and creator options — come from
+ *    `GET /tasks/facets`, which is what makes the server's case-sensitive
+ *    exact match safe (`equals` in SQLite is case-sensitive and Prisma's
+ *    connector has no `mode: "insensitive"`).
  * 3. **Below `md` the controls move into a sheet**, behind a Filters button
  *    carrying a count. Seven controls stacked above the list on a 360px screen
- *    push the tickets themselves below the fold.
+ *    push the tasks themselves below the fold.
  */
 
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -62,20 +72,79 @@ const ASSIGNEE_NONE = "unassigned";
 const ASSIGNEE_SOMEONE = "assigned";
 const ASSIGNEE_NAME_PREFIX = "name:";
 
-const encodeAssignee = (params: TicketListParams): string => {
+const encodeAssignee = (params: TaskListParams): string => {
   if (params.assignee !== undefined) return `${ASSIGNEE_NAME_PREFIX}${params.assignee}`;
   if (params.assigneeIsNull === true) return ASSIGNEE_NONE;
   if (params.assigneeIsNull === false) return ASSIGNEE_SOMEONE;
   return ASSIGNEE_ANY;
 };
 
-const decodeAssignee = (value: string): Partial<TicketListFilters> => {
+const decodeAssignee = (value: string): Partial<TaskListFilters> => {
   if (value.startsWith(ASSIGNEE_NAME_PREFIX)) {
     return { assignee: value.slice(ASSIGNEE_NAME_PREFIX.length), assigneeIsNull: undefined };
   }
   if (value === ASSIGNEE_NONE) return { assignee: undefined, assigneeIsNull: true };
   if (value === ASSIGNEE_SOMEONE) return { assignee: undefined, assigneeIsNull: false };
   return { assignee: undefined, assigneeIsNull: undefined };
+};
+
+/* ------------------------------------------------------------------ *
+ * Creator and status presets
+ * ------------------------------------------------------------------ */
+
+/**
+ * Creator values are whole actor strings (`agent:claude-code`), which always
+ * contain a colon — so the "anyone" sentinel cannot collide with one.
+ */
+const CREATOR_ANY = "any";
+
+/** `agent:claude-code` → `claude-code (agent)`: the name first, the kind as a qualifier. */
+export const creatorLabel = (actor: string): string =>
+  `${actorDisplayName(actor)} (${ACTOR_KIND_LABELS[actorKindOf(actor)].toLowerCase()})`;
+
+/**
+ * Every status except the closed lane — "what is still live". The quick
+ * filter that replaced the helpdesk's default "open" chip: with ten statuses,
+ * ticking seven by hand is not a filter anyone would use.
+ */
+export const OPEN_STATUSES: readonly TaskStatus[] = TASK_STATUSES.filter(
+  (status) => !(TERMINAL_TASK_STATUSES as readonly TaskStatus[]).includes(status),
+);
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((entry) => b.includes(entry));
+
+/**
+ * A one-click status selection. A toggle: pressed when the selection is
+ * exactly its set, and pressing it again clears the status filter.
+ */
+const StatusPreset = ({
+  label,
+  statuses,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  statuses: readonly TaskStatus[];
+  selected: readonly TaskStatus[];
+  onSelect: (statuses: TaskStatus[]) => void;
+}) => {
+  const isActive = sameSet(statuses, selected);
+  return (
+    <button
+      type="button"
+      aria-pressed={isActive}
+      onClick={() => onSelect(isActive ? [] : [...statuses])}
+      className={cn(
+        "rounded px-1.5 py-0.5 text-xs font-normal transition-colors",
+        isActive
+          ? "bg-primary-subtle text-primary-subtle-foreground"
+          : "text-primary hover:underline",
+      )}
+    >
+      {label}
+    </button>
+  );
 };
 
 /* ------------------------------------------------------------------ *
@@ -109,14 +178,19 @@ const ChipGroup = <TValue extends string>({
   options,
   selected,
   onToggle,
+  presets,
 }: {
   legend: string;
   options: readonly { value: TValue; label: string }[];
   selected: TValue[];
   onToggle: (value: TValue) => void;
+  /** One-click selections rendered beside the legend ("Open work", "Needs you"). */
+  presets?: ReactNode;
 }) => (
   <fieldset className="flex flex-col gap-1.5">
     <legend className="mb-1 text-xs font-medium text-muted-foreground">{legend}</legend>
+    {/* Outside the legend, so the group's accessible name stays "Status". */}
+    {presets === undefined ? null : <div className="-mt-1 flex flex-wrap gap-2">{presets}</div>}
     <div className="flex flex-wrap gap-1.5">
       {options.map((option) => {
         const isSelected = selected.includes(option.value);
@@ -201,7 +275,7 @@ const SearchInput = ({
   return (
     <div className="relative flex-1">
       <label htmlFor={id} className="sr-only">
-        Search tickets
+        Search tasks
       </label>
       <Search
         className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -211,9 +285,9 @@ const SearchInput = ({
         id={id}
         type="search"
         value={text}
-        maxLength={TICKET_Q_MAX}
+        maxLength={TASK_Q_MAX}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Search title, description, or HD-000042"
+        placeholder="Search title, description, or TASK-000042"
         className="pl-9"
       />
     </div>
@@ -224,18 +298,18 @@ const SearchInput = ({
  * The bar
  * ------------------------------------------------------------------ */
 
-export type TicketFilterBarProps = {
-  params: TicketListParams;
-  facets: TicketFacets | undefined;
-  onFiltersChange: (patch: TicketListFilterPatch, options?: { replace?: boolean }) => void;
-  onSortChange: (sort: TicketSort) => void;
+export type TaskFilterBarProps = {
+  params: TaskListParams;
+  facets: TaskFacets | undefined;
+  onFiltersChange: (patch: TaskListFilterPatch, options?: { replace?: boolean }) => void;
+  onSortChange: (sort: TaskSort) => void;
   onClear: () => void;
   activeFilterCount: number;
   /** `true` at `md` and up: controls sit inline. Below, they live in a sheet. */
   isWide: boolean;
 };
 
-export const TicketFilterBar = ({
+export const TaskFilterBar = ({
   params,
   facets,
   onFiltersChange,
@@ -243,7 +317,7 @@ export const TicketFilterBar = ({
   onClear,
   activeFilterCount,
   isWide,
-}: TicketFilterBarProps) => {
+}: TaskFilterBarProps) => {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   // Stable, so the debounce effect is not torn down and rebuilt on every render
@@ -324,20 +398,21 @@ const FilterControls = ({
   facets,
   onFiltersChange,
 }: {
-  params: TicketListParams;
-  facets: TicketFacets | undefined;
-  onFiltersChange: (patch: TicketListFilterPatch) => void;
+  params: TaskListParams;
+  facets: TaskFacets | undefined;
+  onFiltersChange: (patch: TaskListFilterPatch) => void;
 }) => {
   const fromId = useId();
   const toId = useId();
 
-  // The category list narrows to what the data actually contains when facets
-  // have loaded, and falls back to the full enum before that — an empty select
-  // while a 1ms request is in flight reads as a broken control.
-  const categories =
-    facets === undefined || facets.categories.length === 0
-      ? categoryOptions
-      : facets.categories.map((value) => ({ value, label: TICKET_CATEGORY_LABELS[value] }));
+  /*
+    Projects exist only as values on tasks, so the chips are the facets — plus
+    any project already selected in the URL, so a filter from a shared link
+    stays visible and removable before (or without) the facets loading.
+  */
+  const projects = [...new Set([...(facets?.projects ?? []), ...params.project])]
+    .sort()
+    .map((value) => ({ value, label: value }));
 
   const assigneeOptions = [
     { value: ASSIGNEE_ANY, label: "Anyone" },
@@ -347,6 +422,17 @@ const FilterControls = ({
       value: `${ASSIGNEE_NAME_PREFIX}${name}`,
       label: name,
     })),
+  ];
+
+  const creators = [
+    ...new Set([
+      ...(facets?.creators ?? []),
+      ...(params.createdBy === undefined ? [] : [params.createdBy]),
+    ]),
+  ];
+  const creatorOptions = [
+    { value: CREATOR_ANY, label: "Anyone" },
+    ...creators.map((actor) => ({ value: actor, label: creatorLabel(actor) })),
   ];
 
   return (
@@ -359,6 +445,22 @@ const FilterControls = ({
           onToggle={(value) =>
             onFiltersChange((current) => ({ status: toggleValue(current.status, value) }))
           }
+          presets={
+            <>
+              <StatusPreset
+                label="Open work"
+                statuses={OPEN_STATUSES}
+                selected={params.status}
+                onSelect={(status) => onFiltersChange({ status })}
+              />
+              <StatusPreset
+                label="Needs you"
+                statuses={HUMAN_ATTENTION_STATUSES}
+                selected={params.status}
+                onSelect={(status) => onFiltersChange({ status })}
+              />
+            </>
+          }
         />
         <ChipGroup
           legend="Priority"
@@ -368,17 +470,19 @@ const FilterControls = ({
             onFiltersChange((current) => ({ priority: toggleValue(current.priority, value) }))
           }
         />
-        <ChipGroup
-          legend="Category"
-          options={categories}
-          selected={params.category}
-          onToggle={(value) =>
-            onFiltersChange((current) => ({ category: toggleValue(current.category, value) }))
-          }
-        />
+        {projects.length === 0 ? null : (
+          <ChipGroup
+            legend="Project"
+            options={projects}
+            selected={params.project}
+            onToggle={(value) =>
+              onFiltersChange((current) => ({ project: toggleValue(current.project, value) }))
+            }
+          />
+        )}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted-foreground">Assignee</span>
           <Select
@@ -386,6 +490,18 @@ const FilterControls = ({
             value={encodeAssignee(params)}
             onValueChange={(value) => onFiltersChange(decodeAssignee(value))}
             aria-label="Filter by assignee"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted-foreground">Created by</span>
+          <Select
+            options={creatorOptions}
+            value={params.createdBy ?? CREATOR_ANY}
+            onValueChange={(value) =>
+              onFiltersChange({ createdBy: value === CREATOR_ANY ? undefined : value })
+            }
+            aria-label="Filter by creator"
           />
         </div>
 
@@ -439,11 +555,11 @@ const FilterControls = ({
 type ActiveChip = {
   key: string;
   label: string;
-  clear: (current: TicketListParams) => Partial<TicketListFilters>;
+  clear: (current: TaskListParams) => Partial<TaskListFilters>;
 };
 
 /** Every active filter as one removable chip, in a stable order. */
-export const activeFilterChips = (params: TicketListParams): ActiveChip[] => {
+export const activeFilterChips = (params: TaskListParams): ActiveChip[] => {
   const chips: ActiveChip[] = [];
 
   if (params.q !== undefined) {
@@ -452,22 +568,22 @@ export const activeFilterChips = (params: TicketListParams): ActiveChip[] => {
   for (const value of params.status) {
     chips.push({
       key: `status:${value}`,
-      label: `Status: ${TICKET_STATUS_LABELS[value]}`,
+      label: `Status: ${TASK_STATUS_LABELS[value]}`,
       clear: (current) => ({ status: current.status.filter((entry) => entry !== value) }),
     });
   }
   for (const value of params.priority) {
     chips.push({
       key: `priority:${value}`,
-      label: `Priority: ${TICKET_PRIORITY_LABELS[value]}`,
+      label: `Priority: ${TASK_PRIORITY_LABELS[value]}`,
       clear: (current) => ({ priority: current.priority.filter((entry) => entry !== value) }),
     });
   }
-  for (const value of params.category) {
+  for (const value of params.project) {
     chips.push({
-      key: `category:${value}`,
-      label: `Category: ${TICKET_CATEGORY_LABELS[value]}`,
-      clear: (current) => ({ category: current.category.filter((entry) => entry !== value) }),
+      key: `project:${value}`,
+      label: `Project: ${value}`,
+      clear: (current) => ({ project: current.project.filter((entry) => entry !== value) }),
     });
   }
   if (params.assignee !== undefined) {
@@ -484,11 +600,11 @@ export const activeFilterChips = (params: TicketListParams): ActiveChip[] => {
       clear: () => ({ assigneeIsNull: undefined }),
     });
   }
-  if (params.requesterEmail !== undefined) {
+  if (params.createdBy !== undefined) {
     chips.push({
-      key: "requesterEmail",
-      label: `Requester: ${params.requesterEmail}`,
-      clear: () => ({ requesterEmail: undefined }),
+      key: "createdBy",
+      label: `Created by: ${creatorLabel(params.createdBy)}`,
+      clear: () => ({ createdBy: undefined }),
     });
   }
   if (params.createdFrom !== undefined) {
@@ -514,8 +630,8 @@ const ActiveFilterChips = ({
   onFiltersChange,
   onClear,
 }: {
-  params: TicketListParams;
-  onFiltersChange: (patch: TicketListFilterPatch) => void;
+  params: TaskListParams;
+  onFiltersChange: (patch: TaskListFilterPatch) => void;
   onClear: () => void;
 }) => {
   const chips = activeFilterChips(params);

@@ -29,7 +29,7 @@ export const FormErrorSummary = ({
   className?: string;
   /**
    * The region is the **fallback focus target** after a server rejection whose
-   * messages name no rendered field (see `TicketForm`). `tabIndex={-1}` makes it
+   * messages name no rendered field (see `TaskForm`). `tabIndex={-1}` makes it
    * focusable programmatically without putting it in the tab order.
    */
   ref?: Ref<HTMLDivElement>;

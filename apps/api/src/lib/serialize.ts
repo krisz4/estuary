@@ -1,12 +1,23 @@
 import {
+  decisionOptionSchema,
   formatReference,
+  taskLinkSchema,
   type Comment,
-  type Ticket,
-  type TicketCategory,
-  type TicketPriority,
-  type TicketStatus,
-  type TicketSummary,
+  type CommentKind,
+  type Decision,
+  type DecisionOption,
+  type DecisionStatus,
+  type Task,
+  type TaskClaim,
+  type TaskEvent,
+  type TaskEventType,
+  type TaskLink,
+  type TaskPriority,
+  type TaskRef,
+  type TaskStatus,
+  type TaskSummary,
 } from "@helpdesk/contracts";
+import { z } from "zod";
 
 /**
  * The single boundary between a database row and the wire.
@@ -16,11 +27,12 @@ import {
  * 1. **`Date` → ISO 8601 UTC string.** `JSON.stringify` happens to call
  *    `Date.prototype.toJSON`, so forgetting this looks fine until a value is
  *    reshaped on the way out and a raw `Date` reaches a client as `{}`.
- * 2. **`reference`** (`HD-000042`) is computed here, never stored — see
- *    `docs/features/Ticket_Numbering.md`.
+ * 2. **`reference`** (`TASK-000042`) is computed here, never stored — see
+ *    `docs/features/Task_Numbering.md`.
  *
- * It also drops the two columns that exist only so SQLite can sort:
- * `statusRank` and `priorityRank` are storage detail and are never serialized.
+ * It also drops the columns that are storage detail — `statusRank`,
+ * `priorityRank`, `idempotencyKey`, the raw claim columns — and parses the JSON
+ * held in `String` columns (`links`, `options`, `payload`).
  *
  * There is one function per shape rather than a serializer per route, so no
  * route can forget. Routes call these; nothing else builds a response body.
@@ -36,29 +48,90 @@ import {
 
 export interface CommentRow {
   id: number;
-  ticketId: number;
-  authorName: string;
+  taskId: number;
+  author: string;
+  /** Constrained to `CommentKind` by the zod enum on the only write path. */
+  kind: string;
   body: string;
   createdAt: Date;
 }
 
-export interface TicketRow {
+export interface DecisionRow {
+  id: number;
+  taskId: number;
+  status: string;
+  question: string;
+  options: string;
+  recommendedOption: string | null;
+  context: string | null;
+  requestedBy: string;
+  choice: string | null;
+  note: string | null;
+  answeredBy: string | null;
+  createdAt: Date;
+  answeredAt: Date | null;
+}
+
+export interface TaskRow {
   id: number;
   title: string;
   description: string;
-  /** Constrained to `TicketStatus` by the zod enums on every write path. */
+  acceptanceCriteria: string | null;
+  /** Constrained to `TaskStatus` by the zod enums on every write path. */
   status: string;
-  /** Constrained to `TicketPriority` by the zod enums on every write path. */
+  statusNote: string | null;
+  /** Constrained to `TaskPriority` by the zod enums on every write path. */
   priority: string;
-  /** Constrained to `TicketCategory` by the zod enums on every write path. */
-  category: string | null;
-  requesterName: string;
-  requesterEmail: string;
+  project: string | null;
   assignee: string | null;
+  createdBy: string;
+  links: string;
+  claimedBy: string | null;
+  claimExpiresAt: Date | null;
+  version: number;
+  parentId: number | null;
   createdAt: Date;
   updatedAt: Date;
-  resolvedAt: Date | null;
-  closedAt: Date | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+}
+
+/** A related task, reduced to what a `TaskRef` shows. */
+export interface TaskRefRow {
+  id: number;
+  title: string;
+  status: string;
+}
+
+/**
+ * What every task read must load alongside the row. Kept as a type here and as
+ * a Prisma `include` in the service (`summaryInclude`), so a read that forgets
+ * one of them is a type error at the serializer call rather than a quietly
+ * wrong count.
+ */
+export interface TaskSummaryRelations {
+  _count: { comments: number };
+  /** At least the `open` decision (at most one exists); the detail loads them all. */
+  decisions: DecisionRow[];
+  /** Every dependency, with just enough of the other task to count the unfinished ones. */
+  dependencies: { dependsOn: { status: string } }[];
+}
+
+export interface TaskDetailRelations extends TaskSummaryRelations {
+  comments: CommentRow[];
+  parent: TaskRefRow | null;
+  children: TaskRefRow[];
+  dependencies: { dependsOn: TaskRefRow }[];
+  dependents: { task: TaskRefRow }[];
+}
+
+export interface TaskEventRow {
+  id: number;
+  taskId: number;
+  type: string;
+  actor: string;
+  payload: string;
+  createdAt: Date;
 }
 
 /* ------------------------------------------------------------------ *
@@ -71,64 +144,139 @@ export const toIsoOrNull = (value: Date | null): string | null =>
   value === null ? null : value.toISOString();
 
 /* ------------------------------------------------------------------ *
+ * JSON columns
+ * ------------------------------------------------------------------ */
+
+/**
+ * JSON columns are parsed **leniently** on the way out. They are written only
+ * from zod-validated input, so a parse failure means someone edited the file by
+ * hand — and turning that into a 500 on every read of the task (or a 422 on a
+ * `GET`, which is what a thrown `ZodError` would become) is worse than showing
+ * the task without its links.
+ */
+const parseJsonColumn = <T>(raw: string, schema: z.ZodType<T>, fallback: T): T => {
+  try {
+    const parsed = schema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const linksColumn = z.array(taskLinkSchema);
+const optionsColumn = z.array(decisionOptionSchema);
+const payloadColumn = z.record(z.string(), z.unknown());
+
+/** `Task.links`, parsed with the same lenient rule the serializers use. */
+export const parseLinksColumn = (raw: string): TaskLink[] => parseJsonColumn(raw, linksColumn, []);
+
+/** `Decision.options`, parsed with the same lenient rule the serializers use. */
+export const parseOptionsColumn = (raw: string): DecisionOption[] =>
+  parseJsonColumn(raw, optionsColumn, []);
+
+/* ------------------------------------------------------------------ *
  * Serializers
  * ------------------------------------------------------------------ */
 
 export const serializeComment = (row: CommentRow): Comment => ({
   id: row.id,
-  ticketId: row.ticketId,
-  authorName: row.authorName,
+  taskId: row.taskId,
+  author: row.author,
+  kind: row.kind as CommentKind,
   body: row.body,
   createdAt: toIso(row.createdAt),
 });
 
-/**
- * The fields shared by `Ticket` and `TicketSummary`.
- *
- * The enum casts are safe by construction: `status`, `priority`, and `category`
- * are `String` columns whose only writers parse through the zod enums in
- * `packages/contracts` (see `docs/engineering/DATABASE.md`). Re-parsing here
- * would turn a data problem into a `ZodError` on a **read** path, which the
- * error handler would then report as a 422 on a `GET`.
- */
-const serializeTicketFields = (row: TicketRow, commentCount: number): TicketSummary => ({
+export const serializeDecision = (row: DecisionRow): Decision => ({
+  id: row.id,
+  taskId: row.taskId,
+  status: row.status as DecisionStatus,
+  question: row.question,
+  options: parseOptionsColumn(row.options),
+  recommendedOption: row.recommendedOption,
+  context: row.context,
+  requestedBy: row.requestedBy,
+  choice: row.choice,
+  note: row.note,
+  answeredBy: row.answeredBy,
+  createdAt: toIso(row.createdAt),
+  answeredAt: toIsoOrNull(row.answeredAt),
+});
+
+export const serializeTaskRef = (row: TaskRefRow): TaskRef => ({
   id: row.id,
   reference: formatReference(row.id),
   title: row.title,
-  description: row.description,
-  status: row.status as TicketStatus,
-  priority: row.priority as TicketPriority,
-  category: row.category as TicketCategory | null,
-  requesterName: row.requesterName,
-  requesterEmail: row.requesterEmail,
-  assignee: row.assignee,
-  createdAt: toIso(row.createdAt),
-  updatedAt: toIso(row.updatedAt),
-  resolvedAt: toIsoOrNull(row.resolvedAt),
-  closedAt: toIsoOrNull(row.closedAt),
-  commentCount,
+  status: row.status as TaskStatus,
 });
 
 /**
- * List rows: no `comments` array, so the list can never fan out into N comment
- * queries. `commentCount` comes from a Prisma `_count` aggregate.
- *
- * `_count` is **required**, not defaulted to zero. This module exists so no
- * route can forget a field; a default would turn a forgotten
- * `_count: { select: { comments: true } }` into every ticket in the list quietly
- * reporting 0 comments, instead of a type error at the call site.
+ * A lease that has run out serializes as `null`: to every consumer an expired
+ * claim means exactly what no claim means — anyone may take the task. `now` is
+ * injectable so a test can pin the boundary.
  */
-export const serializeTicketSummary = (
-  row: TicketRow & { _count: { comments: number } },
-): TicketSummary => serializeTicketFields(row, row._count.comments);
+export const serializeClaim = (row: TaskRow, now: Date = new Date()): TaskClaim | null =>
+  row.claimedBy !== null && row.claimExpiresAt !== null && row.claimExpiresAt > now
+    ? { actor: row.claimedBy, expiresAt: toIso(row.claimExpiresAt) }
+    : null;
 
 /**
- * Single ticket: the comment thread is included, oldest-first, and
- * `commentCount` defaults to its length when no `_count` aggregate was selected.
+ * List rows and the base of the detail shape.
+ *
+ * The enum casts are safe by construction: `status` and `priority` are `String`
+ * columns whose only writers parse through the zod enums in
+ * `packages/contracts` (see `docs/engineering/DATABASE.md`). Re-parsing here
+ * would turn a data problem into a `ZodError` on a **read** path.
+ *
+ * The relations are **required**, not defaulted. This module exists so no route
+ * can forget a field; a default would turn a forgotten `include` into every task
+ * quietly reporting 0 comments and no decision, instead of a type error.
  */
-export const serializeTicket = (
-  row: TicketRow & { comments: CommentRow[]; _count?: { comments: number } },
-): Ticket => ({
-  ...serializeTicketFields(row, row._count?.comments ?? row.comments.length),
+export const serializeTaskSummary = (row: TaskRow & TaskSummaryRelations): TaskSummary => {
+  const openDecision = row.decisions.find((decision) => decision.status === "open") ?? null;
+
+  return {
+    id: row.id,
+    reference: formatReference(row.id),
+    title: row.title,
+    description: row.description,
+    status: row.status as TaskStatus,
+    statusNote: row.statusNote,
+    priority: row.priority as TaskPriority,
+    project: row.project,
+    assignee: row.assignee,
+    acceptanceCriteria: row.acceptanceCriteria,
+    links: parseLinksColumn(row.links),
+    parentId: row.parentId,
+    createdBy: row.createdBy,
+    claim: serializeClaim(row),
+    version: row.version,
+    openDependencyCount: row.dependencies.filter((dep) => dep.dependsOn.status !== "done").length,
+    openDecision: openDecision === null ? null : serializeDecision(openDecision),
+    createdAt: toIso(row.createdAt),
+    updatedAt: toIso(row.updatedAt),
+    startedAt: toIsoOrNull(row.startedAt),
+    completedAt: toIsoOrNull(row.completedAt),
+    commentCount: row._count.comments,
+  };
+};
+
+/** Single task: the summary plus the comment thread (oldest first) and relations. */
+export const serializeTask = (row: TaskRow & TaskDetailRelations): Task => ({
+  ...serializeTaskSummary(row),
   comments: row.comments.map(serializeComment),
+  decisions: row.decisions.map(serializeDecision),
+  parent: row.parent === null ? null : serializeTaskRef(row.parent),
+  children: row.children.map(serializeTaskRef),
+  dependencies: row.dependencies.map((dep) => serializeTaskRef(dep.dependsOn)),
+  dependents: row.dependents.map((dep) => serializeTaskRef(dep.task)),
+});
+
+export const serializeEvent = (row: TaskEventRow): TaskEvent => ({
+  id: row.id,
+  taskId: row.taskId,
+  type: row.type as TaskEventType,
+  actor: row.actor,
+  payload: parseJsonColumn(row.payload, payloadColumn, {}),
+  createdAt: toIso(row.createdAt),
 });

@@ -59,9 +59,15 @@ export default defineConfig(
     },
   },
 
-  // Node-side source (apps/api, scripts, config files).
+  // Node-side source (apps/api, apps/mcp, the Claude Code plugin's scripts, config files).
   {
-    files: ["apps/api/**/*.{ts,js}", "e2e/**/*.ts", "**/*.config.{ts,js,mts,mjs}"],
+    files: [
+      "apps/api/**/*.{ts,js}",
+      "apps/mcp/**/*.{ts,js}",
+      "integrations/**/*.{js,mjs}",
+      "e2e/**/*.ts",
+      "**/*.config.{ts,js,mts,mjs}",
+    ],
     languageOptions: {
       globals: { ...globals.node },
     },

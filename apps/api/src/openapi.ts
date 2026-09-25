@@ -1,7 +1,8 @@
 import { buildOpenApiDocument, type OpenApiDocument } from "./lib/openapi.js";
 import { registerCommentPaths } from "./routes/comments.openapi.js";
+import { registerEventPaths } from "./routes/events.openapi.js";
 import { registerSystemPaths } from "./routes/system.openapi.js";
-import { registerTicketPaths } from "./routes/tickets.openapi.js";
+import { registerTaskPaths } from "./routes/tasks.openapi.js";
 
 /**
  * The one place the per-router registration modules are pulled in.
@@ -25,7 +26,12 @@ import { registerTicketPaths } from "./routes/tickets.openapi.js";
  * `docs/engineering/ARCHITECTURE.md` allows `lib/` contracts and third-party
  * packages, not routes.
  */
-const REGISTRARS = [registerTicketPaths, registerCommentPaths, registerSystemPaths] as const;
+const REGISTRARS = [
+  registerTaskPaths,
+  registerCommentPaths,
+  registerEventPaths,
+  registerSystemPaths,
+] as const;
 
 let cached: OpenApiDocument | undefined;
 

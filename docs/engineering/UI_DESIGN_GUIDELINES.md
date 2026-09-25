@@ -45,7 +45,7 @@ Neutral base, one accent. Status color is the only strong color on the list scre
 | base | 360–639 | Single column, stacked cards, sticky form actions, bottom-sheet filters |
 | `sm` | 640 | Buttons regain labels, actions sit side by side |
 | `md` | 768 | **Table replaces cards**, filter bar goes inline, detail page gains its aside |
-| `lg` | 1024 | Extra table columns (assignee) |
+| `lg` | 1024 | Extra table column (project) |
 | `xl` | 1280 | Container reaches max width |
 
 `md` is the important one — it is where the list flips between two genuinely different components. Test at 360, 768, and 1280.
@@ -95,4 +95,4 @@ The class is the single mechanism, and `prefers-color-scheme` feeds *into* it ra
 ## Related
 
 - [../pages/README.md](../pages/README.md) — per-screen layouts
-- [../features/Ticket_Priority.md](../features/Ticket_Priority.md), [../features/Ticket_Status_Lifecycle.md](../features/Ticket_Status_Lifecycle.md) — badge mappings
+- [../features/Task_Priority.md](../features/Task_Priority.md), [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) — badge mappings

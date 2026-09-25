@@ -41,11 +41,11 @@ describe("Button", () => {
     // and "open in new tab" — which the design guidelines call out for row links.
     render(
       <Button asChild>
-        <a href="/tickets/new">New ticket</a>
+        <a href="/tasks/new">New task</a>
       </Button>,
     );
 
-    const link = screen.getByRole("link", { name: "New ticket" });
+    const link = screen.getByRole("link", { name: "New task" });
     expect(link.tagName).toBe("A");
     expect(screen.queryByRole("button")).toBeNull();
   });

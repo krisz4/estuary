@@ -44,7 +44,7 @@ describe("Pagination", () => {
         onPageSizeChange={noop}
       />,
     );
-    expect(screen.getByText("Showing 41–60 of 63 tickets")).toBeInTheDocument();
+    expect(screen.getByText("Showing 41–60 of 63 tasks")).toBeInTheDocument();
   });
 
   it("marks the current page for assistive technology", () => {
@@ -116,7 +116,7 @@ describe("Pagination", () => {
     expect(screen.getByText(/on 4 pages$/)).toBeInTheDocument();
   });
 
-  it("says 'No tickets' rather than 'Showing 0–0 of 0'", () => {
+  it("says 'No tasks' rather than 'Showing 0–0 of 0'", () => {
     render(
       <Pagination
         meta={meta({ total: 0, totalPages: 1, hasNextPage: false })}
@@ -124,6 +124,6 @@ describe("Pagination", () => {
         onPageSizeChange={noop}
       />,
     );
-    expect(screen.getByText("No tickets")).toBeInTheDocument();
+    expect(screen.getByText("No tasks")).toBeInTheDocument();
   });
 });

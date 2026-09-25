@@ -1,7 +1,7 @@
 import { Columns3, List } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/cn";
-import { ticketViewFromPathname, ticketViewPath } from "@/stores/ticketView";
+import { taskViewFromPathname, taskViewPath } from "@/stores/taskView";
 
 /**
  * List ⇄ Board, as two links rather than a toggle button.
@@ -12,7 +12,7 @@ import { ticketViewFromPathname, ticketViewPath } from "@/stores/ticketView";
  * identical and lose all three.
  *
  * **The search string rides along.** Both screens read the same filters out of
- * the URL through `useTicketListParams`, so switching view has to preserve them
+ * the URL through `useTaskListParams`, so switching view has to preserve them
  * or every filter a user set is silently dropped by the act of looking at the
  * same data a different way. The two keys the board does not use — `page` and
  * `status` — are deliberately *kept* rather than stripped: they are still valid
@@ -23,8 +23,8 @@ import { ticketViewFromPathname, ticketViewPath } from "@/stores/ticketView";
  * reader announces for "you are here"; a class name is not.
  *
  * **Neither link writes the remembered view.** That happens when the target
- * page mounts (`useRememberTicketView`), so arriving by pasted URL, bookmark or
- * back button records the same thing a click does. See `stores/ticketView.ts`.
+ * page mounts (`useRememberTaskView`), so arriving by pasted URL, bookmark or
+ * back button records the same thing a click does. See `stores/taskView.ts`.
  */
 
 const LINK_CLASS =
@@ -36,15 +36,15 @@ export type ViewSwitchProps = {
 
 export const ViewSwitch = ({ className }: ViewSwitchProps) => {
   const { pathname, search } = useLocation();
-  const isBoard = ticketViewFromPathname(pathname) === "board";
+  const isBoard = taskViewFromPathname(pathname) === "board";
 
   return (
     <nav
-      aria-label="Ticket view"
+      aria-label="Task view"
       className={cn("inline-flex rounded-lg border border-border bg-card p-0.5", className)}
     >
       <Link
-        to={{ pathname: ticketViewPath("list"), search }}
+        to={{ pathname: taskViewPath("list"), search }}
         aria-current={isBoard ? undefined : "page"}
         className={cn(
           LINK_CLASS,
@@ -56,7 +56,7 @@ export const ViewSwitch = ({ className }: ViewSwitchProps) => {
       </Link>
 
       <Link
-        to={{ pathname: ticketViewPath("board"), search }}
+        to={{ pathname: taskViewPath("board"), search }}
         aria-current={isBoard ? "page" : undefined}
         className={cn(
           LINK_CLASS,

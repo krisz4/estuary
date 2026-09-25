@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { defineConfig, devices } from "@playwright/test";
 
 import {
@@ -9,25 +11,28 @@ import {
   API_PORT,
   BASE_URL,
   E2E_DATABASE_URL,
+  REPO_ROOT,
   WEB_DIR,
+  WEB_HOST,
   WEB_PORT,
 } from "./e2e/env";
 
 /**
- * End-to-end suite — stage 15. The five scenarios are listed in
- * `docs/engineering/TESTING.md` § E2E; the ports, origins, and database path
- * they share live in `e2e/env.ts`, which explains why none of them are the
- * development ones.
+ * End-to-end suite. The scenarios are listed in `docs/engineering/TESTING.md`
+ * § E2E; the ports, origins, and database path they share live in
+ * `e2e/env.ts`, which explains why none of them are the development ones.
  *
  * ## The three settings that are not defaults, and why
  *
  * **`workers: 1`.** The suite shares one SQLite database, and SQLite has one
  * writer. That alone would only make parallel runs slow rather than wrong — but
- * spec 1 asserts a newly created ticket is *at the top* of a list sorted newest
- * first, and a second worker creating its own ticket in the same second makes
- * that assertion race. The mutating specs already build their own tickets and
- * never touch a seeded one, which is what keeps them **order**-independent; one
- * worker is what keeps them independent of each other's *timing*.
+ * spec 1 asserts a newly created task is *at the top* of a list sorted newest
+ * first, and a second worker creating its own task in the same second makes
+ * that assertion race — as does the inbox badge count, which is a global number
+ * every mutating spec can move. The mutating specs already build their own
+ * tasks and never touch a seeded one, which is what keeps them
+ * **order**-independent; one worker is what keeps them independent of each
+ * other's *timing*.
  *
  * **`retries: 0`, including in CI.** The gate for this stage is the suite green
  * twice from cold and green when the specs are shuffled. A retry turns an
@@ -39,6 +44,8 @@ import {
  * developer's database rather than the E2E one. A port conflict must be an
  * error, not a substitution.
  */
+const PREPARE_DATABASE_SCRIPT = path.join(REPO_ROOT, "e2e", "prepareDatabase.ts");
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: /.*\.spec\.ts/,
@@ -80,6 +87,12 @@ export default defineConfig({
   /*
     Two servers, both bound to 127.0.0.1 and both disposable.
 
+    **The API's command builds its database first** (`e2e/prepareDatabase.ts`:
+    delete, migrate, seed) and only then starts the server. Playwright launches
+    web servers before `globalSetup`, and the API opens its SQLite file at boot
+    (to switch it to WAL), so the file has to exist before the process does —
+    replacing it afterwards leaves the server reading an unlinked inode.
+
     The API runs `tsx src/server.ts` rather than the `dev` script: `tsx watch`
     would add a file watcher and a restart-on-save loop to a process that lives
     for one test run. The web app runs the **dev** server rather than
@@ -87,10 +100,16 @@ export default defineConfig({
     reaches the client through Vite's own `process.env` reading, which works in
     dev exactly as the `.env` file does. (It is inlined at build time in the
     production path, which is why the Docker image passes it as a build arg.)
+
+    **`--host 127.0.0.1` is not optional.** Without it Vite binds `localhost`,
+    and on a machine whose resolver prefers `::1` that is the IPv6 loopback
+    only — so the `url` probe below (and every `page.goto`) against
+    `127.0.0.1:5183` is refused, and the run fails as a bare "Timed out waiting
+    60000ms from config.webServer" naming neither server.
   */
   webServer: [
     {
-      command: "pnpm exec tsx src/server.ts",
+      command: `pnpm exec tsx "${PREPARE_DATABASE_SCRIPT}" && pnpm exec tsx src/server.ts`,
       cwd: API_DIR,
       url: `${API_ORIGIN}/health`,
       reuseExistingServer: false,
@@ -109,7 +128,7 @@ export default defineConfig({
       },
     },
     {
-      command: `pnpm exec vite --port ${WEB_PORT} --strictPort`,
+      command: `pnpm exec vite --host ${WEB_HOST} --port ${WEB_PORT} --strictPort`,
       cwd: WEB_DIR,
       url: BASE_URL,
       reuseExistingServer: false,

@@ -36,10 +36,10 @@ Bonus item 2 of the brief. The contract table lives in [../engineering/API_ERROR
 
 ### Resource-specific 404s come from services, not from Prisma codes
 
-The handler cannot tell whether a `P2025` was a missing ticket or a missing comment — it has no request context — so **services check existence explicitly and throw the specific error**:
+The handler cannot tell whether a `P2025` was a missing task or a missing comment — it has no request context — so **services check existence explicitly and throw the specific error**:
 
-- `PATCH`/`DELETE /tickets/:id` → `findUnique` first, throw `TICKET_NOT_FOUND`.
-- `POST /tickets/:id/comments` → `findUnique` on the ticket first. A missing parent raises **`P2003`** (foreign key constraint failed), not `P2025`, so without the check this path would return 500 rather than the documented 404.
+- `PATCH`/`DELETE /tasks/:id` → `findUnique` first, throw `TASK_NOT_FOUND`.
+- `POST /tasks/:id/comments` → `findUnique` on the task first. A missing parent raises **`P2003`** (foreign key constraint failed), not `P2025`, so without the check this path would return 500 rather than the documented 404.
 - `DELETE …/comments/:commentId` → `deleteMany` scoped by both ids, zero count → `COMMENT_NOT_FOUND`.
 
 The `P2025` → `NOT_FOUND` mapping is a backstop for paths that forgot to check, not the intended route to a 404.
@@ -65,18 +65,22 @@ Every request gets a `requestId` (incoming `x-request-id` if present, else a uui
 | Situation | UI response |
 | --------- | ----------- |
 | `VALIDATION_ERROR` on a form submit | Map `details` onto the form fields; focus the first invalid one. No toast — the errors are already on screen |
-| `TICKET_NOT_FOUND` on a detail/edit route | Render the "ticket not found" state with a link back to the list, not a toast over a blank page |
-| `INVALID_STATUS_TRANSITION` | Inline message next to the status control, listing the allowed targets from `details.allowed` |
+| `TASK_NOT_FOUND` on a detail/edit route | Render the "task not found" state with a link back to the list, not a toast over a blank page |
+| `VERSION_CONFLICT` on a mutation | Re-fetch the task and surface "this task changed elsewhere — review and retry" rather than silently overwriting `details.current` |
+| `TASK_ALREADY_CLAIMED` on a write | Inline message naming `details.claimedBy` and `details.expiresAt`; the action stays disabled until the lease clears or the caller is a human |
+| `ACTOR_NOT_PERMITTED` on a `done` transition | Inline message pointing at "submit for QA" instead — an agent cannot close a task without `AGENTS_MAY_COMPLETE` |
 | Any error on a mutation | Destructive toast; **the form keeps its values** |
 | Any error on a query | In-place error panel with a Retry button calling `refetch()` — never `window.location.reload()` |
 | Network failure / API down | Same error panel, message "Can't reach the server", retry enabled |
 | Unexpected render crash | `ErrorBoundary` at the route level with a reload affordance |
 
+**Retired:** `INVALID_STATUS_TRANSITION` does not exist any more — there is no from→to table (see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md)), so a status change that is missing what it needs surfaces as an ordinary `VALIDATION_ERROR` on the specific field (`reason`, `decision`, `instructions`, `summary`, `blockedBy`, …), handled by the first row above.
+
 Toasts show the `requestId` in small text on 500s so a user can quote it.
 
 ## Retries
 
-TanStack Query retries **queries** twice with backoff, and only for network errors and 5xx — a 404 or 422 is not retried. **Mutations are never auto-retried**: a retried `POST /tickets` creates two tickets.
+TanStack Query retries **queries** twice with backoff, and only for network errors and 5xx — a 404 or 422 is not retried. **Mutations are never auto-retried on the client.** `POST /tasks` is safe to retry at the *caller* level, though, because of `idempotencyKey`: a web form or an agent that resends the same create after a timeout gets the original task back with 200 rather than a duplicate — see [Task_Workflow_API.md](./Task_Workflow_API.md#idempotent-create). Every other mutation (PATCH, transition, comment) has no such key and a resend can double the effect, which is why the client still never retries automatically.
 
 ## What must not happen
 

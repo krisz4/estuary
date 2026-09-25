@@ -37,7 +37,7 @@ describe("applyServerValidationErrors", () => {
    * `shouldFocus` focuses a **registered input ref**, and three of the form's
    * controls are Radix Selects that have none — so spending the flag on the
    * first matching key aimed focus at nothing whenever that key was a select.
-   * `TicketForm` focuses the first rendered `aria-invalid` instead; this
+   * `TaskForm` focuses the first rendered `aria-invalid` instead; this
    * function must not compete with it.
    */
   it("never asks setError to move focus", () => {

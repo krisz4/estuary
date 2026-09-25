@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { backToListPath, listReturnState, PageHeader } from "@/components/PageHeader";
-import { useTicketViewStore } from "@/stores/ticketView";
+import { useTaskViewStore } from "@/stores/taskView";
 import { renderRoute } from "@/test/harness";
 
 /**
@@ -11,11 +11,11 @@ import { renderRoute } from "@/test/harness";
  */
 describe("backToListPath", () => {
   it("keeps a search string the list would have written", () => {
-    expect(backToListPath({ from: "?page=3&status=open" })).toBe("/tickets?page=3&status=open");
+    expect(backToListPath({ from: "?page=3&status=open" })).toBe("/tasks?page=3&status=open");
   });
 
   it("adds the missing question mark", () => {
-    expect(backToListPath({ from: "page=3" })).toBe("/tickets?page=3");
+    expect(backToListPath({ from: "page=3" })).toBe("/tasks?page=3");
   });
 
   it.each([
@@ -25,41 +25,41 @@ describe("backToListPath", () => {
     ["an empty from", { from: "" }],
     ["a missing from", {}],
   ])("falls back to the bare list for %s", (_label, state) => {
-    expect(backToListPath(state)).toBe("/tickets");
+    expect(backToListPath(state)).toBe("/tasks");
   });
 
   /*
     The view decides the *path*, `state.from` decides the query. The board is a
-    second list route, and a ticket opened from it has to come back to it.
+    second list route, and a task opened from it has to come back to it.
   */
   it("returns to the board's route when the board is the remembered view", () => {
     expect(backToListPath({ from: "?priority=urgent" }, "board")).toBe(
-      "/tickets/board?priority=urgent",
+      "/tasks/board?priority=urgent",
     );
-    expect(backToListPath(null, "board")).toBe("/tickets/board");
+    expect(backToListPath(null, "board")).toBe("/tasks/board");
   });
 });
 
 describe("listReturnState", () => {
-  it.each(["/tickets", "/tickets/board"])("carries the current search from %s", (pathname) => {
+  it.each(["/tasks", "/tasks/board"])("carries the current search from %s", (pathname) => {
     expect(listReturnState({ pathname, search: "?q=vpn", state: null })).toEqual({
       from: "?q=vpn",
     });
   });
 
-  it.each(["/tickets", "/tickets/board"])("carries nothing from an unfiltered %s", (pathname) => {
+  it.each(["/tasks", "/tasks/board"])("carries nothing from an unfiltered %s", (pathname) => {
     expect(listReturnState({ pathname, search: "", state: null })).toBeUndefined();
   });
 
   it("forwards a validated `from` from any other screen", () => {
     expect(
-      listReturnState({ pathname: "/tickets/42", search: "", state: { from: "page=3" } }),
+      listReturnState({ pathname: "/tasks/42", search: "", state: { from: "page=3" } }),
     ).toEqual({ from: "?page=3" });
   });
 
   it("forwards nothing when there is no usable `from`", () => {
     expect(
-      listReturnState({ pathname: "/tickets/42", search: "?ignored=1", state: { from: 5 } }),
+      listReturnState({ pathname: "/tasks/42", search: "?ignored=1", state: { from: 5 } }),
     ).toBeUndefined();
   });
 });
@@ -67,27 +67,27 @@ describe("listReturnState", () => {
 describe("PageHeader", () => {
   it("renders the back link against the carried search string", () => {
     renderRoute({
-      routes: [{ path: "/tickets/42", element: <PageHeader eyebrow="HD-000042" title="Hi" /> }],
-      initialEntries: [{ pathname: "/tickets/42", state: { from: "?status=open" } }],
+      routes: [{ path: "/tasks/42", element: <PageHeader eyebrow="TASK-000042" title="Hi" /> }],
+      initialEntries: [{ pathname: "/tasks/42", state: { from: "?status=open" } }],
     });
 
-    expect(screen.getByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /back to tasks/i })).toHaveAttribute(
       "href",
-      "/tickets?status=open",
+      "/tasks?status=open",
     );
   });
 
   it("points the back link at the board when that is the remembered view", () => {
-    useTicketViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("board");
 
     renderRoute({
-      routes: [{ path: "/tickets/42", element: <PageHeader eyebrow="HD-000042" title="Hi" /> }],
-      initialEntries: [{ pathname: "/tickets/42", state: { from: "?status=open" } }],
+      routes: [{ path: "/tasks/42", element: <PageHeader eyebrow="TASK-000042" title="Hi" /> }],
+      initialEntries: [{ pathname: "/tasks/42", state: { from: "?status=open" } }],
     });
 
-    expect(screen.getByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /back to tasks/i })).toHaveAttribute(
       "href",
-      "/tickets/board?status=open",
+      "/tasks/board?status=open",
     );
   });
 
@@ -97,6 +97,6 @@ describe("PageHeader", () => {
       initialEntries: ["/x"],
     });
 
-    expect(screen.queryByRole("link", { name: /back to tickets/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /back to tasks/i })).not.toBeInTheDocument();
   });
 });

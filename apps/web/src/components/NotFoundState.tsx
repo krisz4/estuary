@@ -4,15 +4,15 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui";
 
 /**
- * A *matched* route whose resource is gone — `/tickets/999999`, or a ticket
+ * A *matched* route whose resource is gone — `/tasks/999999`, or a task
  * deleted in another tab and hit again on the next refetch.
  *
  * Distinct from `NotFoundPage` on purpose (`docs/pages/Not_Found.md`): the route
- * is legitimate and the useful message is about the ticket, not about the URL.
+ * is legitimate and the useful message is about the task, not about the URL.
  * It is also not a toast — a toast disappears and leaves a blank page behind.
  */
 export const NotFoundState = ({
-  title = "This ticket doesn't exist",
+  title = "This task doesn't exist",
   description = "It may have been deleted, or the number in the address is wrong.",
 }: {
   title?: string;
@@ -24,7 +24,7 @@ export const NotFoundState = ({
     description={description}
     action={
       <Button asChild variant="outline">
-        <Link to="/tickets">Back to tickets</Link>
+        <Link to="/tasks">Back to tasks</Link>
       </Button>
     }
   />

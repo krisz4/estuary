@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 
 /**
- * One label/value pair in the ticket summary.
+ * One label/value pair in the task summary.
  *
  * A `<dt>`/`<dd>` pair rather than two `<div>`s: the summary is a definition
  * list in both layouts (a grid above `md`, a stack below it), and the semantics

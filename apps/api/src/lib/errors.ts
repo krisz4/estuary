@@ -17,9 +17,15 @@ import type { ZodError } from "zod";
 const DEFAULT_MESSAGE: Record<ApiErrorCode, string> = {
   VALIDATION_ERROR: "Request validation failed",
   AT_LEAST_ONE_FIELD: "Provide at least one field to update",
-  TICKET_NOT_FOUND: "Ticket not found",
+  UNAUTHORIZED: "Missing or invalid API token",
+  ACTOR_NOT_PERMITTED: "This actor may not do that",
+  TASK_NOT_FOUND: "Task not found",
   COMMENT_NOT_FOUND: "Comment not found",
-  INVALID_STATUS_TRANSITION: "That status change is not allowed",
+  VERSION_CONFLICT: "The task changed since you read it. Re-read it and try again",
+  TASK_ALREADY_CLAIMED: "Another agent is working on this task",
+  NOT_CLAIM_HOLDER: "You do not hold the claim on this task",
+  DEPENDENCY_CYCLE: "That dependency would create a cycle",
+  NO_OPEN_DECISION: "This task has no open decision",
   MALFORMED_JSON: "Request body is not valid JSON",
   PAYLOAD_TOO_LARGE: "Request body is too large",
   NOT_FOUND: "Resource not found",
@@ -49,26 +55,48 @@ export const isApiError = (value: unknown): value is ApiError => value instanceo
  * Factories
  *
  * Thin, but they keep the code strings out of route files and give the
- * two codes that carry structured `details` a typed shape.
+ * codes that carry structured `details` a typed shape.
  * ------------------------------------------------------------------ */
 
 export const notFoundError = (message?: string) => new ApiError("NOT_FOUND", message);
 
-export const ticketNotFound = (ticketId?: number) =>
-  new ApiError(
-    "TICKET_NOT_FOUND",
-    ticketId === undefined ? undefined : `Ticket ${ticketId} was not found`,
-  );
+export const taskNotFound = (taskId?: number) =>
+  new ApiError("TASK_NOT_FOUND", taskId === undefined ? undefined : `Task ${taskId} was not found`);
 
 export const commentNotFound = () => new ApiError("COMMENT_NOT_FOUND");
 
-/** `details` shape is pinned by `statusTransitionErrorDetailsSchema` in contracts. */
-export const invalidStatusTransition = (from: string, to: string, allowed: readonly string[]) =>
-  new ApiError("INVALID_STATUS_TRANSITION", `A ticket cannot move from "${from}" to "${to}"`, {
-    from,
-    to,
-    allowed: [...allowed],
+export const unauthorized = () => new ApiError("UNAUTHORIZED");
+
+export const actorNotPermitted = (message: string) => new ApiError("ACTOR_NOT_PERMITTED", message);
+
+/** `details` shape is pinned by `versionConflictDetailsSchema` in contracts. */
+export const versionConflict = (expected: number, current: number) =>
+  new ApiError(
+    "VERSION_CONFLICT",
+    `Task is at version ${current}, not ${expected}. Re-read it and try again`,
+    { expected, current },
+  );
+
+/** `details` shape is pinned by `claimConflictDetailsSchema` in contracts. */
+export const taskAlreadyClaimed = (claimedBy: string, expiresAt: Date) =>
+  new ApiError("TASK_ALREADY_CLAIMED", `${claimedBy} is working on this task`, {
+    claimedBy,
+    expiresAt: expiresAt.toISOString(),
   });
+
+export const notClaimHolder = (claim: { claimedBy: string; expiresAt: Date } | null) =>
+  claim === null
+    ? new ApiError("NOT_CLAIM_HOLDER", "Nobody holds a claim on this task")
+    : new ApiError("NOT_CLAIM_HOLDER", `${claim.claimedBy} holds the claim on this task`, {
+        claimedBy: claim.claimedBy,
+        expiresAt: claim.expiresAt.toISOString(),
+      });
+
+/** `details` shape is pinned by `dependencyCycleDetailsSchema` in contracts. */
+export const dependencyCycle = (path: number[]) =>
+  new ApiError("DEPENDENCY_CYCLE", undefined, { path });
+
+export const noOpenDecision = () => new ApiError("NO_OPEN_DECISION");
 
 /** `details` shape is pinned by `validationErrorDetailsSchema` in contracts. */
 export const validationError = (details: Record<string, string[]>, message?: string) =>

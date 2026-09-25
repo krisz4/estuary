@@ -2,7 +2,8 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import { harnessFaults, server } from "./src/test/server";
-import { resetTicketViewStore } from "./src/stores/ticketView";
+import { resetTaskViewStore } from "./src/stores/taskView";
+import { resetSessionStore } from "./src/stores/session";
 
 /**
  * Vitest runs with `globals: false`, so React Testing Library's automatic
@@ -14,14 +15,17 @@ afterEach(() => {
 });
 
 /**
- * The ticket-view store is a module singleton backed by `localStorage`, and
+ * The task-view store is a module singleton backed by `localStorage`, and
  * neither outlives `cleanup()` — so a test that renders the board would leave
  * `view: "board"` behind and change what the *next* test's back link points at.
  * Reset it here rather than per file: the leak is silent and would be found by
  * whichever unrelated test happened to run next.
  */
 afterEach(() => {
-  resetTicketViewStore();
+  resetTaskViewStore();
+  // Same leak, same fix: a display name set by one test would otherwise be the
+  // `X-Actor` of every request in the next.
+  resetSessionStore();
 });
 
 /**
@@ -67,7 +71,7 @@ if (typeof Element !== "undefined") {
 }
 
 /**
- * jsdom has no `matchMedia` at all, and the ticket list decides between the
+ * jsdom has no `matchMedia` at all, and the task list decides between the
  * table and the card list with one (`MD_BREAKPOINT_QUERY`).
  *
  * This is a real implementation of `(min-width: Npx)` against `window.innerWidth`

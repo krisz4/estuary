@@ -4,26 +4,25 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import { prisma } from "../lib/prisma.js";
-import { makeComment, makeTicket } from "../test/factories.js";
+import { claimedBy, eventsFor, makeComment, makeTask } from "../test/factories.js";
 
 /**
- * `/api/v1/tickets/:ticketId/comments` route integration tests —
+ * `/api/v1/tasks/:taskId/comments` route integration tests —
  * `docs/engineering/TESTING.md` § Comments.
  *
  * Three of these exist because of a specific failure mode rather than for
  * coverage: the missing-parent 404 (which is a 500 without the service's
- * explicit check), the cross-ticket delete 404 (which is a 200 without the
+ * explicit check), the cross-task delete 404 (which is a 200 without the
  * two-id scope), and the `updatedAt` assertion (which is what stops a comment
- * from floating its ticket to the top of an `updatedAt` sort).
+ * from floating its task to the top of an `updatedAt` sort).
  */
 
 const app = createApp();
 
-const commentsUrl = (ticketId: number | string) => `/api/v1/tickets/${ticketId}/comments`;
+const commentsUrl = (taskId: number | string) => `/api/v1/tasks/${taskId}/comments`;
 
 const validComment = {
-  authorName: "Marcus Feld",
-  body: "Reissued the VPN certificate — try again and let me know.",
+  body: "Reissued the webhook signing secret — try again and let me know.",
 };
 
 const expectEnvelope = (body: unknown, code: string) => {
@@ -37,29 +36,29 @@ const expectEnvelope = (body: unknown, code: string) => {
  * POST
  * ------------------------------------------------------------------ */
 
-describe("POST /api/v1/tickets/:ticketId/comments", () => {
+describe("POST /api/v1/tasks/:taskId/comments", () => {
   it("returns 201 with the created comment and a Location header", async () => {
-    const ticket = await makeTicket();
+    const task = await makeTask();
 
-    const res = await request(app).post(commentsUrl(ticket.id)).send(validComment);
+    const res = await request(app).post(commentsUrl(task.id)).send(validComment);
 
     expect(res.status).toBe(201);
     expect(commentSchema.safeParse(res.body).success, JSON.stringify(res.body)).toBe(true);
-    expect(res.body.ticketId).toBe(ticket.id);
-    expect(res.headers.location).toBe(`${commentsUrl(ticket.id)}/${res.body.id}`);
+    expect(res.body.taskId).toBe(task.id);
+    expect(res.headers.location).toBe(`${commentsUrl(task.id)}/${res.body.id}`);
   });
 
-  it("appends the comment to the ticket's thread, in order", async () => {
-    const ticket = await makeTicket();
+  it("appends the comment to the task's thread, in order", async () => {
+    const task = await makeTask();
 
     await request(app)
-      .post(commentsUrl(ticket.id))
+      .post(commentsUrl(task.id))
       .send({ ...validComment, body: "first comment" });
     await request(app)
-      .post(commentsUrl(ticket.id))
+      .post(commentsUrl(task.id))
       .send({ ...validComment, body: "second comment" });
 
-    const detail = await request(app).get(`/api/v1/tickets/${ticket.id}`);
+    const detail = await request(app).get(`/api/v1/tasks/${task.id}`);
 
     expect(detail.body.comments.map((c: { body: string }) => c.body)).toEqual([
       "first comment",
@@ -73,63 +72,121 @@ describe("POST /api/v1/tickets/:ticketId/comments", () => {
    * `P2003` (foreign key constraint failed), which no handler maps — so it
    * surfaces as `INTERNAL_ERROR` 500 where the contract documents a 404.
    */
-  it("returns 404 TICKET_NOT_FOUND, not 500, when the parent ticket does not exist", async () => {
+  it("returns 404 TASK_NOT_FOUND, not 500, when the parent task does not exist", async () => {
     const res = await request(app).post(commentsUrl(999999)).send(validComment);
 
     expect(res.status).toBe(404);
-    expectEnvelope(res.body, "TICKET_NOT_FOUND");
+    expectEnvelope(res.body, "TASK_NOT_FOUND");
     expect(await prisma.comment.count()).toBe(0);
   });
 
-  it("returns 404 for a non-numeric :ticketId", async () => {
+  it("returns 404 for a non-numeric :taskId", async () => {
     const res = await request(app).post(commentsUrl("abc")).send(validComment);
 
     expect(res.status).toBe(404);
-    expectEnvelope(res.body, "TICKET_NOT_FOUND");
+    expectEnvelope(res.body, "TASK_NOT_FOUND");
   });
 
   /**
-   * `updatedAt` means "a ticket field changed". A busy thread must not keep
-   * bumping its ticket to the top of an `updatedAt` sort.
+   * `updatedAt` means "a task field changed". A busy thread must not keep
+   * bumping its task to the top of an `updatedAt` sort.
    */
-  it("does not change the ticket's updatedAt", async () => {
-    const ticket = await makeTicket();
+  it("does not change the task's updatedAt or version", async () => {
+    const task = await makeTask();
 
-    await request(app).post(commentsUrl(ticket.id)).send(validComment);
+    await request(app).post(commentsUrl(task.id)).send(validComment);
 
-    const after = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
-    expect(after.updatedAt.getTime()).toBe(ticket.updatedAt.getTime());
+    const after = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(after.updatedAt.getTime()).toBe(task.updatedAt.getTime());
+    expect(after.version).toBe(task.version);
   });
 
   it.each([
-    ["an empty body", { authorName: "Marcus Feld", body: "" }, "body"],
-    ["a whitespace-only body", { authorName: "Marcus Feld", body: "   " }, "body"],
-    ["an over-length body", { authorName: "Marcus Feld", body: "x".repeat(2001) }, "body"],
-    ["a missing author", { body: "Something happened." }, "authorName"],
-    ["a one-character author", { authorName: "M", body: "Something happened." }, "authorName"],
+    ["an empty body", { body: "" }, "body"],
+    ["a whitespace-only body", { body: "   " }, "body"],
+    ["an over-length body", { body: "x".repeat(5001) }, "body"],
+    ["a missing body", { kind: "note" }, "body"],
+    ["an unknown kind", { body: "Something happened.", kind: "rant" }, "kind"],
   ])("returns 422 VALIDATION_ERROR for %s", async (_label, payload, field) => {
-    const ticket = await makeTicket();
+    const task = await makeTask();
 
-    const res = await request(app).post(commentsUrl(ticket.id)).send(payload);
+    const res = await request(app).post(commentsUrl(task.id)).send(payload);
 
     expect(res.status).toBe(422);
     expectEnvelope(res.body, "VALIDATION_ERROR");
     expect(Object.keys(res.body.error.details)).toContain(field);
   });
 
-  it("rejects server-owned keys rather than stripping them", async () => {
-    const ticket = await makeTicket();
+  it("takes the author from X-Actor and defaults kind to note", async () => {
+    const task = await makeTask();
 
     const res = await request(app)
-      .post(commentsUrl(ticket.id))
-      .send({ ...validComment, id: 7, ticketId: 99 });
+      .post(commentsUrl(task.id))
+      .set("X-Actor", "agent:claude-code")
+      .send(validComment);
+
+    expect(res.body).toMatchObject({ author: "agent:claude-code", kind: "note" });
+    expect(await eventsFor(task.id)).toEqual([
+      {
+        type: "comment.created",
+        actor: "agent:claude-code",
+        payload: { commentId: res.body.id, kind: "note" },
+      },
+    ]);
+  });
+
+  it.each(["note", "progress", "qa_feedback"])("accepts kind %s", async (kind) => {
+    const task = await makeTask();
+
+    const res = await request(app)
+      .post(commentsUrl(task.id))
+      .send({ ...validComment, kind });
+
+    expect(res.status).toBe(201);
+    expect(res.body.kind).toBe(kind);
+  });
+
+  /**
+   * Comments are open to everyone, claim or no claim — and the one comment that
+   * does touch the task is the holder's, which renews its lease.
+   */
+  it("lets another agent comment on a claimed task, and renews the lease only for the holder", async () => {
+    const task = await makeTask(claimedBy("agent:claude-code", 1));
+
+    const other = await request(app)
+      .post(commentsUrl(task.id))
+      .set("X-Actor", "agent:codex")
+      .send(validComment);
+    const afterOther = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+
+    const holder = await request(app)
+      .post(commentsUrl(task.id))
+      .set("X-Actor", "agent:claude-code")
+      .send({ body: "Tests are green locally.", kind: "progress" });
+    const afterHolder = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+
+    expect(other.status).toBe(201);
+    expect(afterOther.claimExpiresAt?.getTime()).toBe(task.claimExpiresAt?.getTime());
+    expect(holder.status).toBe(201);
+    expect(afterHolder.claimExpiresAt!.getTime()).toBeGreaterThan(
+      task.claimExpiresAt!.getTime() + 60_000,
+    );
+    expect(afterHolder.version).toBe(task.version);
+  });
+
+  it("rejects server-owned keys rather than stripping them", async () => {
+    const task = await makeTask();
+
+    const res = await request(app)
+      .post(commentsUrl(task.id))
+      .send({ ...validComment, id: 7, taskId: 99, author: "human:someone-else" });
 
     expect(res.status).toBe(422);
     expect(await prisma.comment.count()).toBe(0);
   });
 
   it("validates the body before checking the parent, so a bad payload is still 422", async () => {
-    const res = await request(app).post(commentsUrl(999999)).send({ authorName: "M", body: "" });
+    const res = await request(app).post(commentsUrl(999999)).send({ body: "" });
 
     // The parent is missing *and* the payload is invalid. Either answer is
     // defensible; this pins which one the API actually gives so a reordering of
@@ -143,30 +200,31 @@ describe("POST /api/v1/tickets/:ticketId/comments", () => {
  * DELETE
  * ------------------------------------------------------------------ */
 
-describe("DELETE /api/v1/tickets/:ticketId/comments/:commentId", () => {
+describe("DELETE /api/v1/tasks/:taskId/comments/:commentId", () => {
   it("returns 204 with no body and removes the comment from the thread", async () => {
-    const ticket = await makeTicket();
-    const comment = await makeComment({ ticketId: ticket.id });
+    const task = await makeTask();
+    const comment = await makeComment({ taskId: task.id });
 
-    const res = await request(app).delete(`${commentsUrl(ticket.id)}/${comment.id}`);
+    const res = await request(app).delete(`${commentsUrl(task.id)}/${comment.id}`);
 
     expect(res.status).toBe(204);
     expect(res.text).toBe("");
 
-    const detail = await request(app).get(`/api/v1/tickets/${ticket.id}`);
+    const detail = await request(app).get(`/api/v1/tasks/${task.id}`);
     expect(detail.body.comments).toEqual([]);
+    expect((await eventsFor(task.id)).map((event) => event.type)).toEqual(["comment.deleted"]);
   });
 
   /**
    * The regression test for the two-id scope. With `deleteMany({ where: { id } })`
-   * — or a `findUnique` that forgets to compare — this deletes another ticket's
+   * — or a `findUnique` that forgets to compare — this deletes another task's
    * comment and returns 204, which is both a data-loss bug and an enumeration
    * oracle.
    */
-  it("returns 404 and deletes nothing when the comment belongs to another ticket", async () => {
-    const mine = await makeTicket();
-    const theirs = await makeTicket();
-    const comment = await makeComment({ ticketId: theirs.id });
+  it("returns 404 and deletes nothing when the comment belongs to another task", async () => {
+    const mine = await makeTask();
+    const theirs = await makeTask();
+    const comment = await makeComment({ taskId: theirs.id });
 
     const res = await request(app).delete(`${commentsUrl(mine.id)}/${comment.id}`);
 
@@ -176,9 +234,9 @@ describe("DELETE /api/v1/tickets/:ticketId/comments/:commentId", () => {
   });
 
   it("returns 404 COMMENT_NOT_FOUND, not 403, so the path cannot be used as a probe", async () => {
-    const mine = await makeTicket();
-    const theirs = await makeTicket();
-    const existing = await makeComment({ ticketId: theirs.id });
+    const mine = await makeTask();
+    const theirs = await makeTask();
+    const existing = await makeComment({ taskId: theirs.id });
 
     const wrongOwner = await request(app).delete(`${commentsUrl(mine.id)}/${existing.id}`);
     const neverExisted = await request(app).delete(`${commentsUrl(mine.id)}/999999`);
@@ -190,20 +248,20 @@ describe("DELETE /api/v1/tickets/:ticketId/comments/:commentId", () => {
   });
 
   it("returns 404, not 500, when the same comment is deleted twice", async () => {
-    const ticket = await makeTicket();
-    const comment = await makeComment({ ticketId: ticket.id });
+    const task = await makeTask();
+    const comment = await makeComment({ taskId: task.id });
 
-    expect((await request(app).delete(`${commentsUrl(ticket.id)}/${comment.id}`)).status).toBe(204);
+    expect((await request(app).delete(`${commentsUrl(task.id)}/${comment.id}`)).status).toBe(204);
 
-    const second = await request(app).delete(`${commentsUrl(ticket.id)}/${comment.id}`);
+    const second = await request(app).delete(`${commentsUrl(task.id)}/${comment.id}`);
     expect(second.status).toBe(404);
     expectEnvelope(second.body, "COMMENT_NOT_FOUND");
   });
 
   it("returns 404 for a non-numeric :commentId", async () => {
-    const ticket = await makeTicket();
+    const task = await makeTask();
 
-    const res = await request(app).delete(`${commentsUrl(ticket.id)}/abc`);
+    const res = await request(app).delete(`${commentsUrl(task.id)}/abc`);
 
     expect(res.status).toBe(404);
     expectEnvelope(res.body, "COMMENT_NOT_FOUND");
@@ -216,21 +274,21 @@ describe("DELETE /api/v1/tickets/:ticketId/comments/:commentId", () => {
 
 describe("comment verbs that are deliberately not implemented", () => {
   it("has no PUT — comments are append-only, so it falls through to NOT_FOUND", async () => {
-    const ticket = await makeTicket();
-    const comment = await makeComment({ ticketId: ticket.id });
+    const task = await makeTask();
+    const comment = await makeComment({ taskId: task.id });
 
     const res = await request(app)
-      .put(`${commentsUrl(ticket.id)}/${comment.id}`)
+      .put(`${commentsUrl(task.id)}/${comment.id}`)
       .send({ body: "edited" });
 
     expect(res.status).toBe(404);
     expectEnvelope(res.body, "NOT_FOUND");
   });
 
-  it("has no GET list — the thread ships with the ticket", async () => {
-    const ticket = await makeTicket();
+  it("has no GET list — the thread ships with the task", async () => {
+    const task = await makeTask();
 
-    const res = await request(app).get(commentsUrl(ticket.id));
+    const res = await request(app).get(commentsUrl(task.id));
 
     expect(res.status).toBe(404);
     expectEnvelope(res.body, "NOT_FOUND");

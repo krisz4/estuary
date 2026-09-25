@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "../lib/prisma.js";
-import { makeComment, makeTickets } from "./factories.js";
+import { makeComment, makeTasks } from "./factories.js";
 
 /**
  * The second half of the parallelism proof. It exists to be *another file* that
@@ -36,24 +36,24 @@ describe("concurrent write load from a second test file", () => {
   it("completes a burst of writes without contending with the other file", async () => {
     traceWorker("harness.parallel.test.ts");
 
-    const tickets = await makeTickets(40, (index) => ({
-      title: `Parallel ticket ${index}`,
-      status: index % 2 === 0 ? "open" : "in_progress",
+    const tasks = await makeTasks(40, (index) => ({
+      title: `Parallel task ${index}`,
+      status: index % 2 === 0 ? "todo" : "in_progress",
     }));
 
-    for (const ticket of tickets.slice(0, 10)) {
-      await makeComment({ ticketId: ticket.id });
+    for (const task of tasks.slice(0, 10)) {
+      await makeComment({ taskId: task.id });
     }
 
-    expect(await prisma.ticket.count()).toBe(40);
+    expect(await prisma.task.count()).toBe(40);
     expect(await prisma.comment.count()).toBe(10);
   });
 
   it("sees none of the other file's rows, because the database is per worker", async () => {
     traceWorker("harness.parallel.test.ts");
 
-    // `harness.test.ts` leaves a "Test ticket 1" behind in several of its tests.
+    // `harness.test.ts` leaves a "Test task 1" behind in several of its tests.
     // Even in the same worker, truncation means this file never observes them.
-    expect(await prisma.ticket.count()).toBe(0);
+    expect(await prisma.task.count()).toBe(0);
   });
 });

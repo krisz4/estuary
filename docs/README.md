@@ -1,6 +1,6 @@
 # Documentation
 
-Documentation for the helpdesk ticketing system. AI agents start at [AGENTS.md](./AGENTS.md); it has the routing table and the conventions.
+Documentation for the AI task manager. AI agents start at [AGENTS.md](./AGENTS.md); it has the routing table and the conventions.
 
 ## Map
 

@@ -23,16 +23,15 @@ import { splitValidationErrors } from "@/lib/errorMessages";
  * ## Focus is deliberately *not* set here
  *
  * `setError`'s `shouldFocus` calls `.focus()` on the field's **registered input
- * ref**, and three of this form's controls (`status`, `priority`, `category`)
- * are Radix Selects driven by `setValue` with no registered ref at all. Spending
- * the flag on the first matching key therefore aimed focus at nothing whenever
- * that key was a select — `{ category: […], requesterEmail: […] }` moved focus
- * nowhere, because `category` consumed the flag and `requesterEmail` was already
- * past `isFirst`.
+ * ref**, and the task form's selects (`status`, `priority`) are Radix Selects
+ * driven by `setValue` with no registered ref at all. Spending the flag on the
+ * first matching key therefore aimed focus at nothing whenever that key was a
+ * select — `{ priority: […], project: […] }` moved focus nowhere, because
+ * `priority` consumed the flag and `project` was already past `isFirst`.
  *
  * The caller focuses instead, by the rendered `aria-invalid` in DOM order, which
  * is the only ordering that includes the controls that are not inputs. See
- * `TicketForm`'s `focusFirstInvalid`.
+ * `TaskForm`'s `focusFirstInvalid`.
  */
 export const applyServerValidationErrors = <TValues extends FieldValues>(
   error: unknown,

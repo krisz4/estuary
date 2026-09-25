@@ -1,17 +1,18 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { InboxPage } from "@/pages/inbox/InboxPage";
 import { NotFoundPage } from "@/pages/not-found/NotFoundPage";
-import { TicketCreatePage } from "@/pages/ticket-create/TicketCreatePage";
-import { TicketDetailPage } from "@/pages/ticket-detail/TicketDetailPage";
-import { TicketEditPage } from "@/pages/ticket-edit/TicketEditPage";
-import { TicketsBoardPage } from "@/pages/tickets-board/TicketsBoardPage";
-import { TicketsListPage } from "@/pages/tickets-list/TicketsListPage";
+import { TaskCreatePage } from "@/pages/task-create/TaskCreatePage";
+import { TaskDetailPage } from "@/pages/task-detail/TaskDetailPage";
+import { TaskEditPage } from "@/pages/task-edit/TaskEditPage";
+import { TasksBoardPage } from "@/pages/tasks-board/TasksBoardPage";
+import { TasksListPage } from "@/pages/tasks-list/TasksListPage";
 
 /**
  * The route table. Documented per screen in `docs/pages/`.
  *
- * **`/tickets/new` and `/tickets/board` are declared before
- * `/tickets/:ticketId`.** React Router 7
+ * **`/tasks/new` and `/tasks/board` are declared before
+ * `/tasks/:taskId`.** React Router 7
  * ranks routes by specificity rather than by declaration order, so it happens to
  * resolve correctly either way today — but the ordering is written down as the
  * rule in `docs/pages/README.md` and in the implementation plan, and relying on
@@ -25,17 +26,19 @@ export const router = createBrowserRouter([
   {
     element: <AppLayout />,
     children: [
-      { index: true, element: <Navigate to="/tickets" replace /> },
+      { index: true, element: <Navigate to="/tasks" replace /> },
 
-      { path: "tickets", element: <TicketsListPage /> },
+      { path: "tasks", element: <TasksListPage /> },
 
-      { path: "tickets/new", element: <TicketCreatePage /> },
+      { path: "tasks/new", element: <TaskCreatePage /> },
 
-      { path: "tickets/board", element: <TicketsBoardPage /> },
+      { path: "tasks/board", element: <TasksBoardPage /> },
 
-      { path: "tickets/:ticketId", element: <TicketDetailPage /> },
+      { path: "tasks/:taskId", element: <TaskDetailPage /> },
 
-      { path: "tickets/:ticketId/edit", element: <TicketEditPage /> },
+      { path: "tasks/:taskId/edit", element: <TaskEditPage /> },
+
+      { path: "inbox", element: <InboxPage /> },
 
       { path: "*", element: <NotFoundPage /> },
     ],

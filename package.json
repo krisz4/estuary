@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Helpdesk ticketing system — monorepo root",
+  "description": "AI task manager — monorepo root",
   "packageManager": "pnpm@11.1.2",
   "engines": {
     "node": "^22.18.0 || >=24.11.0"

@@ -2,29 +2,39 @@ import { useCallback, useMemo, useState } from "react";
 import { keepPreviousData, useQueries } from "@tanstack/react-query";
 import {
   MAX_PAGE_SIZE,
-  TICKET_STATUSES,
-  type TicketStatus,
-  type TicketSummary,
+  TASK_STATUS_LANES,
+  TASK_STATUSES,
+  type TaskStatus,
+  type TaskSummary,
 } from "@helpdesk/contracts";
-import { listTickets, toTicketListQuery } from "@/api/tickets";
+import { POLL_INTERVAL_MS } from "@/api/polling";
+import { listTasks, toTaskListQuery } from "@/api/tasks";
 import { queryKeys } from "@/api/queryKeys";
-import { type TicketListParams } from "@/pages/tickets-list/useTicketListParams";
+import { type TaskListParams } from "@/pages/tasks-list/useTaskListParams";
 
 /**
- * The board's data layer: four status-filtered list queries, the per-column
- * "load more" depth, and the in-flight moves that make a drop feel instant.
+ * The board's data layer: one status-filtered list query per column, the
+ * per-column "load more" depth, and the in-flight moves that make a drop feel
+ * instant.
  *
- * ## Why four queries instead of one
+ * ## Why one query per column instead of one
  *
- * A board is four independently-sized queues. One `GET /tickets` big enough to
+ * A board is ten independently-sized queues. One `GET /tasks` big enough to
  * fill every column would have to be sorted globally and then split client-side,
- * so a board with 400 closed tickets and 3 open ones would either fetch all 403
- * rows or show an empty "Open" column — the paging would be spent on the column
- * nobody is looking at. Four queries let each column page on its own and give
- * each one an honest `meta.total` for its header count, which is the number
- * people actually read off a board.
+ * so a board with 400 done tasks and 3 in the backlog would either fetch all 403
+ * rows or show an empty "Backlog" column — the paging would be spent on the
+ * column nobody is looking at. A query per column lets each one page on its own
+ * and gives each an honest `meta.total` for its header count, which is the
+ * number people actually read off a board.
  *
- * They go through `toTicketListQuery` and `queryKeys.tickets.list()` like every
+ * The closed lane's two queries run only while that lane is expanded
+ * (`closedLaneOpen`): it is collapsed by default, and the done pile is the one
+ * that grows without bound.
+ *
+ * Every column polls (`api/polling.ts`), so a card an agent moves shows up in
+ * its new column without a reload.
+ *
+ * They go through `toTaskListQuery` and `queryKeys.tasks.list()` like every
  * other list request, so a board column and a list page under the same filters
  * are one cache entry rather than two views disagreeing about the same rows.
  *
@@ -37,9 +47,9 @@ import { type TicketListParams } from "@/pages/tickets-list/useTicketListParams"
  * columns through it, so the card is in its new column on the next frame and the
  * cache is never a place where a half-applied truth can be read.
  *
- * A rejected move (the server owns the transition table — see
- * `lib/statusTransition.ts`) is a single `delete` from that map, and the card is
- * back where it came from with no rollback bookkeeping at all.
+ * A rejected move — or a transition dialog the user cancels — is a single
+ * `delete` from that map, and the card is back where it came from with no
+ * rollback bookkeeping at all.
  */
 
 /** Rows fetched per column on first load, and the step "Load more" adds. */
@@ -53,9 +63,9 @@ export const BOARD_COLUMN_PAGE_SIZE = 25;
 export const BOARD_COLUMN_MAX = MAX_PAGE_SIZE;
 
 export type BoardColumn = {
-  status: TicketStatus;
+  status: TaskStatus;
   /** Cards in render order, moved-in cards first. */
-  tickets: TicketSummary[];
+  tasks: TaskSummary[];
   /** The header count: the server's total, corrected for in-flight moves. */
   total: number;
   isPending: boolean;
@@ -69,48 +79,50 @@ export type BoardColumn = {
   refetch: () => void;
 };
 
-export type BoardTickets = {
+export type BoardTasks = {
   columns: BoardColumn[];
-  /** Every fetched ticket by id — the drag overlay's lookup. */
-  byId: Map<number, TicketSummary>;
+  /** Every fetched task by id — the drag overlay's lookup. */
+  byId: Map<number, TaskSummary>;
   /** Where a card is *shown*, which during a move is not where it is stored. */
-  effectiveStatus: (ticket: TicketSummary) => TicketStatus;
+  effectiveStatus: (task: TaskSummary) => TaskStatus;
   isPending: boolean;
   /** True while any column is refetching with rows already on screen. */
   isRefreshing: boolean;
-  beginMove: (ticketId: number, status: TicketStatus) => void;
-  endMove: (ticketId: number) => void;
-  pendingMoves: ReadonlyMap<number, TicketStatus>;
+  beginMove: (taskId: number, status: TaskStatus) => void;
+  endMove: (taskId: number) => void;
+  pendingMoves: ReadonlyMap<number, TaskStatus>;
 };
 
-type Limits = Record<TicketStatus, number>;
+type Limits = Record<TaskStatus, number>;
 
-const INITIAL_LIMITS: Limits = {
-  open: BOARD_COLUMN_PAGE_SIZE,
-  in_progress: BOARD_COLUMN_PAGE_SIZE,
-  resolved: BOARD_COLUMN_PAGE_SIZE,
-  closed: BOARD_COLUMN_PAGE_SIZE,
-};
+const INITIAL_LIMITS = Object.fromEntries(
+  TASK_STATUSES.map((status) => [status, BOARD_COLUMN_PAGE_SIZE]),
+) as Limits;
 
-export const useBoardTickets = (params: TicketListParams): BoardTickets => {
+const CLOSED_LANE: readonly TaskStatus[] = TASK_STATUS_LANES.closed;
+
+export const useBoardTasks = (
+  params: TaskListParams,
+  { closedLaneOpen }: { closedLaneOpen: boolean },
+): BoardTasks => {
   const [limits, setLimits] = useState<Limits>(INITIAL_LIMITS);
 
   /**
-   * `ticketId → the status it was dropped on`, for moves the server has not
+   * `taskId → the status it was dropped on`, for moves the server has not
    * confirmed yet. Held as a `Map` in state rather than a ref: the board has to
    * re-render when it changes, which is the entire point of it.
    */
-  const [pendingMoves, setPendingMoves] = useState<ReadonlyMap<number, TicketStatus>>(new Map());
+  const [pendingMoves, setPendingMoves] = useState<ReadonlyMap<number, TaskStatus>>(new Map());
 
-  const beginMove = useCallback((ticketId: number, status: TicketStatus) => {
-    setPendingMoves((current) => new Map(current).set(ticketId, status));
+  const beginMove = useCallback((taskId: number, status: TaskStatus) => {
+    setPendingMoves((current) => new Map(current).set(taskId, status));
   }, []);
 
-  const endMove = useCallback((ticketId: number) => {
+  const endMove = useCallback((taskId: number) => {
     setPendingMoves((current) => {
-      if (!current.has(ticketId)) return current;
+      if (!current.has(taskId)) return current;
       const next = new Map(current);
-      next.delete(ticketId);
+      next.delete(taskId);
       return next;
     });
   }, []);
@@ -125,8 +137,8 @@ export const useBoardTickets = (params: TicketListParams): BoardTickets => {
    * skeletons.
    */
   const queries = useQueries({
-    queries: TICKET_STATUSES.map((status) => {
-      const query = toTicketListQuery({
+    queries: TASK_STATUSES.map((status) => {
+      const query = toTaskListQuery({
         ...params,
         status: [status],
         page: 1,
@@ -134,33 +146,35 @@ export const useBoardTickets = (params: TicketListParams): BoardTickets => {
       });
 
       return {
-        queryKey: queryKeys.tickets.list(query),
-        queryFn: ({ signal }: { signal: AbortSignal }) => listTickets(query, signal),
+        queryKey: queryKeys.tasks.list(query),
+        queryFn: ({ signal }: { signal: AbortSignal }) => listTasks(query, signal),
         placeholderData: keepPreviousData,
+        refetchInterval: POLL_INTERVAL_MS,
+        enabled: closedLaneOpen || !CLOSED_LANE.includes(status),
       };
     }),
   });
 
   const byId = useMemo(() => {
-    const map = new Map<number, TicketSummary>();
+    const map = new Map<number, TaskSummary>();
     for (const query of queries) {
-      for (const ticket of query.data?.data ?? []) map.set(ticket.id, ticket);
+      for (const task of query.data?.data ?? []) map.set(task.id, task);
     }
     return map;
   }, [queries]);
 
   const effectiveStatus = useCallback(
-    (ticket: TicketSummary): TicketStatus => pendingMoves.get(ticket.id) ?? ticket.status,
+    (task: TaskSummary): TaskStatus => pendingMoves.get(task.id) ?? task.status,
     [pendingMoves],
   );
 
   const columns = useMemo<BoardColumn[]>(
     () =>
-      TICKET_STATUSES.map((status, index) => {
+      TASK_STATUSES.map((status, index) => {
         const query = queries[index]!;
         const fetched = query.data?.data ?? [];
 
-        const stayed = fetched.filter((ticket) => effectiveStatus(ticket) === status);
+        const stayed = fetched.filter((task) => effectiveStatus(task) === status);
 
         /*
           Cards that are on their way here from another column. They go first: a
@@ -172,20 +186,20 @@ export const useBoardTickets = (params: TicketListParams): BoardTickets => {
           The test is **"not already in this column's fetched rows"**, not "its
           stored status is not this column's". Those coincide today, and the
           difference is the whole safety margin: the moment anything writes a
-          moved ticket's new status into a cached list page — an optimistic write
+          moved task's new status into a cached list page — an optimistic write
           added later, a refetch landing between the drop and the cleanup — the
           status test stops matching, `stayed` does not have the row either
           (it is in the *source* column's page, not this one's), and the card
           vanishes from the board entirely. Identity is the thing actually being
           asked about here, so identity is what is compared.
         */
-        const fetchedIds = new Set(fetched.map((ticket) => ticket.id));
+        const fetchedIds = new Set(fetched.map((task) => task.id));
         const movedIn = [...byId.values()].filter(
-          (ticket) => !fetchedIds.has(ticket.id) && pendingMoves.get(ticket.id) === status,
+          (task) => !fetchedIds.has(task.id) && pendingMoves.get(task.id) === status,
         );
 
         /*
-          The header count has to move with the card, or dragging one ticket out
+          The header count has to move with the card, or dragging one task out
           of "Open" leaves the column reading "12" over eleven cards until the
           refetch lands. `total` is the server's, so both sides of the move are
           corrected against it rather than recomputed from what is on screen —
@@ -199,10 +213,13 @@ export const useBoardTickets = (params: TicketListParams): BoardTickets => {
 
         return {
           status,
-          tickets: [...movedIn, ...stayed],
+          tasks: [...movedIn, ...stayed],
           total,
           isPending: query.isPending,
-          isRefreshing: (query.isFetching && !query.isPending) || query.isPlaceholderData,
+          // Placeholder data only — not every poll. A column that dims itself
+          // every fifteen seconds for a refresh that usually changes nothing
+          // reads as broken.
+          isRefreshing: query.isPlaceholderData,
           error: query.error,
           hasMore: loaded < (query.data?.meta.total ?? 0),
           canLoadMore: limit < BOARD_COLUMN_MAX,
@@ -221,7 +238,8 @@ export const useBoardTickets = (params: TicketListParams): BoardTickets => {
     columns,
     byId,
     effectiveStatus,
-    isPending: queries.some((query) => query.isPending),
+    // A disabled (collapsed) query is `pending` forever; it is not loading.
+    isPending: queries.some((query) => query.isPending && query.fetchStatus !== "idle"),
     isRefreshing: columns.some((column) => column.isRefreshing),
     beginMove,
     endMove,

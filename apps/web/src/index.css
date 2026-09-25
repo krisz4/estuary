@@ -19,7 +19,7 @@
  * `group-hover:` already compile inside `@media (hover: hover)`, so the reveal
  * half needs nothing; it is the **hide** half that must be guarded. Without it
  * a touch device gets `opacity-0` with no hover to ever undo it, and the control
- * is simply unreachable there (`docs/pages/Ticket_Detail.md` § 6).
+ * is simply unreachable there (`docs/pages/Task_Detail.md` § 6).
  *
  * A custom variant rather than the arbitrary form `[@media(hover:hover)]:`.
  * That form is silently dropped by Tailwind v4 — the class lands in the DOM and

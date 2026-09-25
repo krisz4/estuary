@@ -10,8 +10,8 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
  * that loses the chrome leaves the user with no way out but the back button.
  *
  * **Only for unmatched routes.** A matched route whose resource is missing —
- * `/tickets/999999` — renders `NotFoundState` on the detail page instead,
- * because "this ticket was deleted" is more useful than a generic 404 and the
+ * `/tasks/999999` — renders `NotFoundState` on the detail page instead,
+ * because "this task was deleted" is more useful than a generic 404 and the
  * route itself is legitimate.
  */
 /**
@@ -77,8 +77,8 @@ export const NotFoundPage = () => {
 
       <div className="mt-2 flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
         <Button asChild>
-          <Link to="/tickets" ref={primaryRef}>
-            Back to tickets
+          <Link to="/tasks" ref={primaryRef}>
+            Back to tasks
           </Link>
         </Button>
         {canGoBack ? (

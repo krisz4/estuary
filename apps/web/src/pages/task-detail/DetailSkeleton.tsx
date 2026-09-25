@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui";
  * and snaps it back to full height, which reads worse than a slow load.
  */
 export const DetailSkeleton = () => (
-  <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading ticket">
+  <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading task">
     <div className="flex flex-col gap-3">
       <Skeleton className="h-4 w-28" />
       <Skeleton className="h-4 w-20" />

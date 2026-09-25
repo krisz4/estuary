@@ -1,24 +1,24 @@
-import { type TicketStatus } from "@helpdesk/contracts";
+import { type TaskStatus } from "@helpdesk/contracts";
 import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { cn } from "@/lib/cn";
-import { TICKET_STATUS_LABELS } from "@/lib/formatting";
-import { isTicketStatus } from "@/lib/statusTransition";
-import { BoardCard, BoardCardSkeleton } from "@/features/tickets/BoardCard";
+import { TASK_STATUS_DESCRIPTIONS, TASK_STATUS_LABELS } from "@/lib/formatting";
+import { isTaskStatus } from "@/lib/statusTransition";
+import { BoardCard, BoardCardSkeleton } from "@/features/tasks/BoardCard";
 import {
   BOARD_COLUMN_MAX,
   type BoardColumn as BoardColumnData,
-} from "@/pages/tickets-board/useBoardTickets";
+} from "@/pages/tasks-board/useBoardTasks";
 
 /**
  * One status column: a heading with a live count, its cards, and its own
  * loading / error / empty states.
  *
- * **The three async states are per column, not per board.** The columns are four
- * separate requests, so "Resolved failed to load" must not blank the three that
- * succeeded — a board where one column is an error panel and the rest are usable
- * is the honest rendering of what happened.
+ * **The three async states are per column, not per board.** The columns are
+ * separate requests, so "Needs QA failed to load" must not blank the nine that
+ * succeeded — a board where one column is an error panel and the rest are
+ * usable is the honest rendering of what happened.
  *
  * The drop target is the whole column including its heading and its empty space,
  * not the list of cards: dropping onto an empty column is the most common move
@@ -26,47 +26,45 @@ import {
  * the first one impossible.
  */
 
-/** `useDroppable` ids are global to the context; the prefix keeps them off ticket ids. */
+/** `useDroppable` ids are global to the context; the prefix keeps them off task ids. */
 export const COLUMN_DROPPABLE_PREFIX = "column:";
 
-export const columnDroppableId = (status: TicketStatus): string =>
+export const columnDroppableId = (status: TaskStatus): string =>
   `${COLUMN_DROPPABLE_PREFIX}${status}`;
 
 /**
  * The dropped-on column, or `undefined` when the pointer was not over one.
  *
- * Parsed through `isTicketStatus` rather than cast: the id round-trips through
+ * Parsed through `isTaskStatus` rather than cast: the id round-trips through
  * dnd-kit as an opaque `UniqueIdentifier`, and a value that is not in the enum
  * must not reach a PATCH body typed as though it could not happen.
  */
-export const statusFromDroppableId = (
-  id: string | number | undefined,
-): TicketStatus | undefined => {
+export const statusFromDroppableId = (id: string | number | undefined): TaskStatus | undefined => {
   if (typeof id !== "string" || !id.startsWith(COLUMN_DROPPABLE_PREFIX)) return undefined;
   const value = id.slice(COLUMN_DROPPABLE_PREFIX.length);
-  return isTicketStatus(value) ? value : undefined;
+  return isTaskStatus(value) ? value : undefined;
 };
 
 export type BoardColumnProps = {
   column: BoardColumnData;
-  onMove: (ticketId: number, status: TicketStatus) => void;
-  pendingMoves: ReadonlyMap<number, TicketStatus>;
+  onMove: (taskId: number, status: TaskStatus) => void;
+  pendingMoves: ReadonlyMap<number, TaskStatus>;
 };
 
 export const BoardColumn = ({ column, onMove, pendingMoves }: BoardColumnProps) => {
-  const { status, tickets, total } = column;
-  const label = TICKET_STATUS_LABELS[status];
+  const { status, tasks, total } = column;
+  const label = TASK_STATUS_LABELS[status];
 
   const { setNodeRef, isOver } = useDroppable({ id: columnDroppableId(status) });
 
   return (
     <section
       ref={setNodeRef}
-      aria-label={`${label} — ${total} ${total === 1 ? "ticket" : "tickets"}`}
+      aria-label={`${label} — ${total} ${total === 1 ? "task" : "tasks"}`}
       className={cn(
         "flex w-[85vw] shrink-0 snap-start flex-col rounded-lg border border-border bg-muted/30",
-        // The board scrolls sideways below `lg`; above it, four equal columns.
-        "sm:w-[19rem] lg:w-auto lg:flex-1 lg:snap-align-none",
+        // A lane scrolls sideways below `lg`; above it, its columns share the width.
+        "sm:w-[19rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
         "transition-colors",
         isOver && "border-primary bg-primary-subtle/40",
       )}
@@ -86,10 +84,17 @@ export const BoardColumn = ({ column, onMove, pendingMoves }: BoardColumnProps) 
         column, so below `lg` it is a plain heading.
       */}
       <header className="flex items-center justify-between gap-2 rounded-t-lg border-b border-border bg-muted px-3 py-2 lg:sticky lg:top-14 lg:z-10">
-        <h2 className="text-sm font-semibold text-foreground">{label}</h2>
+        {/* `h3`: the lane heading above it is the `h2`. The description is the
+            `title` only — it is repeated in the empty state, where it matters. */}
+        <h3
+          className="text-sm font-semibold text-foreground"
+          title={TASK_STATUS_DESCRIPTIONS[status]}
+        >
+          {label}
+        </h3>
         {/*
           The count is `aria-hidden` and repeated in the section's own label:
-          a screen reader reading the region announces "Open — 12 tickets" once,
+          a screen reader reading the region announces "To do — 12 tasks" once,
           rather than the heading and then a bare number with no noun.
         */}
         <span
@@ -130,19 +135,19 @@ export const BoardColumn = ({ column, onMove, pendingMoves }: BoardColumnProps) 
           </>
         ) : column.error !== null && column.error !== undefined ? (
           <ErrorPanel error={column.error} onRetry={column.refetch} className="px-3 py-3" />
-        ) : tickets.length === 0 ? (
+        ) : tasks.length === 0 ? (
           <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-            Nothing {label.toLowerCase()}. Drop a ticket here to move it.
+            {TASK_STATUS_DESCRIPTIONS[status]} Nothing here — drop a task to move it.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {tickets.map((ticket) => (
+            {tasks.map((task) => (
               <BoardCard
-                key={ticket.id}
-                ticket={ticket}
+                key={task.id}
+                task={task}
                 status={status}
                 onMove={onMove}
-                isMoving={pendingMoves.has(ticket.id)}
+                isMoving={pendingMoves.has(task.id)}
               />
             ))}
           </ul>

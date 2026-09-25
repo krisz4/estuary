@@ -13,8 +13,8 @@ import {
 /**
  * "Are you sure?" — the only gate in front of an irreversible action.
  *
- * Deleting a ticket is a hard delete that cascades to its comments
- * (`docs/features/Tickets.md` § Rules); there is no undo to offer afterwards,
+ * Deleting a task is a hard delete that cascades to its comments
+ * (`docs/features/Tasks.md` § Rules); there is no undo to offer afterwards,
  * so the confirmation is the whole safety mechanism.
  *
  * Two deliberate choices:

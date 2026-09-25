@@ -1,13 +1,29 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { type TicketStatus, type TicketSummary } from "@helpdesk/contracts";
+import {
+  TASK_STATUSES,
+  formatReference,
+  type TaskStatus,
+  type TaskSummary,
+  type TransitionInput,
+} from "@helpdesk/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { TicketDetailPage } from "@/pages/ticket-detail/TicketDetailPage";
-import { TicketsBoardPage } from "@/pages/tickets-board/TicketsBoardPage";
-import { TicketsListPage } from "@/pages/tickets-list/TicketsListPage";
+import { TaskDetailPage } from "@/pages/task-detail/TaskDetailPage";
+import { TasksBoardPage } from "@/pages/tasks-board/TasksBoardPage";
+import { TasksListPage } from "@/pages/tasks-list/TasksListPage";
 import { queryKeys } from "@/api/queryKeys";
-import { makeTicket, mockApi, renderRoute, type MockRequest } from "@/test/harness";
+import { setViewportWidth } from "../../../vitest.setup";
+import {
+  emptyEvents,
+  makeDecision,
+  makeStats,
+  makeSummary,
+  makeTask,
+  mockApi,
+  renderRoute,
+  type MockRequest,
+} from "@/test/harness";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
@@ -17,12 +33,12 @@ vi.mock("sonner", () => ({ toast }));
  *
  * **The mock API holds state.** Every other screen in this suite can answer from
  * a fixed body, but a move is only interesting because of what happens *after*
- * it: the PATCH lands, `onSettled` invalidates, all four columns refetch, and
+ * it: the transition lands, `onSettled` invalidates, the columns refetch, and
  * the optimistic entry is dropped. Against a static mock the refetch would hand
  * back the pre-move world and the card would be seen to snap back — a failure
  * the assertion could not tell apart from a real rollback bug. So the store
- * below applies the PATCH, and "the card is in In progress" means the server
- * agrees rather than that the optimism has not expired yet.
+ * below applies the transition, and "the card is in In progress" means the
+ * server agrees rather than that the optimism has not expired yet.
  *
  * Dragging itself is not exercised here. `@dnd-kit` is driven by pointer
  * geometry — `MouseSensor` needs a 6px move, and collision detection needs
@@ -33,32 +49,42 @@ vi.mock("sonner", () => ({ toast }));
  * a layout.
  */
 
-const summary = (overrides: Partial<TicketSummary> = {}): TicketSummary => {
-  const { comments: _comments, ...rest } = makeTicket();
-  return { ...rest, ...overrides };
-};
+const summary = (overrides: Partial<TaskSummary> = {}): TaskSummary =>
+  makeSummary({ reference: formatReference(overrides.id ?? 42), ...overrides });
 
-const STATUSES: TicketStatus[] = ["open", "in_progress", "resolved", "closed"];
+/** The column statuses the board fetches with the closed lane collapsed. */
+const OPEN_LANE_STATUSES: TaskStatus[] = TASK_STATUSES.filter(
+  (status) => status !== "done" && status !== "deferred",
+);
 
-/** Every ticket id the fixtures below move. */
-const PATCHABLE_IDS = [1, 2, 3, 4, 5];
+/** Every task id the fixtures below move. */
+const MOVABLE_IDS = [1, 2, 3, 4, 5];
 
 /** The mutable world the handlers answer from. */
-let store: TicketSummary[] = [];
-/** `id → the error a PATCH of that ticket should fail with`, when it should. */
-let patchFailure: { status: number; body: unknown } | undefined;
+let store: TaskSummary[] = [];
+/** The error every transition should fail with, when it should. */
+let transitionFailure: { status: number; body: unknown } | undefined;
 
 const boardApi = (): { requests: MockRequest[] } =>
   mockApi({
-    "GET /tickets/facets": () => ({ body: { assignees: [], categories: [] } }),
+    "GET /tasks/facets": () => ({ body: { assignees: [], projects: [], creators: [] } }),
+    "GET /tasks/stats": () => ({
+      body: makeStats({
+        byStatus: {
+          ...makeStats().byStatus,
+          done: store.filter((task) => task.status === "done").length,
+          deferred: store.filter((task) => task.status === "deferred").length,
+        },
+      }),
+    }),
 
-    "GET /tickets": ({ url }) => {
+    "GET /tasks": ({ url }) => {
       const status = url.searchParams.get("status");
       const pageSize = Number(url.searchParams.get("pageSize") ?? "20");
       // No `status` is the *list* page asking for everything. The board always
       // sends one — a column is a status — so this branch only serves the list
       // route these tests render alongside it.
-      const matching = status === null ? store : store.filter((ticket) => ticket.status === status);
+      const matching = status === null ? store : store.filter((task) => task.status === status);
       const data = matching.slice(0, pageSize);
 
       return {
@@ -76,42 +102,56 @@ const boardApi = (): { requests: MockRequest[] } =>
       };
     },
 
-    /* For the round trip through the detail page. Same suffix rule as PATCH. */
-    "GET /tickets/1": () => ({
-      body: makeTicket({ id: 1, reference: "HD-000001", title: "Printer jam", status: "open" }),
+    /* For the round trip through the detail page. */
+    "GET /tasks/1": () => ({
+      body: makeTask({ id: 1, reference: "TASK-000001", title: "Write the limiter" }),
     }),
+    "GET /events": () => ({ body: emptyEvents() }),
 
     /*
-      `mockApi` matches a handler by *path suffix*, so one `"PATCH /tickets"` key
-      would never match `/api/v1/tickets/5`. One key per id it is — and the
-      suffixes stay unambiguous, because `/tickets/15` does not end with
-      `/tickets/5`.
+      `mockApi` matches a handler by *path suffix*, so one key per id — and the
+      suffixes stay unambiguous, because `/tasks/15/transition` does not end
+      with `/tasks/5/transition`.
     */
     ...Object.fromEntries(
-      PATCHABLE_IDS.map((id) => [
-        `PATCH /tickets/${id}`,
+      MOVABLE_IDS.map((id) => [
+        `POST /tasks/${id}/transition`,
         ({ body }: MockRequest) => {
-          if (patchFailure !== undefined) return patchFailure;
+          if (transitionFailure !== undefined) return transitionFailure;
 
-          const next = (body as { status: TicketStatus }).status;
-          store = store.map((ticket) => (ticket.id === id ? { ...ticket, status: next } : ticket));
+          const next = (body as TransitionInput).to;
+          store = store.map((task) => (task.id === id ? { ...task, status: next } : task));
 
-          return { body: { ...makeTicket({ id, status: next }), comments: [] } };
+          return { body: makeTask({ id, status: next }) };
         },
       ]),
     ),
   });
 
 const routes = [
-  { path: "/tickets", element: <TicketsListPage /> },
-  { path: "/tickets/board", element: <TicketsBoardPage /> },
+  { path: "/tasks", element: <TasksListPage /> },
+  { path: "/tasks/board", element: <TasksBoardPage /> },
 ];
 
-const renderBoard = (initialEntry = "/tickets/board") =>
+const renderBoard = (initialEntry = "/tasks/board") =>
   renderRoute({ routes, initialEntries: [initialEntry] });
 
-/** The `<section>` for one column, found by the label that carries its count. */
-const column = (label: string) => screen.getByRole("region", { name: new RegExp(`^${label} —`) });
+/**
+ * The `<section>` for one column, found by the label that carries its count.
+ * Lanes are regions too, but they are named by their heading ("Plan"), which
+ * has no " — ".
+ */
+const column = (label: string) =>
+  // `hidden`, because a column is still asserted on while the transition
+  // dialog is open — and a modal Radix dialog hides the rest of the page from
+  // the accessibility tree, which is correct and not what these assert about.
+  screen.getByRole("region", { name: new RegExp(`^${label} —`), hidden: true });
+
+const columnLabels = () =>
+  screen
+    .getAllByRole("region")
+    .map((region) => region.getAttribute("aria-label"))
+    .filter((label): label is string => label !== null);
 
 const moveCardTo = async (
   user: ReturnType<typeof userEvent.setup>,
@@ -119,91 +159,140 @@ const moveCardTo = async (
   target: string,
 ) => {
   await user.click(
-    screen.getByRole("combobox", { name: `Move ticket ${reference} to another status` }),
+    screen.getByRole("combobox", { name: `Move task ${reference} to another status` }),
   );
   await user.click(await screen.findByRole("option", { name: target }));
 };
 
+const listRequests = (requests: MockRequest[]) =>
+  requests.filter((request) => request.url.pathname.endsWith("/tasks"));
+
 beforeEach(() => {
   vi.clearAllMocks();
-  patchFailure = undefined;
+  // jsdom's default; the 360px case below changes it for the rest of the file.
+  setViewportWidth(1024);
+  transitionFailure = undefined;
   store = [
-    summary({ id: 1, status: "open", title: "Printer jam" }),
-    summary({ id: 2, status: "open", title: "VPN drops" }),
-    summary({ id: 3, status: "in_progress", title: "Laptop swap" }),
-    summary({ id: 4, status: "resolved", title: "Password reset" }),
-    summary({ id: 5, status: "closed", title: "Monitor flicker" }),
+    summary({ id: 1, status: "todo", title: "Write the limiter" }),
+    summary({ id: 2, status: "todo", title: "Add a 429 page", acceptanceCriteria: null }),
+    summary({
+      id: 3,
+      status: "in_progress",
+      title: "Swap the queue",
+      claim: { actor: "agent:claude-code", expiresAt: "2099-01-01T00:00:00.000Z" },
+    }),
+    summary({
+      id: 4,
+      status: "needs_user_decision",
+      title: "Pick a limiter",
+      openDecision: makeDecision({ taskId: 4 }),
+      openDependencyCount: 2,
+    }),
+    summary({ id: 5, status: "done", title: "Old export fix" }),
   ];
 });
 
-describe("TicketsBoardPage — layout", () => {
-  it("renders one column per status, each fetched with its own status filter", async () => {
+describe("TasksBoardPage — lanes and columns", () => {
+  it("groups the columns into Plan, Doing, Waiting, and a collapsed Closed lane", async () => {
     const { requests } = boardApi();
 
     renderBoard();
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
 
-    for (const label of ["Open", "In progress", "Resolved", "Closed"]) {
-      expect(column(label)).toBeInTheDocument();
+    for (const lane of ["Plan", "Doing", "Waiting", "Closed"]) {
+      expect(screen.getByRole("heading", { level: 2, name: lane })).toBeInTheDocument();
     }
 
-    // Two tickets are open, and the column label is what a screen reader reads.
-    expect(column("Open")).toHaveAccessibleName("Open — 2 tickets");
-    expect(column("Resolved")).toHaveAccessibleName("Resolved — 1 ticket");
-
-    const listRequests = requests.filter((request) => request.url.pathname.endsWith("/tickets"));
-    expect(listRequests).toHaveLength(4);
-    expect(listRequests.map((request) => request.url.searchParams.get("status")).sort()).toEqual(
-      [...STATUSES].sort(),
+    // Lifecycle order within each lane, lane after lane; no closed columns yet.
+    await waitFor(() =>
+      expect(columnLabels()).toEqual([
+        "Backlog — 0 tasks",
+        "Needs refinement — 0 tasks",
+        "To do — 2 tasks",
+        "In progress — 1 task",
+        "Needs QA — 0 tasks",
+        "Blocked — 0 tasks",
+        "Needs decision — 1 task",
+        "Needs action — 0 tasks",
+      ]),
     );
-    for (const request of listRequests) {
+
+    // One request per visible column, each with its own status; none for the
+    // collapsed lane.
+    const sent = listRequests(requests).map((request) => request.url.searchParams.get("status"));
+    expect([...new Set(sent)].sort()).toEqual([...OPEN_LANE_STATUSES].sort());
+    for (const request of listRequests(requests)) {
       expect(request.url.searchParams.get("pageSize")).toBe("25");
       expect(request.url.searchParams.get("page")).toBe("1");
     }
   });
 
-  it("puts each ticket in the column for its status", async () => {
-    boardApi();
+  it("opens the closed lane on request, fetching its columns only then", async () => {
+    const user = userEvent.setup();
+    const { requests } = boardApi();
 
     renderBoard();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
-    expect(within(column("Open")).getByText("VPN drops")).toBeInTheDocument();
-    expect(within(column("In progress")).getByText("Laptop swap")).toBeInTheDocument();
-    expect(within(column("Closed")).getByText("Monitor flicker")).toBeInTheDocument();
+    const toggle = await screen.findByRole("button", { name: /show closed/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // The collapsed lane says what it is hiding, from the stats.
+    await waitFor(() => expect(toggle).toHaveTextContent("1 done, 0 deferred"));
+    expect(screen.queryByText("Old export fix")).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(await within(column("Done")).findByText("Old export fix")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /hide closed/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      listRequests(requests).some((request) => request.url.searchParams.get("status") === "done"),
+    ).toBe(true);
   });
 
   /**
    * The status filter is the one URL key the board reads differently from the
    * list: here it chooses columns rather than filtering rows. See the note in
-   * `TicketsBoardPage`.
+   * `TasksBoardPage`.
    */
   it("shows only the filtered statuses as columns, in lifecycle order", async () => {
     boardApi();
 
-    renderBoard("/tickets/board?status=resolved&status=open");
+    renderBoard("/tasks/board?status=needs_user_decision&status=todo");
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
+    expect(columnLabels()).toEqual(["To do — 2 tasks", "Needs decision — 1 task"]);
+    // Lanes with nothing to show are not drawn at all.
+    expect(screen.queryByRole("heading", { level: 2, name: "Doing" })).not.toBeInTheDocument();
+  });
 
-    const regions = screen
-      .getAllByRole("region")
-      .map((region) => region.getAttribute("aria-label"));
-    expect(regions).toEqual(["Open — 2 tickets", "Resolved — 1 ticket"]);
+  it("opens the closed lane by itself when the filter names a closed status", async () => {
+    boardApi();
+
+    renderBoard("/tasks/board?status=done");
+
+    expect(await within(column("Done")).findByText("Old export fix")).toBeInTheDocument();
+    // A filter that picked a hidden column would look like it did nothing, so
+    // there is no toggle to hide it again while the filter is on.
+    expect(screen.queryByRole("button", { name: /closed/i })).not.toBeInTheDocument();
   });
 
   it("forwards the list's filters to every column request", async () => {
     const { requests } = boardApi();
 
-    renderBoard("/tickets/board?priority=urgent&q=vpn&sort=priority%3Aasc");
+    renderBoard("/tasks/board?priority=urgent&q=limiter&project=helpdesk&sort=priority%3Aasc");
 
     await waitFor(() => {
-      expect(requests.filter((r) => r.url.pathname.endsWith("/tickets"))).toHaveLength(4);
+      expect(listRequests(requests)).toHaveLength(OPEN_LANE_STATUSES.length);
     });
 
-    for (const request of requests.filter((r) => r.url.pathname.endsWith("/tickets"))) {
+    for (const request of listRequests(requests)) {
       expect(request.url.searchParams.get("priority")).toBe("urgent");
-      expect(request.url.searchParams.get("q")).toBe("vpn");
+      expect(request.url.searchParams.get("q")).toBe("limiter");
+      expect(request.url.searchParams.get("project")).toBe("helpdesk");
       expect(request.url.searchParams.get("sort")).toBe("priority:asc");
     }
   });
@@ -211,52 +300,71 @@ describe("TicketsBoardPage — layout", () => {
   it("raises the page size of one column only when it loads more", async () => {
     const user = userEvent.setup();
     store = Array.from({ length: 30 }, (_, index) =>
-      summary({ id: index + 1, status: "open", title: `Open ticket ${index + 1}` }),
+      summary({ id: index + 1, status: "todo", title: `Todo task ${index + 1}` }),
     );
     const { requests } = boardApi();
 
     renderBoard();
 
-    expect(await screen.findByText("Open ticket 1")).toBeInTheDocument();
-    expect(within(column("Open")).queryByText("Open ticket 26")).not.toBeInTheDocument();
+    expect(await screen.findByText("Todo task 1")).toBeInTheDocument();
+    expect(within(column("To do")).queryByText("Todo task 26")).not.toBeInTheDocument();
 
-    await user.click(within(column("Open")).getByRole("button", { name: "Load more" }));
+    await user.click(within(column("To do")).getByRole("button", { name: "Load more" }));
 
-    expect(await within(column("Open")).findByText("Open ticket 26")).toBeInTheDocument();
+    expect(await within(column("To do")).findByText("Todo task 26")).toBeInTheDocument();
 
-    const pageSizes = requests
-      .filter((request) => request.url.pathname.endsWith("/tickets"))
-      .map(
-        (request) =>
-          `${request.url.searchParams.get("status")}:${request.url.searchParams.get("pageSize")}`,
-      );
+    const pageSizes = listRequests(requests).map(
+      (request) =>
+        `${request.url.searchParams.get("status")}:${request.url.searchParams.get("pageSize")}`,
+    );
 
-    expect(pageSizes).toContain("open:50");
+    expect(pageSizes).toContain("todo:50");
     expect(pageSizes.filter((entry) => entry.endsWith(":50"))).toHaveLength(1);
+  });
+
+  it("marks a claimed card with the agent, and flags an open question and open dependencies", async () => {
+    boardApi();
+
+    renderBoard();
+
+    const claimed = (await screen.findByText("Swap the queue")).closest("li")!;
+    expect(claimed).toHaveTextContent("Claimed by claude-code");
+
+    const waiting = screen.getByText("Pick a limiter").closest("li")!;
+    expect(waiting).toHaveTextContent("Question open");
+    expect(waiting).toHaveTextContent("Waits on 2 tasks");
+    expect(waiting).toHaveTextContent("helpdesk");
+
+    // Only what is true is drawn.
+    const plain = screen.getByText("Write the limiter").closest("li")!;
+    expect(plain).not.toHaveTextContent("Claimed by");
+    expect(plain).not.toHaveTextContent("Question open");
   });
 });
 
-describe("TicketsBoardPage — moving a ticket", () => {
-  it("PATCHes the status and lands the card in the new column", async () => {
+describe("TasksBoardPage — moving a task", () => {
+  it("posts a transition and lands the card in the new column", async () => {
     const user = userEvent.setup();
     const { requests } = boardApi();
 
     renderBoard();
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
 
-    await moveCardTo(user, "HD-000001", "In progress");
+    await moveCardTo(user, "TASK-000001", "In progress");
 
     await waitFor(() => {
-      expect(within(column("In progress")).getByText("Printer jam")).toBeInTheDocument();
+      expect(within(column("In progress")).getByText("Write the limiter")).toBeInTheDocument();
     });
-    expect(within(column("Open")).queryByText("Printer jam")).not.toBeInTheDocument();
+    expect(within(column("To do")).queryByText("Write the limiter")).not.toBeInTheDocument();
 
-    const patch = requests.find((request) => request.method === "PATCH");
-    expect(patch?.url.pathname).toMatch(/\/tickets\/1$/);
-    expect(patch?.body).toEqual({ status: "in_progress" });
+    const post = requests.find((request) => request.method === "POST");
+    expect(post?.url.pathname).toMatch(/\/tasks\/1\/transition$/);
+    expect(post?.body).toEqual({ to: "in_progress" });
+    // Status is not a PATCHable field any more.
+    expect(requests.some((request) => request.method === "PATCH")).toBe(false);
 
-    expect(toast.success).toHaveBeenCalledWith("HD-000001 moved to In progress");
+    expect(toast.success).toHaveBeenCalledWith("TASK-000001 moved to In progress");
   });
 
   it("moves the counts with the card, not only the card", async () => {
@@ -265,30 +373,92 @@ describe("TicketsBoardPage — moving a ticket", () => {
 
     renderBoard();
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
-    expect(column("Open")).toHaveAccessibleName("Open — 2 tickets");
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
+    expect(column("To do")).toHaveAccessibleName("To do — 2 tasks");
 
-    await moveCardTo(user, "HD-000001", "Resolved");
+    await moveCardTo(user, "TASK-000001", "Backlog");
 
     await waitFor(() => {
-      expect(column("Open")).toHaveAccessibleName("Open — 1 ticket");
+      expect(column("To do")).toHaveAccessibleName("To do — 1 task");
     });
-    expect(column("Resolved")).toHaveAccessibleName("Resolved — 2 tickets");
+    expect(column("Backlog")).toHaveAccessibleName("Backlog — 1 task");
   });
 
-  /**
-   * The transition table lives on the server. The board offers every column to
-   * every card on purpose, so a rejection has to be survivable.
-   */
-  it("puts the card back and quotes the server's allowed targets on a 409", async () => {
+  it("asks for a reason before a move that needs one, holding the card in its new column", async () => {
     const user = userEvent.setup();
-    patchFailure = {
+    const { requests } = boardApi();
+
+    renderBoard();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
+
+    await moveCardTo(user, "TASK-000001", "Blocked");
+
+    const dialog = await screen.findByRole("dialog", { name: "Move TASK-000001 to Blocked" });
+    // Optimistic: the card is already where it was dropped, and nothing is sent.
+    expect(within(column("Blocked")).getByText("Write the limiter")).toBeInTheDocument();
+    expect(requests.some((request) => request.method === "POST")).toBe(false);
+
+    await user.type(
+      within(dialog).getByLabelText(/why is it blocked/i),
+      "Needs the Redis upgrade.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Move to Blocked" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(requests.find((request) => request.method === "POST")?.body).toEqual({
+      to: "blocked",
+      reason: "Needs the Redis upgrade.",
+    });
+    expect(within(column("Blocked")).getByText("Write the limiter")).toBeInTheDocument();
+  });
+
+  it("puts the card back when the dialog is cancelled", async () => {
+    const user = userEvent.setup();
+    const { requests } = boardApi();
+
+    renderBoard();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
+
+    await moveCardTo(user, "TASK-000001", "Needs QA");
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(within(column("To do")).getByText("Write the limiter")).toBeInTheDocument();
+    });
+    expect(within(column("Needs QA")).queryByText("Write the limiter")).not.toBeInTheDocument();
+    expect(requests.some((request) => request.method === "POST")).toBe(false);
+  });
+
+  it("asks for acceptance criteria only when a task moving to To do has none", async () => {
+    const user = userEvent.setup();
+    boardApi();
+
+    renderBoard();
+    expect(await screen.findByText("Add a 429 page")).toBeInTheDocument();
+
+    // Task 2 has no criteria: To do needs the dialog. (Task 1 has some, which
+    // is why the tests above move it without one.)
+    await moveCardTo(user, "TASK-000002", "Backlog");
+    await waitFor(() =>
+      expect(within(column("Backlog")).getByText("Add a 429 page")).toBeInTheDocument(),
+    );
+    await moveCardTo(user, "TASK-000002", "To do");
+
+    expect(
+      await screen.findByRole("dialog", { name: "Move TASK-000002 to To do" }),
+    ).toBeInTheDocument();
+  });
+
+  it("puts the card back and names the claim holder when the server refuses", async () => {
+    const user = userEvent.setup();
+    transitionFailure = {
       status: 409,
       body: {
         error: {
-          code: "INVALID_STATUS_TRANSITION",
-          message: "closed cannot become resolved",
-          details: { from: "closed", to: "resolved", allowed: ["open", "in_progress"] },
+          code: "TASK_ALREADY_CLAIMED",
+          message: "claimed",
+          details: { claimedBy: "agent:codex", expiresAt: "2026-09-25T12:00:00.000Z" },
           requestId: "req-1",
         },
       },
@@ -297,23 +467,23 @@ describe("TicketsBoardPage — moving a ticket", () => {
 
     renderBoard();
 
-    expect(await screen.findByText("Monitor flicker")).toBeInTheDocument();
+    expect(await screen.findByText("Swap the queue")).toBeInTheDocument();
 
-    await moveCardTo(user, "HD-000005", "Resolved");
+    await moveCardTo(user, "TASK-000003", "Backlog");
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("That status change is not allowed", {
-        description: "Not allowed from here. You can move it to Open or In progress instead.",
+      expect(toast.error).toHaveBeenCalledWith("Another agent is working on this", {
+        description: expect.stringMatching(/^agent:codex holds the claim\./),
       });
     });
 
-    expect(within(column("Closed")).getByText("Monitor flicker")).toBeInTheDocument();
-    expect(within(column("Resolved")).queryByText("Monitor flicker")).not.toBeInTheDocument();
+    expect(within(column("In progress")).getByText("Swap the queue")).toBeInTheDocument();
+    expect(within(column("Backlog")).queryByText("Swap the queue")).not.toBeInTheDocument();
   });
 
   /**
-   * A card is a link, so "click into the ticket while the move is in flight" is
-   * one gesture away. Without the optimistic detail write the ticket page would
+   * A card is a link, so "click into the task while the move is in flight" is
+   * one gesture away. Without the optimistic detail write the task page would
    * render the cached pre-move status while the board behind it showed the new
    * one.
    */
@@ -325,10 +495,11 @@ describe("TicketsBoardPage — moving a ticket", () => {
     });
 
     mockApi({
-      "GET /tickets/facets": () => ({ body: { assignees: [], categories: [] } }),
-      "GET /tickets": ({ url }) => {
+      "GET /tasks/facets": () => ({ body: { assignees: [], projects: [], creators: [] } }),
+      "GET /tasks/stats": () => ({ body: makeStats() }),
+      "GET /tasks": ({ url }) => {
         const status = url.searchParams.get("status");
-        const data = store.filter((ticket) => ticket.status === status);
+        const data = store.filter((task) => task.status === status);
         return {
           body: {
             data,
@@ -343,9 +514,19 @@ describe("TicketsBoardPage — moving a ticket", () => {
           },
         };
       },
-      "PATCH /tickets/1": async () => {
+      "POST /tasks/1/transition": async () => {
         await inFlight;
-        return { status: 409, body: patchFailure?.body };
+        return {
+          status: 409,
+          body: {
+            error: {
+              code: "TASK_ALREADY_CLAIMED",
+              message: "no",
+              details: { claimedBy: "agent:codex", expiresAt: "2026-09-25T12:00:00.000Z" },
+              requestId: "req-2",
+            },
+          },
+        };
       },
     });
 
@@ -363,32 +544,20 @@ describe("TicketsBoardPage — moving a ticket", () => {
       },
     });
 
-    // The ticket has been visited, so its detail row is in the cache — which is
+    // The task has been visited, so its detail row is in the cache — which is
     // the only case an optimistic write or a rollback can apply to.
-    queryClient.setQueryData(queryKeys.tickets.detail(1), makeTicket({ id: 1, status: "open" }));
+    queryClient.setQueryData(queryKeys.tasks.detail(1), makeTask({ id: 1, status: "todo" }));
 
-    patchFailure = {
-      status: 409,
-      body: {
-        error: {
-          code: "INVALID_STATUS_TRANSITION",
-          message: "no",
-          details: { from: "open", to: "resolved", allowed: ["in_progress"] },
-          requestId: "req-2",
-        },
-      },
-    };
+    renderRoute({ routes, initialEntries: ["/tasks/board"], queryClient });
 
-    renderRoute({ routes, initialEntries: ["/tickets/board"], queryClient });
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
-
-    await moveCardTo(user, "HD-000001", "Resolved");
+    await moveCardTo(user, "TASK-000001", "Done");
 
     await waitFor(() => {
-      expect(
-        queryClient.getQueryData<{ status: string }>(queryKeys.tickets.detail(1))?.status,
-      ).toBe("resolved");
+      expect(queryClient.getQueryData<{ status: string }>(queryKeys.tasks.detail(1))?.status).toBe(
+        "done",
+      );
     });
 
     release();
@@ -396,50 +565,76 @@ describe("TicketsBoardPage — moving a ticket", () => {
     // …and the rejection puts the cached row back, rather than leaving the
     // detail page insisting on a status the server refused.
     await waitFor(() => {
-      expect(
-        queryClient.getQueryData<{ status: string }>(queryKeys.tickets.detail(1))?.status,
-      ).toBe("open");
+      expect(queryClient.getQueryData<{ status: string }>(queryKeys.tasks.detail(1))?.status).toBe(
+        "todo",
+      );
     });
   });
 
   /**
-   * A status change cannot add or remove an assignee or a category, and the
-   * board keeps a facets observer mounted — so `tickets.all` would fire a
-   * request per drag that can never return anything new.
+   * A status change cannot add or remove a project, assignee or creator, and
+   * the board keeps a facets observer mounted — so `tasks.all` would fire a
+   * request per drag that can never return anything new. Stats, though, move.
    */
-  it("refetches the lists and the ticket's detail, but not the facets", async () => {
+  it("refetches the lists and the stats, but not the facets", async () => {
     const user = userEvent.setup();
     const { requests } = boardApi();
 
     renderBoard();
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
 
-    const listsBefore = requests.filter((r) => r.url.pathname.endsWith("/tickets")).length;
+    const listsBefore = listRequests(requests).length;
+    const statsBefore = requests.filter((r) => r.url.pathname.endsWith("/stats")).length;
 
-    await moveCardTo(user, "HD-000001", "In progress");
+    await moveCardTo(user, "TASK-000001", "In progress");
 
     await waitFor(() => {
-      expect(within(column("In progress")).getByText("Printer jam")).toBeInTheDocument();
+      expect(within(column("In progress")).getByText("Write the limiter")).toBeInTheDocument();
     });
 
-    expect(requests.filter((r) => r.url.pathname.endsWith("/tickets")).length).toBeGreaterThan(
-      listsBefore,
+    expect(listRequests(requests).length).toBeGreaterThan(listsBefore);
+    expect(requests.filter((r) => r.url.pathname.endsWith("/stats")).length).toBeGreaterThan(
+      statsBefore,
     );
     expect(requests.filter((r) => r.url.pathname.endsWith("/facets"))).toHaveLength(1);
   });
 
-  it("does not PATCH when the card is set to the status it already has", async () => {
+  it("does not post when the card is set to the status it already has", async () => {
     const user = userEvent.setup();
     const { requests } = boardApi();
 
     renderBoard();
 
-    expect(await screen.findByText("Printer jam")).toBeInTheDocument();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
 
-    await moveCardTo(user, "HD-000001", "Open");
+    await moveCardTo(user, "TASK-000001", "To do");
 
-    expect(requests.some((request) => request.method === "PATCH")).toBe(false);
+    expect(requests.some((request) => request.method === "POST")).toBe(false);
+  });
+});
+
+describe("TasksBoardPage — at 360px", () => {
+  /*
+    jsdom has no layout, so "fits at 360px" is proven in `e2e/board.spec.ts`.
+    What this can prove is the structure the mobile layout depends on: every
+    lane is its own scroll container, so a phone scrolls one lane sideways
+    rather than the whole page.
+  */
+  it("gives each lane its own horizontal scroller", async () => {
+    setViewportWidth(360);
+    boardApi();
+
+    renderBoard();
+    expect(await screen.findByText("Write the limiter")).toBeInTheDocument();
+
+    const plan = screen.getByRole("region", { name: "Plan" });
+    const scroller = column("To do").parentElement!;
+    expect(plan).toContainElement(scroller);
+    expect(scroller.className).toMatch(/overflow-x-auto/);
+    expect(scroller.className).toMatch(/min-w-0/);
+    // Below `md` the sort lives in the filter bar, so it is not rendered twice.
+    expect(screen.getAllByRole("combobox", { name: "Sort tasks" })).toHaveLength(1);
   });
 });
 
@@ -450,20 +645,20 @@ describe("ViewSwitch", () => {
 
     const { router } = renderRoute({
       routes,
-      initialEntries: ["/tickets?priority=urgent&q=vpn"],
+      initialEntries: ["/tasks?priority=urgent&q=vpn"],
     });
 
     await user.click(await screen.findByRole("link", { name: "Board" }));
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/tickets/board");
+      expect(router.state.location.pathname).toBe("/tasks/board");
     });
     expect(router.state.location.search).toBe("?priority=urgent&q=vpn");
 
     await user.click(screen.getByRole("link", { name: "List" }));
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/tickets");
+      expect(router.state.location.pathname).toBe("/tasks");
     });
     expect(router.state.location.search).toBe("?priority=urgent&q=vpn");
   });
@@ -473,70 +668,67 @@ describe("ViewSwitch", () => {
  * The regression this suite exists for: the board is a *second* list route, and
  * every screen reached from it has to know which of the two to go back to.
  * `location.state.from` carries only the search string, so before the view
- * store the back link took a board user to `/tickets` — same filters, wrong
+ * store the back link took a board user to `/tasks` — same filters, wrong
  * screen.
  */
 describe("the remembered view", () => {
-  const routesWithDetail = [
-    ...routes,
-    { path: "/tickets/:ticketId", element: <TicketDetailPage /> },
-  ];
+  const routesWithDetail = [...routes, { path: "/tasks/:taskId", element: <TaskDetailPage /> }];
 
-  it("returns to the board — with its filters — from a ticket opened on it", async () => {
+  it("returns to the board — with its filters — from a task opened on it", async () => {
     const user = userEvent.setup();
     boardApi();
 
     const { router } = renderRoute({
       routes: routesWithDetail,
-      initialEntries: ["/tickets/board?priority=urgent"],
+      initialEntries: ["/tasks/board?priority=urgent"],
     });
 
-    await user.click(await screen.findByRole("link", { name: "HD-000001" }));
+    await user.click(await screen.findByRole("link", { name: "TASK-000001" }));
 
-    const back = await screen.findByRole("link", { name: /back to tickets/i });
-    expect(back).toHaveAttribute("href", "/tickets/board?priority=urgent");
+    const back = await screen.findByRole("link", { name: /back to tasks/i });
+    expect(back).toHaveAttribute("href", "/tasks/board?priority=urgent");
 
     await user.click(back);
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/tickets/board");
+      expect(router.state.location.pathname).toBe("/tasks/board");
     });
     expect(router.state.location.search).toBe("?priority=urgent");
   });
 
-  it("returns to the list from a ticket opened on the list", async () => {
+  it("returns to the list from a task opened on the list", async () => {
     const user = userEvent.setup();
     boardApi();
 
     renderRoute({
       routes: routesWithDetail,
-      initialEntries: ["/tickets?priority=urgent"],
+      initialEntries: ["/tasks?priority=urgent"],
     });
 
-    await user.click(await screen.findByRole("link", { name: "HD-000001" }));
+    await user.click(await screen.findByRole("link", { name: "TASK-000001" }));
 
-    expect(await screen.findByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /back to tasks/i })).toHaveAttribute(
       "href",
-      "/tickets?priority=urgent",
+      "/tasks?priority=urgent",
     );
   });
 
   /*
-    Switching view is what changes the answer — not the ticket, and not the
+    Switching view is what changes the answer — not the task, and not the
     history entry the detail page happens to sit on.
   */
-  it("follows the view the user switched to before opening the ticket", async () => {
+  it("follows the view the user switched to before opening the task", async () => {
     const user = userEvent.setup();
     boardApi();
 
-    renderRoute({ routes: routesWithDetail, initialEntries: ["/tickets"] });
+    renderRoute({ routes: routesWithDetail, initialEntries: ["/tasks"] });
 
     await user.click(await screen.findByRole("link", { name: "Board" }));
-    await user.click(await screen.findByRole("link", { name: "HD-000001" }));
+    await user.click(await screen.findByRole("link", { name: "TASK-000001" }));
 
-    expect(await screen.findByRole("link", { name: /back to tickets/i })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /back to tasks/i })).toHaveAttribute(
       "href",
-      "/tickets/board",
+      "/tasks/board",
     );
   });
 });
