@@ -87,6 +87,26 @@ const ERROR_COPY: Record<ApiClientErrorCode, ErrorCopy> = {
     description: "The decision is no longer open — someone answered or withdrew it. Reload to see.",
     retryable: false,
   },
+  INTEGRATION_NOT_CONFIGURED: {
+    title: "GitHub isn't connected",
+    description: "This server has no GitHub integration configured.",
+    retryable: false,
+  },
+  INVALID_WEBHOOK_SIGNATURE: {
+    title: "Could not verify that request",
+    description: "The signature on this request did not match. Nothing was changed.",
+    retryable: false,
+  },
+  GITHUB_NOT_FOUND: {
+    title: "Couldn't find that on GitHub",
+    description: "Check the issue or pull request URL and try again.",
+    retryable: false,
+  },
+  GITHUB_UNAVAILABLE: {
+    title: "GitHub isn't responding",
+    description: "GitHub could not be reached. Try again in a moment.",
+    retryable: true,
+  },
   MALFORMED_JSON: {
     title: "The request could not be read",
     description: "The data sent to the server was not valid. Please try again.",

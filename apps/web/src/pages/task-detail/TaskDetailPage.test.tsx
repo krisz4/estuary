@@ -420,9 +420,23 @@ describe("TaskDetailPage — dependencies", () => {
   const withDependency = () =>
     makeTask({
       dependencies: [
-        { id: 12, reference: "TASK-000012", title: "Pick a limiter", status: "in_progress" },
+        {
+          id: 12,
+          reference: "TASK-000012",
+          title: "Pick a limiter",
+          status: "in_progress",
+          project: "helpdesk",
+        },
       ],
-      dependents: [{ id: 50, reference: "TASK-000050", title: "Ship exports", status: "blocked" }],
+      dependents: [
+        {
+          id: 50,
+          reference: "TASK-000050",
+          title: "Ship exports",
+          status: "blocked",
+          project: "helpdesk",
+        },
+      ],
     });
 
   it("lists what it waits on and what needs it, with statuses", async () => {
@@ -500,6 +514,8 @@ describe("TaskDetailPage — activity", () => {
   const event = (overrides: Partial<TaskEvent>): TaskEvent => ({
     id: 1,
     taskId: 42,
+    taskTitle: "Some task",
+    project: "helpdesk",
     type: "task.created",
     actor: "agent:claude-code",
     payload: {},

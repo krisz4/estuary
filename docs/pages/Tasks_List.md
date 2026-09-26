@@ -1,18 +1,18 @@
 ---
 type: Page
 title: Tasks list
-description: Landing screen — all tasks with filtering, sorting, and paging bound to the URL.
+description: /tasks — the full task list with filtering, sorting, and paging bound to the URL; the other reading of the Map's URL state.
 resource: apps/web/src/pages/tasks-list/
 tags: [tasks, list, filtering, sorting, pagination]
 status: canonical
 ---
 # Page Review: Tasks List
 
-The landing screen and the most feature-dense page in the app.
+The most feature-dense page in the app. `/` no longer redirects here — it redirects to [Tasks_Map.md](./Tasks_Map.md), which is now the app's landing page; `/tasks` is still the direct, sortable-table reading of the same URL state, and the header wordmark still links to it.
 
 ## Route
 
-- Path: `/tasks` — `/` redirects here
+- Path: `/tasks`
 - File: `src/pages/tasks-list/TasksListPage.tsx`
 - Type: Client component, data via TanStack Query
 
@@ -22,18 +22,19 @@ The landing screen and the most feature-dense page in the app.
 
 | Component | Role on this page |
 | --------- | ----------------- |
-| `TaskFilterBar` (`src/features/tasks/`) | Debounced search input, status/priority/project chip multiselects, assignee select, "created by" actor select, created-from/created-to date inputs (UTC), removable active-filter chips, clear-all. Two one-click **status presets** sit beside the Status legend: **"Open work"** selects every status except the closed lane (`OPEN_STATUSES`), **"Needs you"** selects `HUMAN_ATTENTION_STATUSES` — the same three statuses the inbox shows. Assignee, project, and creator options all come from `GET /tasks/facets` |
-| `ViewSwitch` (`src/features/tasks/`) | List ⇄ Board, carrying the current search string so switching view preserves every filter. The board reads the same URL state — [Tasks_Board.md](./Tasks_Board.md) |
-| `TaskTable` | Desktop `<table>` — sortable column headers, per-row meta line (claim, open dependencies, open decision, comment count), two real links per row |
-| `TaskCardList` | Mobile stacked cards (same data, different presentation), each the whole card as one link |
+| `TaskFilterBar` (`src/features/tasks/`) | Debounced search input, status/priority/**label** chip multiselects, a **"Top-level only"** checkbox (`parentIsNull`), assignee select, "created by" actor select, created-from/created-to date inputs (UTC), removable active-filter chips (including the relational ones — `parentId`, `parentIsNull`, `dependsOn`, `dependencyOf` — that arrive by link rather than by a control in this bar), clear-all. Two one-click **status presets** sit beside the Status legend: **"Open work"** selects every status except the closed lane (`OPEN_STATUSES`), **"Needs you"** selects `HUMAN_ATTENTION_STATUSES` — the same three statuses the inbox shows. Assignee, project, label, and creator options all come from `GET /tasks/facets` |
+| `ViewSwitch` (`src/features/tasks/`) | List ⇄ Map, carrying the current search string so switching view preserves every filter. The map reads the same URL state — [Tasks_Map.md](./Tasks_Map.md) |
+| `TaskTable` | Desktop `<table>` — sortable column headers, per-row meta line (claim, subtask count linking to `?parentId=`, open dependencies, open decision, comment count), label chips (each linking to `?label=`) under the title, search-term highlighting in the title when `q` is set, two real links per row |
+| `TaskCardList` | Mobile stacked cards (same data, different presentation), each the whole card as one link; label chips render unlinked (a link cannot nest inside the card's own `<a>`) |
 | `SortSelect` | Mobile-only sort control, offering named orderings ("Priority: high to low") rather than a field picker plus a direction toggle |
 | `Pagination` (`src/components/`) | Page buttons with ellipsis, prev/next, "Showing X–Y of Z", page-size select |
-| `StatusBadge`, `PriorityBadge`, `ActorBadge`, `ClaimIndicator` | Per-row indicators — ten status tones, four priority tones (plus the card's left-border stripe), agent/human/system actor badge, "who holds the claim" |
+| `StatusBadge`, `PriorityBadge`, `ActorBadge`, `ClaimIndicator`, `LabelChips` | Per-row indicators — ten status tones, four priority tones (plus the card's left-border stripe), agent/human/system actor badge, "who holds the claim", the task's label set |
+| `GithubImportDialog` (`src/features/tasks/`) | "Import issue" entry point beside the view switch, shown only when `GET /integrations/github` reports `enabled: true`. Issue URL/shorthand, optional project/status/labels → `POST /integrations/github/import`; success navigates to the created (or already-imported) task |
 | `EmptyState` (`src/components/`) | Three variants: no tasks at all, no matches for the current filters, and a page past the end of a non-empty result |
 | `ErrorPanel` (`src/components/`) | Copy from `errorCopy(code)` + Retry (`refetch()`) |
 | `TaskTableSkeleton` / `TaskCardListSkeleton` | Loading placeholders that render the real chrome, so the layout does not jump |
 
-**There is no "New task" button on this page.** `AppHeader` renders one on every screen.
+**There is no "New task" button on this page.** `AppHeader` renders one on every screen. "Import issue" is the one page-specific header action, and only when the GitHub integration is on.
 
 ### Hooks
 
@@ -42,21 +43,25 @@ The landing screen and the most feature-dense page in the app.
 | `useTaskListParams()` | Reads/validates/writes the URL search params — the single source of list state |
 | `useTasksQuery(params)` | `GET /api/v1/tasks`; key `queryKeys.tasks.list(query)`; `placeholderData: keepPreviousData` so the table does not blank out while paging; polls every 15s (`api/polling.ts`) |
 | `useTaskFacetsQuery()` | `GET /api/v1/tasks/facets`; key `queryKeys.tasks.facets()`; 5-minute `staleTime` — the option lists change rarely |
+| `useGithubIntegrationQuery()` | `GET /api/v1/integrations/github`; key `queryKeys.github.status()`; gates the "Import issue" button. `retry: false` — a disabled instance answers 404 every time |
+| `useImportGithubIssueMutation()` | `POST /api/v1/integrations/github/import`; invalidates `tasks.all` + `events.all` on success |
 
 ### API calls
 
 | Call | Method | Endpoint |
 | ---- | ------ | -------- |
-| `listTasks(query)` | `GET` | `/api/v1/tasks?page=&pageSize=&sort=&status=&priority=&project=&assignee=&assigneeIsNull=&createdBy=&q=&createdFrom=&createdTo=` |
-| `getTaskFacets()` | `GET` | `/api/v1/tasks/facets` — assignees, projects, creators for the filter selects |
+| `listTasks(query)` | `GET` | `/api/v1/tasks?page=&pageSize=&sort=&status=&priority=&project=&label=&assignee=&assigneeIsNull=&createdBy=&q=&createdFrom=&createdTo=&parentId=&parentIsNull=&dependsOn=&dependencyOf=` |
+| `getTaskFacets()` | `GET` | `/api/v1/tasks/facets` — assignees, projects, labels, creators for the filter selects |
+| `getGithubIntegrationStatus()` | `GET` | `/api/v1/integrations/github` |
+| `importGithubIssue(input)` | `POST` | `/api/v1/integrations/github/import` |
 
-Read-only page — no mutations. Full parameter semantics: [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md).
+Otherwise a read-only page. Full parameter semantics: [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md); labels: [../features/Labels.md](../features/Labels.md); the import flow: [../features/GitHub_Integration.md](../features/GitHub_Integration.md).
 
 ## Behavior / UI flow
 
 1. Land on `/tasks` with defaults: page 1, 20 per page, `createdAt:desc`, no filters. **There is no default status filter** — a bare `/tasks` shows all ten statuses, so "nothing exists" and "nothing matches" stay distinguishable. The "Open work" preset is the one-click way to hide the closed lane.
-2. **Search** — typing in `q` is debounced 300ms, then written to the URL with `replace: true` so typing does not fill the history stack. Filter changes use `push` so back undoes them.
-3. **Filters** — status, priority, and project are multiselects (checkbox chips) that OR within themselves; assignee is one control (Anyone / Unassigned / Assigned to anyone / each name from facets) because `assignee` and `assigneeIsNull` are mutually exclusive on the wire; "Created by" is a single-select over facets' `creators`. Active filters render as removable chips above the table with a "Clear all" when any is set. The date bounds **clamp** rather than reject: moving one past the other moves the other with it.
+2. **Search** — typing in `q` is debounced 300ms, then written to the URL with `replace: true` so typing does not fill the history stack. Filter changes use `push` so back undoes them. `q` is split into terms (`parseSearchTerms`, shared with the API): every term must match somewhere on the task — title, description, acceptance criteria, status note, links, or a comment — and a quoted phrase counts as one term. Matched terms are highlighted (`<mark>`) in the title column/card.
+3. **Filters** — status, priority, and label are multiselects (checkbox chips) that OR within themselves. **Project is not in the filter bar**: it is the header's project switcher ([App_Shell.md](./App_Shell.md)), the one control for the `project` param — so it gets no chip, is not counted on the Filters button, and survives "Clear all" (`hasActiveFilters` / `activeFilterCount` skip it; `clearFilters` keeps it); assignee is one control (Anyone / Unassigned / Assigned to anyone / each name from facets) because `assignee` and `assigneeIsNull` are mutually exclusive on the wire, the same relationship "Top-level only" (`parentIsNull`) has with `parentId`; "Created by" is a single-select over facets' `creators`. Active filters render as removable chips above the table with a "Clear all" when any is set. The date bounds **clamp** rather than reject: moving one past the other moves the other with it. `parentId`, `dependsOn`, and `dependencyOf` are not set from a control in this bar — they arrive by a link from the detail page (a subtask count, "View all dependents/dependencies in list") — but render as the same removable chip, so it is always clear why the list is narrowed.
 4. **Sorting** — desktop: click a column header to sort, click again to flip direction. Mobile: `SortSelect` dropdown. Sortable columns and the API field they send: Reference → `id`, Title → `title`, Status → `status`, Priority → `priority`, Created → `createdAt`. (`updatedAt` is sortable via `SortSelect`'s "Recently updated" option but has no column of its own.)
 5. **Any filter or sort change resets `page` to 1.** Page changes do not touch filters.
 6. **The `md` swap is a JS media query (`MD_BREAKPOINT_QUERY`), not `hidden md:block`.** Exactly one of the table and the card list is in the DOM at any width.
@@ -99,4 +104,4 @@ The table is never horizontally scrolled on mobile — the card list exists prec
 - [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md) — parameters and envelope
 - [../features/Task_Priority.md](../features/Task_Priority.md), [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) — badge semantics
 - [Inbox.md](./Inbox.md) — the "Needs you" preset's own dedicated screen
-- [Task_Detail.md](./Task_Detail.md), [Task_Create.md](./Task_Create.md), [Tasks_Board.md](./Tasks_Board.md)
+- [Task_Detail.md](./Task_Detail.md), [Task_Create.md](./Task_Create.md), [Tasks_Map.md](./Tasks_Map.md)

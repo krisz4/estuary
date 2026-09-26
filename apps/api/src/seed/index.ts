@@ -137,6 +137,8 @@ export type SeedEventRef =
 export interface SeedEventWrite {
   type: TaskEventType;
   actor: string;
+  /** The task's project *when this event was recorded* — see schema.prisma note 5. */
+  project: string | null;
   payload: Record<string, unknown>;
   ref?: SeedEventRef;
   createdAt: Date;
@@ -155,6 +157,8 @@ export interface SeedTask {
   comments: SeedCommentWrite[];
   decisions: SeedDecisionWrite[];
   events: SeedEventWrite[];
+  /** Lowercase slugs, deduped and sorted — same shape `labelsInputSchema` produces. */
+  labels: string[];
 }
 
 /* ------------------------------------------------------------------ *
@@ -508,6 +512,7 @@ function buildTask(
     {
       type: "task.created",
       actor: template.createdBy,
+      project: template.project,
       payload: { status: creationStatus, title: template.title },
       createdAt: new Date(createdMs),
     },
@@ -526,7 +531,14 @@ function buildTask(
     const atMs = times[n] ?? createdMs;
     const at = new Date(atMs);
     const event = (type: TaskEventType, payload: Record<string, unknown>, ref?: SeedEventRef) =>
-      events.push({ type, actor: step.actor, payload, createdAt: at, ...(ref ? { ref } : {}) });
+      events.push({
+        type,
+        actor: step.actor,
+        project: template.project,
+        payload,
+        createdAt: at,
+        ...(ref ? { ref } : {}),
+      });
 
     for (const key of step.dependencies ?? []) {
       dependencies.push({ dependsOn: key, createdAt: at });
@@ -643,6 +655,8 @@ function buildTask(
     comments,
     decisions,
     events,
+    // Same normalisation `labelsInputSchema` applies on write: deduped, sorted.
+    labels: [...new Set(template.labels ?? [])].sort(),
   };
 }
 
@@ -728,6 +742,7 @@ export interface SeedResult {
   decisions: number;
   dependencies: number;
   events: number;
+  labels: number;
 }
 
 /** Autoincrement tables whose counters are reset, so a re-seed reuses ids from 1. */
@@ -758,7 +773,14 @@ export async function seedDatabase(options: { now?: Date } = {}): Promise<SeedRe
       // TaskEvent has no foreign key (it outlives its task), so the cascade
       // from Task would not clear it; the others are cleared explicitly too
       // rather than trusting the cascade to do it.
-      for (const table of ["TaskEvent", "Decision", "TaskDependency", "Comment", "Task"]) {
+      for (const table of [
+        "TaskEvent",
+        "TaskLabel",
+        "Decision",
+        "TaskDependency",
+        "Comment",
+        "Task",
+      ]) {
         await tx.$executeRawUnsafe(`DELETE FROM "${table}"`);
       }
       await tx.$executeRawUnsafe(
@@ -785,6 +807,11 @@ export async function seedDatabase(options: { now?: Date } = {}): Promise<SeedRe
         });
         idByKey.set(row.key, id);
       }
+
+      const labels = rows.flatMap((row) =>
+        row.labels.map((label) => ({ taskId: idOf(row.key), label })),
+      );
+      await tx.taskLabel.createMany({ data: labels });
 
       const dependencies = rows.flatMap((row) =>
         row.dependencies.map((dep) => ({
@@ -843,6 +870,7 @@ export async function seedDatabase(options: { now?: Date } = {}): Promise<SeedRe
         taskId: idOf(rows[r]!.key),
         type: event.type,
         actor: event.actor,
+        project: event.project,
         payload: JSON.stringify({ ...resolve(r, event.ref), ...event.payload }),
         createdAt: event.createdAt,
       }));
@@ -854,6 +882,7 @@ export async function seedDatabase(options: { now?: Date } = {}): Promise<SeedRe
         decisions: decisions.length,
         dependencies: dependencies.length,
         events: events.length,
+        labels: labels.length,
       };
     },
     // ~200 single-row inserts plus three bulk ones on a cold SQLite file fits

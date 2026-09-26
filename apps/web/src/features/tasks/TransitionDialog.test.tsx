@@ -12,7 +12,7 @@ import { makeSummary, renderInProviders } from "@/test/harness";
  *
  * `onSubmit` is a spy rather than a mocked hook: the dialog's contract with
  * its callers *is* "hand me a valid `TransitionInput`, and tell me if it
- * failed" — the board and the detail page each run the mutation their own way.
+ * failed" — the map and the detail page each run the mutation their own way.
  */
 
 afterEach(() => {

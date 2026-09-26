@@ -10,7 +10,9 @@ import {
   descriptionInputSchema,
   HUMAN_ATTENTION_STATUSES,
   COMMENT_KINDS,
+  labelSchema,
   projectSchema,
+  TASK_LABELS_MAX,
   TASK_PRIORITIES,
   TASK_STATUS_NOTE_MAX,
   TASK_STATUSES,
@@ -150,6 +152,17 @@ describe("buildSeedTasks", () => {
     expect([...kinds].sort()).toEqual([...COMMENT_KINDS].sort());
   });
 
+  it("labels a realistic slice of tasks with workspace and kind tags", () => {
+    const labeled = rows.filter((row) => row.labels.length > 0);
+    const allLabels = new Set(rows.flatMap((row) => row.labels));
+
+    expect(labeled.length).toBeGreaterThanOrEqual(20);
+    // Workspace labels (this repo's own shape) and kind labels both show up.
+    for (const label of ["mcp", "api", "web", "docs", "db", "bug", "perf", "flaky-test"]) {
+      expect(allLabels.has(label), label).toBe(true);
+    }
+  });
+
   it("claims exactly the in_progress tasks, with two lapsed leases to recover", () => {
     const inProgress = rows.filter((row) => row.task.status === "in_progress");
     const expired = inProgress.filter((row) => row.task.claimExpiresAt! <= NOW);
@@ -202,7 +215,7 @@ describe("buildSeedTasks", () => {
     const statusOf = statusByKey(data);
 
     it("passes the contract's own field validation", () => {
-      for (const { task, comments, decisions, events } of data) {
+      for (const { task, comments, decisions, events, labels } of data) {
         titleInputSchema.parse(task.title);
         descriptionInputSchema.parse(task.description);
         if (task.project !== null) expect(projectSchema.parse(task.project)).toBe(task.project);
@@ -210,6 +223,14 @@ describe("buildSeedTasks", () => {
         if (task.statusNote !== null) {
           expect(task.statusNote.length).toBeLessThanOrEqual(TASK_STATUS_NOTE_MAX);
         }
+
+        // Labels: valid slugs, within the cap, deduped and sorted (labelsInputSchema's shape).
+        expect(labels.length).toBeLessThanOrEqual(TASK_LABELS_MAX);
+        for (const label of labels) expect(labelSchema.parse(label)).toBe(label);
+        expect([...new Set(labels)].sort()).toEqual(labels);
+
+        // Every event carries the task's project as recorded at the time.
+        for (const event of events) expect(event.project, task.title).toBe(task.project);
 
         // Actors are stored canonical: lowercase `kind:name`, exactly what the
         // `X-Actor` parser would have produced.
@@ -479,6 +500,28 @@ describe("seedDatabase", () => {
     expect(await prisma.decision.count()).toBe(sum((row) => row.decisions));
     expect(await prisma.taskDependency.count()).toBe(sum((row) => row.dependencies));
     expect(await prisma.taskEvent.count()).toBe(sum((row) => row.events));
+    expect(await prisma.taskLabel.count()).toBe(sum((row) => row.labels));
+  });
+
+  it("stores every event's project exactly as its task's, and every label on its task", async () => {
+    const tasks = await prisma.task.findMany({ select: { id: true, title: true, project: true } });
+    const projectById = new Map(tasks.map((task) => [task.id, task.project]));
+    const idByTitle = new Map(tasks.map((task) => [task.title, task.id]));
+
+    const events = await prisma.taskEvent.findMany({ select: { taskId: true, project: true } });
+    for (const event of events) expect(event.project).toBe(projectById.get(event.taskId));
+
+    const labelRows = await prisma.taskLabel.findMany();
+    expect(labelRows.length).toBe(sum((row) => row.labels));
+
+    const labelsByTaskId = new Map<number, string[]>();
+    for (const { taskId, label } of labelRows) {
+      labelsByTaskId.set(taskId, [...(labelsByTaskId.get(taskId) ?? []), label]);
+    }
+    for (const row of expected) {
+      const id = idByTitle.get(row.task.title)!;
+      expect([...(labelsByTaskId.get(id) ?? [])].sort()).toEqual(row.labels);
+    }
   });
 
   it("leaves ids to autoincrement, starting at 1, in creation order", async () => {

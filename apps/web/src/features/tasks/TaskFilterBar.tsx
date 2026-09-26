@@ -1,6 +1,7 @@
 import {
   HUMAN_ATTENTION_STATUSES,
   actorKindOf,
+  formatReference,
   TASK_Q_MAX,
   TASK_STATUSES,
   TERMINAL_TASK_STATUSES,
@@ -67,19 +68,19 @@ export const SEARCH_DEBOUNCE_MS = 300;
  * `assigneeIsNull` instead of `assignee=none`.
  * ------------------------------------------------------------------ */
 
-const ASSIGNEE_ANY = "any";
-const ASSIGNEE_NONE = "unassigned";
-const ASSIGNEE_SOMEONE = "assigned";
-const ASSIGNEE_NAME_PREFIX = "name:";
+export const ASSIGNEE_ANY = "any";
+export const ASSIGNEE_NONE = "unassigned";
+export const ASSIGNEE_SOMEONE = "assigned";
+export const ASSIGNEE_NAME_PREFIX = "name:";
 
-const encodeAssignee = (params: TaskListParams): string => {
+export const encodeAssignee = (params: TaskListParams): string => {
   if (params.assignee !== undefined) return `${ASSIGNEE_NAME_PREFIX}${params.assignee}`;
   if (params.assigneeIsNull === true) return ASSIGNEE_NONE;
   if (params.assigneeIsNull === false) return ASSIGNEE_SOMEONE;
   return ASSIGNEE_ANY;
 };
 
-const decodeAssignee = (value: string): Partial<TaskListFilters> => {
+export const decodeAssignee = (value: string): Partial<TaskListFilters> => {
   if (value.startsWith(ASSIGNEE_NAME_PREFIX)) {
     return { assignee: value.slice(ASSIGNEE_NAME_PREFIX.length), assigneeIsNull: undefined };
   }
@@ -96,7 +97,7 @@ const decodeAssignee = (value: string): Partial<TaskListFilters> => {
  * Creator values are whole actor strings (`agent:claude-code`), which always
  * contain a colon — so the "anyone" sentinel cannot collide with one.
  */
-const CREATOR_ANY = "any";
+export const CREATOR_ANY = "any";
 
 /** `agent:claude-code` → `claude-code (agent)`: the name first, the kind as a qualifier. */
 export const creatorLabel = (actor: string): string =>
@@ -173,7 +174,7 @@ export const toggleValue = <TValue extends string>(
  * derive from the same starting array and the second would erase the first. Who
  * holds the current state decides — this component only knows what was clicked.
  */
-const ChipGroup = <TValue extends string>({
+export const ChipGroup = <TValue extends string>({
   legend,
   options,
   selected,
@@ -287,7 +288,8 @@ const SearchInput = ({
         value={text}
         maxLength={TASK_Q_MAX}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Search title, description, or TASK-000042"
+        placeholder="Search title, description, comments, or TASK-000042…"
+        title='Every word must match somewhere on the task. Quote a phrase to search it as one term, e.g. "rate limit".'
         className="pl-9"
       />
     </div>
@@ -364,7 +366,7 @@ export const TaskFilterBar = ({
       </div>
 
       {isWide ? (
-        <div className="rounded-lg border border-border bg-card p-3">{controls}</div>
+        <div className="rounded-lg border border-border bg-card p-3 shadow-raised">{controls}</div>
       ) : (
         <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
           <DialogContent>
@@ -406,11 +408,14 @@ const FilterControls = ({
   const toId = useId();
 
   /*
-    Projects exist only as values on tasks, so the chips are the facets — plus
-    any project already selected in the URL, so a filter from a shared link
-    stays visible and removable before (or without) the facets loading.
+    Labels exist only as values on tasks, so the chips are the facets — plus any
+    label already selected in the URL, so a filter from a shared link stays
+    visible and removable before (or without) the facets loading.
+
+    No project chips: project is the header's `ProjectSwitcher`, the one place
+    it is picked, rather than a second control for the same param here.
   */
-  const projects = [...new Set([...(facets?.projects ?? []), ...params.project])]
+  const labels = [...new Set([...(facets?.labels ?? []), ...params.label])]
     .sort()
     .map((value) => ({ value, label: value }));
 
@@ -470,17 +475,30 @@ const FilterControls = ({
             onFiltersChange((current) => ({ priority: toggleValue(current.priority, value) }))
           }
         />
-        {projects.length === 0 ? null : (
+        {labels.length === 0 ? null : (
           <ChipGroup
-            legend="Project"
-            options={projects}
-            selected={params.project}
+            legend="Label"
+            options={labels}
+            selected={params.label}
             onToggle={(value) =>
-              onFiltersChange((current) => ({ project: toggleValue(current.project, value) }))
+              onFiltersChange((current) => ({ label: toggleValue(current.label, value) }))
             }
           />
         )}
       </div>
+
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-foreground">
+        <input
+          type="checkbox"
+          checked={params.parentIsNull === true}
+          onChange={(event) =>
+            onFiltersChange({ parentIsNull: event.target.checked ? true : undefined })
+          }
+          className="size-4 rounded border-input accent-primary"
+        />
+        Top-level only
+        <span className="text-xs text-muted-foreground">(hide subtasks)</span>
+      </label>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="flex flex-col gap-1.5">
@@ -579,11 +597,11 @@ export const activeFilterChips = (params: TaskListParams): ActiveChip[] => {
       clear: (current) => ({ priority: current.priority.filter((entry) => entry !== value) }),
     });
   }
-  for (const value of params.project) {
+  for (const value of params.label) {
     chips.push({
-      key: `project:${value}`,
-      label: `Project: ${value}`,
-      clear: (current) => ({ project: current.project.filter((entry) => entry !== value) }),
+      key: `label:${value}`,
+      label: `Label: ${value}`,
+      clear: (current) => ({ label: current.label.filter((entry) => entry !== value) }),
     });
   }
   if (params.assignee !== undefined) {
@@ -619,6 +637,34 @@ export const activeFilterChips = (params: TaskListParams): ActiveChip[] => {
       key: "createdTo",
       label: `To ${formatDateOnly(params.createdTo)}`,
       clear: () => ({ createdTo: undefined }),
+    });
+  }
+  if (params.parentId !== undefined) {
+    chips.push({
+      key: "parentId",
+      label: `Subtasks of ${formatReference(params.parentId)}`,
+      clear: () => ({ parentId: undefined }),
+    });
+  }
+  if (params.parentIsNull !== undefined) {
+    chips.push({
+      key: "parentIsNull",
+      label: params.parentIsNull ? "Top-level only" : "Subtasks only",
+      clear: () => ({ parentIsNull: undefined }),
+    });
+  }
+  if (params.dependsOn !== undefined) {
+    chips.push({
+      key: "dependsOn",
+      label: `Depends on ${formatReference(params.dependsOn)}`,
+      clear: () => ({ dependsOn: undefined }),
+    });
+  }
+  if (params.dependencyOf !== undefined) {
+    chips.push({
+      key: "dependencyOf",
+      label: `Blocks ${formatReference(params.dependencyOf)}`,
+      clear: () => ({ dependencyOf: undefined }),
     });
   }
 

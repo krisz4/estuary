@@ -47,7 +47,9 @@ export const makeTask = (overrides: Partial<Task> = {}): Task => ({
   assignee: null,
   acceptanceCriteria: "Requests over 10/min get a 429.",
   links: [],
+  labels: [],
   parentId: null,
+  childCount: 0,
   createdBy: "agent:claude-code",
   claim: null,
   version: 3,
@@ -133,7 +135,7 @@ export const makePage = (data: TaskSummary[], pageSize = 20): PaginatedTasks => 
 /** An empty events feed — what every detail page asks for alongside the task. */
 export const emptyEvents = (): EventsResponse => ({
   data: [],
-  meta: { nextAfter: 0, hasMore: false },
+  meta: { nextAfter: 0, nextBefore: null, hasMore: false },
 });
 
 export type MockRequest = { method: string; url: URL; body: unknown };
@@ -177,8 +179,33 @@ export type RouteHandler = (request: MockRequest) => MockReply | Promise<MockRep
  *   with `"/tasks"` — so there is no route-ordering rule here, only this
  *   check.)
  */
+/**
+ * The default answer for `GET /integrations/github` — off, the state of a
+ * self-hosted instance with neither `GITHUB_TOKEN` nor
+ * `GITHUB_WEBHOOK_SECRET` set.
+ *
+ * Applied automatically by `mockApi()` unless a test declares its own handler
+ * for that key. Almost every screen in this app now mounts a query for it (the
+ * list header's import button, and `TaskLinks`' per-link status badge), and
+ * that query is entirely incidental to what most tests are about — without
+ * this default, every one of them would have to name a handler for a feature
+ * they are not testing, just to satisfy `onUnhandledRequest: "error"`.
+ */
+const DEFAULT_GITHUB_INTEGRATION_HANDLER: RouteHandler = () => ({
+  body: {
+    enabled: false,
+    tokenConfigured: false,
+    webhookConfigured: false,
+    webhookPath: "/integrations/github/webhook",
+  },
+});
+
 export const mockApi = (handlers: Record<string, RouteHandler>): { requests: MockRequest[] } => {
   const requests: MockRequest[] = [];
+  const effectiveHandlers: Record<string, RouteHandler> = {
+    "GET /integrations/github": DEFAULT_GITHUB_INTEGRATION_HANDLER,
+    ...handlers,
+  };
 
   server.use(
     http.all("*", async ({ request }) => {
@@ -192,7 +219,7 @@ export const mockApi = (handlers: Record<string, RouteHandler>): { requests: Moc
       };
       requests.push(record);
 
-      const matches = Object.keys(handlers).filter((candidate) => {
+      const matches = Object.keys(effectiveHandlers).filter((candidate) => {
         const [handlerMethod, path] = candidate.split(" ");
         return handlerMethod === method && url.pathname.endsWith(path ?? "");
       });
@@ -201,7 +228,7 @@ export const mockApi = (handlers: Record<string, RouteHandler>): { requests: Moc
       if (matches.length !== 1) {
         harnessFaults.push(
           matches.length === 0
-            ? `mockApi: no handler for ${where}. Declared: [${Object.keys(handlers).join(", ")}]`
+            ? `mockApi: no handler for ${where}. Declared: [${Object.keys(effectiveHandlers).join(", ")}]`
             : `mockApi: ${where} matches ${matches.length} handlers [${matches.join(", ")}] — the suffixes are ambiguous, so which one answers is decided by key order`,
         );
         return HttpResponse.json(
@@ -211,7 +238,7 @@ export const mockApi = (handlers: Record<string, RouteHandler>): { requests: Moc
       }
 
       const key = matches[0]!;
-      const { status = 200, body } = await handlers[key]!(record);
+      const { status = 200, body } = await effectiveHandlers[key]!(record);
       if (status === 204) return new HttpResponse(null, { status: 204 });
 
       // `JSON.stringify` rather than `HttpResponse.json`, which types its body

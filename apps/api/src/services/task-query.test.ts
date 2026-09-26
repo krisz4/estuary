@@ -70,6 +70,16 @@ const listIds = async (raw: Record<string, unknown> = {}): Promise<number[]> => 
   return page.data.map((task) => task.id);
 };
 
+/** Every field a plain (non-metacharacter) `q` term is ORed across. */
+const containsBranches = (term: string) => [
+  { title: { contains: term } },
+  { description: { contains: term } },
+  { acceptanceCriteria: { contains: term } },
+  { statusNote: { contains: term } },
+  { links: { contains: term } },
+  { comments: { some: { body: { contains: term } } } },
+];
+
 /* ------------------------------------------------------------------ *
  * Defaults
  * ------------------------------------------------------------------ */
@@ -372,6 +382,65 @@ describe("filters", () => {
 
     expect(await listIds({ assignee: "Ada Chen" })).toEqual([task.id]);
   });
+
+  it("returns tasks carrying any of the given labels", async () => {
+    const web = await makeTask();
+    await prisma.taskLabel.create({ data: { taskId: web.id, label: "web" } });
+    const api = await makeTask();
+    await prisma.taskLabel.create({ data: { taskId: api.id, label: "api" } });
+    await makeTask();
+
+    const ids = await listIds({ label: ["web", "api"] });
+    expect(ids.sort((a, b) => a - b)).toEqual([web.id, api.id]);
+  });
+
+  it("ANDs label with other filters rather than widening past them", async () => {
+    const match = await makeTask({ status: "todo" });
+    await prisma.taskLabel.create({ data: { taskId: match.id, label: "web" } });
+    const wrongStatus = await makeTask({ status: "done" });
+    await prisma.taskLabel.create({ data: { taskId: wrongStatus.id, label: "web" } });
+
+    expect(await listIds({ label: "web", status: "todo" })).toEqual([match.id]);
+  });
+
+  it("returns only top-level tasks when parentIsNull is true", async () => {
+    const parent = await makeTask();
+    const child = await makeTask({ parentId: parent.id });
+
+    expect(await listIds({ parentIsNull: "true" })).toEqual([parent.id]);
+    expect(await listIds({ parentIsNull: "true" })).not.toContain(child.id);
+  });
+
+  it("returns only subtasks when parentIsNull is false", async () => {
+    const parent = await makeTask();
+    const child = await makeTask({ parentId: parent.id });
+
+    expect(await listIds({ parentIsNull: "false" })).toEqual([child.id]);
+    expect(await listIds({ parentIsNull: "false" })).not.toContain(parent.id);
+  });
+
+  it("rejects parentId together with parentIsNull", () => {
+    expectRejected({ parentId: "1", parentIsNull: "true" }, "parentId");
+    expectRejected({ parentId: "1", parentIsNull: "true" }, "parentIsNull");
+  });
+
+  it("returns a task's dependents for dependsOn", async () => {
+    const target = await makeTask();
+    const dependent = await makeTask();
+    await makeDependency(dependent.id, target.id);
+    await makeTask();
+
+    expect(await listIds({ dependsOn: String(target.id) })).toEqual([dependent.id]);
+  });
+
+  it("returns a task's dependencies for dependencyOf", async () => {
+    const target = await makeTask();
+    const dependency = await makeTask();
+    await makeDependency(target.id, dependency.id);
+    await makeTask();
+
+    expect(await listIds({ dependencyOf: String(target.id) })).toEqual([dependency.id]);
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -453,12 +522,12 @@ describe("q", () => {
     // which is the whole `OR` group — not three siblings.
     expect(where.AND).toHaveLength(2);
     expect(where.AND).toContainEqual({
-      OR: [{ title: { contains: "42" } }, { description: { contains: "42" } }, { id: 42 }],
+      OR: [...containsBranches("42"), { id: 42 }],
     });
   });
 
   it("keeps the OR group nested when the raw prefilter path is taken", () => {
-    const where = buildWhere(query({ q: "42%", status: "todo" }), [7, 9]);
+    const where = buildWhere(query({ q: "42%", status: "todo" }), new Map([["42%", [7, 9]]]));
 
     expect(where.AND).toHaveLength(2);
     expect(where.AND).toContainEqual({ OR: [{ id: { in: [7, 9] } }] });
@@ -469,6 +538,79 @@ describe("q", () => {
     // as pattern syntax — the bug the raw path exists to fix, wearing the
     // costume of a missing argument.
     expect(() => buildWhere(query({ q: "50%" }))).toThrow(/matchedIds/);
+  });
+
+  it("ANDs every term in a multi-term query, one OR group per term", async () => {
+    const both = await makeTask({
+      title: "Pagination resets unexpectedly on every reload",
+      description: "Filed against the list page.",
+    });
+    await makeTask({ title: "Pagination controls need alignment", description: "Cosmetic only." });
+    await makeTask({
+      title: "Cache resets after ten minutes",
+      description: "Unrelated to paging.",
+    });
+
+    // Neither term alone narrows to just `both`: "pagination" also matches the
+    // controls task, "resets" also matches the cache task. Only the task
+    // carrying both terms survives an AND of the two.
+    expect(await listIds({ q: "pagination resets" })).toEqual([both.id]);
+  });
+
+  it("treats a quoted phrase as one term", async () => {
+    const task = await makeTask({ title: "The retry loop is broken", description: "Details" });
+    await makeTask({ title: "The loop is a retry mechanism", description: "Different order" });
+
+    expect(await listIds({ q: '"retry loop"' })).toEqual([task.id]);
+  });
+
+  it("matches a term that only appears in a comment", async () => {
+    const task = await makeTask({ title: "Investigate slow queries" });
+    await makeComment({ taskId: task.id, body: "Root cause turned out to be a missing index." });
+    await makeTask({ title: "Unrelated task" });
+
+    expect(await listIds({ q: "missing index" })).toEqual([task.id]);
+  });
+
+  it("matches a term that only appears in statusNote", async () => {
+    const task = await makeTask({ status: "blocked", statusNote: "Waiting on the vendor API key" });
+    await makeTask({ status: "blocked", statusNote: "Waiting on design review" });
+
+    expect(await listIds({ q: "vendor" })).toEqual([task.id]);
+  });
+
+  it("matches a term that only appears in acceptanceCriteria", async () => {
+    const task = await makeTask({ acceptanceCriteria: "Response time under 200ms p95" });
+    await makeTask({ acceptanceCriteria: "Every field is validated" });
+
+    expect(await listIds({ q: "200ms" })).toEqual([task.id]);
+  });
+
+  it("matches a term that only appears in a link URL", async () => {
+    const task = await makeTask({
+      links: [{ label: "PR", url: "https://example.com/org/repo/pull/909" }],
+    });
+    await makeTask({ links: [{ label: "PR", url: "https://example.com/org/repo/pull/1" }] });
+
+    expect(await listIds({ q: "909" })).toEqual([task.id]);
+  });
+
+  it("finds a metacharacter term inside a comment via the raw prefilter path", async () => {
+    const task = await makeTask({ title: "Discount rollout" });
+    await makeComment({ taskId: task.id, body: "Applies a 50% discount at checkout." });
+    await makeTask({ title: "Unrelated" });
+
+    expect(await listIds({ q: "50%" })).toEqual([task.id]);
+  });
+
+  it("still narrows within the status filter with a multi-term q", async () => {
+    const todo = await makeTask({ status: "todo", title: "Fix pagination bug" });
+    const done = await makeTask({ status: "done", title: "Fix pagination bug" });
+
+    const ids = await listIds({ q: "pagination bug", status: "todo" });
+
+    expect(ids).toEqual([todo.id]);
+    expect(ids).not.toContain(done.id);
   });
 });
 
@@ -573,10 +715,10 @@ describe("q with LIKE metacharacters", () => {
     // form differs from itself — the no-op equivalence does not cover it.
     expect(needsEscapedSearch("broke!")).toBe(true);
 
-    expect(buildWhere(query({ q: "printer" })).AND).toEqual([
-      { OR: [{ title: { contains: "printer" } }, { description: { contains: "printer" } }] },
+    expect(buildWhere(query({ q: "printer" })).AND).toEqual([{ OR: containsBranches("printer") }]);
+    expect(buildWhere(query({ q: "50%" }), new Map([["50%", [4]]])).AND).toEqual([
+      { OR: [{ id: { in: [4] } }] },
     ]);
-    expect(buildWhere(query({ q: "50%" }), [4]).AND).toEqual([{ OR: [{ id: { in: [4] } }] }]);
   });
 
   it("returns the same rows on either path for a term escaping would not change", async () => {
@@ -710,6 +852,17 @@ describe("sorting", () => {
     expect(await listIds({ sort: "title:asc" })).toEqual([alpha.id, beta.id]);
   });
 
+  it("sorts by completedAt, with SQLite's native null ordering: nulls first ascending, last descending", async () => {
+    const open = await makeTask({ status: "todo" }); // completedAt: null
+    const early = await makeTask({ status: "done", completedAt: new Date("2026-01-01T00:00:00Z") });
+    const late = await makeTask({ status: "done", completedAt: new Date("2026-06-01T00:00:00Z") });
+
+    // Ascending: every open (null) task sorts before the earliest completion.
+    expect(await listIds({ sort: "completedAt:asc" })).toEqual([open.id, early.id, late.id]);
+    // Descending: the archive's default — newest-completed first, open tasks last.
+    expect(await listIds({ sort: "completedAt:desc" })).toEqual([late.id, early.id, open.id]);
+  });
+
   it("appends an id tiebreaker to every sort except id itself", () => {
     // The deterministic half of the tiebreaker proof: SQLite happens to be
     // consistent between two offsets of the same query, so a behavioural test
@@ -792,6 +945,20 @@ describe("list rows", () => {
 
     expect(row.commentCount).toBe(2);
     expect("comments" in row).toBe(false);
+  });
+
+  it("carries labels sorted, and childCount for an epic", async () => {
+    const task = await makeTask();
+    await prisma.taskLabel.create({ data: { taskId: task.id, label: "web" } });
+    await prisma.taskLabel.create({ data: { taskId: task.id, label: "api" } });
+    await makeTask({ parentId: task.id });
+    await makeTask({ parentId: task.id });
+
+    const row = await rowFor(task.id);
+
+    expect(row.labels).toEqual(["api", "web"]);
+    expect(row.childCount).toBe(2);
+    expect((await rowFor((await makeTask()).id)).labels).toEqual([]);
   });
 
   it("serializes every row through the summary contract", async () => {

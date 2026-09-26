@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HAND_BACK_NOTE } from "@/pages/inbox/InboxItem";
+import { useProjectScopeStore } from "@/stores/projectScope";
 import { InboxPage } from "@/pages/inbox/InboxPage";
 import {
   makeDecision,
@@ -46,16 +47,16 @@ const qaTask = task(9, {
   links: [{ label: "PR #12", url: "https://github.com/x/y/pull/12" }],
 });
 
-const renderInbox = (handlers: Record<string, RouteHandler>) => {
+const renderInbox = (handlers: Record<string, RouteHandler>, initialEntry = "/inbox") => {
   const api = mockApi(handlers);
-  renderRoute({
+  const { router } = renderRoute({
     routes: [
       { path: "/inbox", element: <InboxPage /> },
-      { path: "/tasks/board", element: <div>Board</div> },
+      { path: "/tasks/map", element: <div>Map</div> },
     ],
-    initialEntries: ["/inbox"],
+    initialEntries: [initialEntry],
   });
-  return api;
+  return { ...api, router };
 };
 
 const inboxList =
@@ -108,9 +109,9 @@ describe("InboxPage — states", () => {
     renderInbox({ "GET /tasks": inboxList([]) });
 
     expect(await screen.findByText("Nothing needs you")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /go to the board/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /go to the map/i })).toHaveAttribute(
       "href",
-      "/tasks/board",
+      "/tasks/map",
     );
   });
 
@@ -369,5 +370,65 @@ describe("InboxPage — QA", () => {
     expect(await within(dialog).findByText(/agent:codex holds the claim/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText(/what needs fixing/i)).toHaveValue("Missing header.");
     expect(posted(requests, "/comments")).toHaveLength(0);
+  });
+});
+
+describe("InboxPage — projects", () => {
+  it("narrows the request to the project in the URL and remembers it as the scope", async () => {
+    const { requests } = renderInbox(
+      { "GET /tasks": inboxList([task(3, { status: "needs_qa", project: "web-app" })]) },
+      "/inbox?project=web-app",
+    );
+
+    expect(await screen.findByText("Task 3")).toBeInTheDocument();
+    expect(requests[0]!.url.searchParams.getAll("project")).toEqual(["web-app"]);
+    expect(screen.getByText(/Showing web-app only\./)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Show all projects" })).toHaveAttribute(
+      "href",
+      "/inbox",
+    );
+    await waitFor(() => expect(useProjectScopeStore.getState().project).toBe("web-app"));
+  });
+
+  it("says which project has nothing waiting, and offers every project", async () => {
+    renderInbox({ "GET /tasks": inboxList([]) }, "/inbox?project=web-app");
+
+    expect(await screen.findByText("Nothing in web-app needs you")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Show all projects" })).toHaveAttribute(
+      "href",
+      "/inbox",
+    );
+  });
+
+  it("breaks the unscoped inbox down by project, each linking to its own inbox", async () => {
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([
+        task(1, { status: "needs_qa", project: "web-app" }),
+        task(2, { status: "needs_qa", project: "helpdesk" }),
+        task(3, { status: "needs_user_action", project: "helpdesk" }),
+        task(4, { status: "needs_qa", project: null }),
+      ]),
+    });
+
+    expect(await screen.findByText("Task 1")).toBeInTheDocument();
+    expect(requests[0]!.url.searchParams.has("project")).toBe(false);
+    const breakdown = screen.getByText(/^From/);
+    expect(breakdown).toHaveTextContent("From helpdesk (2), web-app (1)");
+    expect(within(breakdown).getByRole("link", { name: "helpdesk" })).toHaveAttribute(
+      "href",
+      "/inbox?project=helpdesk",
+    );
+  });
+
+  it("shows no breakdown when every item is from one project", async () => {
+    renderInbox({
+      "GET /tasks": inboxList([
+        task(1, { status: "needs_qa", project: "helpdesk" }),
+        task(2, { status: "needs_qa", project: "helpdesk" }),
+      ]),
+    });
+
+    expect(await screen.findByText("Task 1")).toBeInTheDocument();
+    expect(screen.queryByText(/^From/)).not.toBeInTheDocument();
   });
 });

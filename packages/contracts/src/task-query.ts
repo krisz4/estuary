@@ -10,6 +10,7 @@ import {
 import { storedActorSchema } from "./actor.js";
 import { TASK_ID_MAX_DIGITS } from "./reference.js";
 import {
+  labelSchema,
   projectSchema,
   TASK_ASSIGNEE_MAX,
   taskIdSchema,
@@ -29,6 +30,8 @@ export const TASK_SORT_FIELDS = [
   "title",
   "status",
   "priority",
+  // Null for open tasks. The archive sorts done/deferred work by it.
+  "completedAt",
 ] as const;
 export type TaskSortField = (typeof TASK_SORT_FIELDS)[number];
 
@@ -132,7 +135,7 @@ export const dropEmptyQueryValues = (input: unknown): unknown => {
  * wrapped before the array schema sees them. Values within one param OR
  * together; different params AND together.
  */
-const repeatable = <TInner extends z.ZodType>(inner: TInner) =>
+export const repeatable = <TInner extends z.ZodType>(inner: TInner) =>
   z
     .preprocess((value) => (Array.isArray(value) ? value : [value]), z.array(inner).min(1))
     .optional();
@@ -159,6 +162,120 @@ export const taskIdQuerySchema = z
  * ------------------------------------------------------------------ */
 
 export const TASK_Q_MAX = 120;
+/** More terms than this is a paragraph, not a search; the rest are ignored. */
+export const TASK_Q_MAX_TERMS = 8;
+
+/**
+ * Splits `q` into the terms the search ANDs together.
+ *
+ * Whitespace separates terms; a double-quoted run is one term, so
+ * `"page resets" board` is two terms, the first a phrase. An unterminated quote
+ * runs to the end. Terms are deduplicated case-insensitively (SQLite's `LIKE`
+ * is ASCII case-insensitive, so `Board board` would only repeat the work) and
+ * capped at `TASK_Q_MAX_TERMS`.
+ *
+ * Lives in the contracts so the web can highlight exactly the terms the server
+ * matched on.
+ */
+export const parseSearchTerms = (q: string): string[] => {
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  const pattern = /"([^"]*)"?|(\S+)/g;
+  for (const match of q.matchAll(pattern)) {
+    const term = (match[1] ?? match[2] ?? "").trim();
+    if (term === "") continue;
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    terms.push(term);
+    if (terms.length === TASK_Q_MAX_TERMS) break;
+  }
+  return terms;
+};
+
+/**
+ * The filter params shared by every task-scoped read: `GET /tasks`, and
+ * `GET /floor`, which marks matches instead of paging them. Spread into an
+ * object schema, then `.superRefine(refineTaskFilters)`.
+ */
+export const taskFilterFields = {
+  status: repeatable(taskStatusSchema),
+  priority: repeatable(taskPrioritySchema),
+  project: repeatable(projectSchema),
+  // Tasks carrying any of these labels.
+  label: repeatable(labelSchema),
+
+  // Exact and case-sensitive. Send a value from `GET /tasks/facets`.
+  assignee: z.string().trim().min(1).max(TASK_ASSIGNEE_MAX).optional(),
+  assigneeIsNull: queryBoolean.optional(),
+
+  // Exact actor, e.g. `agent:claude-code`. Lowercased like the stored value.
+  createdBy: z.string().trim().toLowerCase().pipe(storedActorSchema.max(80)).optional(),
+
+  // Tasks whose claim is held by this actor. Matches the stored `claimedBy`,
+  // so an expired lease still matches — pair with `status=in_progress` and
+  // check `claim` on the rows when only live claims matter.
+  claimedBy: z.string().trim().toLowerCase().pipe(storedActorSchema.max(80)).optional(),
+
+  // Subtasks of one parent.
+  // Digits only, like `:taskId` — `z.coerce` would accept `0x2a` and `1e3`.
+  parentId: taskIdQuerySchema.optional(),
+  // `true` = top-level tasks only (no parent); `false` = subtasks only.
+  parentIsNull: queryBoolean.optional(),
+
+  // Tasks that depend on this task — its dependents ("who waits on 42?").
+  dependsOn: taskIdQuerySchema.optional(),
+  // Tasks this task depends on — its dependencies ("what does 42 wait on?").
+  dependencyOf: taskIdQuerySchema.optional(),
+
+  // Every term (see `parseSearchTerms`) must appear somewhere in the task:
+  // title, description, acceptance criteria, status note, links, or a
+  // comment. A term that is a reference (`TASK-42`, `#42`) also matches that id.
+  q: z.string().trim().min(1).max(TASK_Q_MAX).optional(),
+
+  // Date-only, UTC. The service expands `createdTo` to an exclusive next-day
+  // bound so the named day is included.
+  createdFrom: z.iso.date("Expected a date in YYYY-MM-DD form").optional(),
+  createdTo: z.iso.date("Expected a date in YYYY-MM-DD form").optional(),
+};
+
+type TaskFilterValues = {
+  assignee?: string | undefined;
+  assigneeIsNull?: boolean | undefined;
+  parentId?: number | undefined;
+  parentIsNull?: boolean | undefined;
+  createdFrom?: string | undefined;
+  createdTo?: string | undefined;
+};
+
+/** Cross-field rules for `taskFilterFields`. */
+export const refineTaskFilters = (value: TaskFilterValues, ctx: z.RefinementCtx): void => {
+  if (value.assignee !== undefined && value.assigneeIsNull !== undefined) {
+    // A sentinel like `assignee=none` would collide with a real person, so the
+    // two are separate params — which makes them mutually exclusive.
+    const message = "Send either assignee or assigneeIsNull, not both";
+    ctx.addIssue({ code: "custom", path: ["assignee"], message });
+    ctx.addIssue({ code: "custom", path: ["assigneeIsNull"], message });
+  }
+
+  if (value.parentId !== undefined && value.parentIsNull !== undefined) {
+    const message = "Send either parentId or parentIsNull, not both";
+    ctx.addIssue({ code: "custom", path: ["parentId"], message });
+    ctx.addIssue({ code: "custom", path: ["parentIsNull"], message });
+  }
+
+  // An inverted range is always empty. Silently returning nothing reads to the
+  // user as "no tasks exist" rather than "your two date pickers disagree".
+  if (value.createdFrom !== undefined && value.createdTo !== undefined) {
+    if (value.createdFrom > value.createdTo) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["createdTo"],
+        message: "createdTo must be on or after createdFrom",
+      });
+    }
+  }
+};
 
 const taskListQueryObjectSchema = z
   .object({
@@ -181,57 +298,12 @@ const taskListQueryObjectSchema = z
       .default(DEFAULT_PAGE_SIZE),
     sort: taskSortSchema,
 
-    status: repeatable(taskStatusSchema),
-    priority: repeatable(taskPrioritySchema),
-    project: repeatable(projectSchema),
-
-    // Exact and case-sensitive. Send a value from `GET /tasks/facets`.
-    assignee: z.string().trim().min(1).max(TASK_ASSIGNEE_MAX).optional(),
-    assigneeIsNull: queryBoolean.optional(),
-
-    // Exact actor, e.g. `agent:claude-code`. Lowercased like the stored value.
-    createdBy: z.string().trim().toLowerCase().pipe(storedActorSchema.max(80)).optional(),
-
-    // Tasks whose claim is held by this actor. Matches the stored `claimedBy`,
-    // so an expired lease still matches — pair with `status=in_progress` and
-    // check `claim` on the rows when only live claims matter.
-    claimedBy: z.string().trim().toLowerCase().pipe(storedActorSchema.max(80)).optional(),
-
-    // Subtasks of one parent.
-    // Digits only, like `:taskId` — `z.coerce` would accept `0x2a` and `1e3`.
-    parentId: taskIdQuerySchema.optional(),
-
-    q: z.string().trim().min(1).max(TASK_Q_MAX).optional(),
-
-    // Date-only, UTC. The service expands `createdTo` to an exclusive next-day
-    // bound so the named day is included.
-    createdFrom: z.iso.date("Expected a date in YYYY-MM-DD form").optional(),
-    createdTo: z.iso.date("Expected a date in YYYY-MM-DD form").optional(),
+    ...taskFilterFields,
   })
   // Unknown params are rejected rather than ignored: a typo'd filter silently
   // returning everything is worse than an error.
   .strict()
-  .superRefine((value, ctx) => {
-    if (value.assignee !== undefined && value.assigneeIsNull !== undefined) {
-      // A sentinel like `assignee=none` would collide with a real person, so the
-      // two are separate params — which makes them mutually exclusive.
-      const message = "Send either assignee or assigneeIsNull, not both";
-      ctx.addIssue({ code: "custom", path: ["assignee"], message });
-      ctx.addIssue({ code: "custom", path: ["assigneeIsNull"], message });
-    }
-
-    // An inverted range is always empty. Silently returning nothing reads to the
-    // user as "no tasks exist" rather than "your two date pickers disagree".
-    if (value.createdFrom !== undefined && value.createdTo !== undefined) {
-      if (value.createdFrom > value.createdTo) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["createdTo"],
-          message: "createdTo must be on or after createdFrom",
-        });
-      }
-    }
-  });
+  .superRefine(refineTaskFilters);
 
 /**
  * `GET /tasks` query parameters. All optional; `page`, `pageSize`, and `sort`

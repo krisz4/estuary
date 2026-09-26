@@ -29,6 +29,18 @@
       "description": "The append-only change feed, cursor-paged"
     },
     {
+      "name": "Floor",
+      "description": "The compact, graph-aware snapshot behind /tasks/floor"
+    },
+    {
+      "name": "Logbook",
+      "description": "History and charts computed from the events feed"
+    },
+    {
+      "name": "GitHub",
+      "description": "The optional GitHub integration: link status, issue import, and the inbound webhook. Off unless GITHUB_TOKEN and/or GITHUB_WEBHOOK_SECRET is set."
+    },
+    {
       "name": "System",
       "description": "Liveness, and what happens to an unmatched request"
     }
@@ -129,12 +141,22 @@
               "additionalProperties": false
             }
           },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "parentId": {
             "type": [
               "integer",
               "null"
             ],
             "exclusiveMinimum": 0
+          },
+          "childCount": {
+            "type": "integer",
+            "minimum": 0
           },
           "createdBy": {
             "type": "string",
@@ -318,7 +340,9 @@
           "assignee",
           "acceptanceCriteria",
           "links",
+          "labels",
           "parentId",
+          "childCount",
           "createdBy",
           "claim",
           "version",
@@ -452,6 +476,18 @@
             "type": "integer",
             "exclusiveMinimum": 0
           },
+          "taskTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -467,7 +503,8 @@
               "decision.answered",
               "decision.withdrawn",
               "dependency.added",
-              "dependency.removed"
+              "dependency.removed",
+              "github.pull_request"
             ]
           },
           "actor": {
@@ -486,6 +523,8 @@
         "required": [
           "id",
           "taskId",
+          "taskTitle",
+          "project",
           "type",
           "actor",
           "payload",
@@ -586,12 +625,22 @@
                     "additionalProperties": false
                   }
                 },
+                "labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "parentId": {
                   "type": [
                     "integer",
                     "null"
                   ],
                   "exclusiveMinimum": 0
+                },
+                "childCount": {
+                  "type": "integer",
+                  "minimum": 0
                 },
                 "createdBy": {
                   "type": "string",
@@ -775,7 +824,9 @@
                 "assignee",
                 "acceptanceCriteria",
                 "links",
+                "labels",
                 "parentId",
+                "childCount",
                 "createdBy",
                 "claim",
                 "version",
@@ -855,6 +906,10 @@
                   "NOT_CLAIM_HOLDER",
                   "DEPENDENCY_CYCLE",
                   "NO_OPEN_DECISION",
+                  "INTEGRATION_NOT_CONFIGURED",
+                  "INVALID_WEBHOOK_SIGNATURE",
+                  "GITHUB_NOT_FOUND",
+                  "GITHUB_UNAVAILABLE",
                   "MALFORMED_JSON",
                   "PAYLOAD_TOO_LARGE",
                   "NOT_FOUND",
@@ -972,12 +1027,22 @@
               "additionalProperties": false
             }
           },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "parentId": {
             "type": [
               "integer",
               "null"
             ],
             "exclusiveMinimum": 0
+          },
+          "childCount": {
+            "type": "integer",
+            "minimum": 0
           },
           "createdBy": {
             "type": "string",
@@ -1332,13 +1397,20 @@
                   "done",
                   "deferred"
                 ]
+              },
+              "project": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
               "id",
               "reference",
               "title",
-              "status"
+              "status",
+              "project"
             ],
             "additionalProperties": false
           },
@@ -1371,13 +1443,20 @@
                     "done",
                     "deferred"
                   ]
+                },
+                "project": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "reference",
                 "title",
-                "status"
+                "status",
+                "project"
               ],
               "additionalProperties": false
             }
@@ -1411,13 +1490,20 @@
                     "done",
                     "deferred"
                   ]
+                },
+                "project": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "reference",
                 "title",
-                "status"
+                "status",
+                "project"
               ],
               "additionalProperties": false
             }
@@ -1451,13 +1537,20 @@
                     "done",
                     "deferred"
                   ]
+                },
+                "project": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "reference",
                 "title",
-                "status"
+                "status",
+                "project"
               ],
               "additionalProperties": false
             }
@@ -1475,7 +1568,9 @@
           "assignee",
           "acceptanceCriteria",
           "links",
+          "labels",
           "parentId",
+          "childCount",
           "createdBy",
           "claim",
           "version",
@@ -1511,6 +1606,12 @@
               "type": "string"
             }
           },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "creators": {
             "type": "array",
             "items": {
@@ -1521,10 +1622,11 @@
         "required": [
           "assignees",
           "projects",
+          "labels",
           "creators"
         ],
         "additionalProperties": false,
-        "description": "Distinct non-null values actually present in the table. The assignee, project, and createdBy filters send values from here, which is what makes case-sensitive exact matching safe."
+        "description": "Distinct non-null values actually present in the table. The assignee, project, label, and createdBy filters send values from here, which is what makes case-sensitive exact matching safe."
       },
       "TaskStats": {
         "type": "object",
@@ -1679,12 +1781,22 @@
                   "additionalProperties": false
                 }
               },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "parentId": {
                 "type": [
                   "integer",
                   "null"
                 ],
                 "exclusiveMinimum": 0
+              },
+              "childCount": {
+                "type": "integer",
+                "minimum": 0
               },
               "createdBy": {
                 "type": "string",
@@ -2039,13 +2151,20 @@
                       "done",
                       "deferred"
                     ]
+                  },
+                  "project": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
                   "id",
                   "reference",
                   "title",
-                  "status"
+                  "status",
+                  "project"
                 ],
                 "additionalProperties": false
               },
@@ -2078,13 +2197,20 @@
                         "done",
                         "deferred"
                       ]
+                    },
+                    "project": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
                     "id",
                     "reference",
                     "title",
-                    "status"
+                    "status",
+                    "project"
                   ],
                   "additionalProperties": false
                 }
@@ -2118,13 +2244,20 @@
                         "done",
                         "deferred"
                       ]
+                    },
+                    "project": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
                     "id",
                     "reference",
                     "title",
-                    "status"
+                    "status",
+                    "project"
                   ],
                   "additionalProperties": false
                 }
@@ -2158,13 +2291,20 @@
                         "done",
                         "deferred"
                       ]
+                    },
+                    "project": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
                     "id",
                     "reference",
                     "title",
-                    "status"
+                    "status",
+                    "project"
                   ],
                   "additionalProperties": false
                 }
@@ -2182,7 +2322,9 @@
               "assignee",
               "acceptanceCriteria",
               "links",
+              "labels",
               "parentId",
+              "childCount",
               "createdBy",
               "claim",
               "version",
@@ -2267,6 +2409,18 @@
                   "type": "integer",
                   "exclusiveMinimum": 0
                 },
+                "taskTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "project": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "type": {
                   "type": "string",
                   "enum": [
@@ -2282,7 +2436,8 @@
                     "decision.answered",
                     "decision.withdrawn",
                     "dependency.added",
-                    "dependency.removed"
+                    "dependency.removed",
+                    "github.pull_request"
                   ]
                 },
                 "actor": {
@@ -2301,6 +2456,8 @@
               "required": [
                 "id",
                 "taskId",
+                "taskTitle",
+                "project",
                 "type",
                 "actor",
                 "payload",
@@ -2316,12 +2473,20 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "nextBefore": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "exclusiveMinimum": 0
+              },
               "hasMore": {
                 "type": "boolean"
               }
             },
             "required": [
               "nextAfter",
+              "nextBefore",
               "hasMore"
             ],
             "additionalProperties": false
@@ -2333,6 +2498,859 @@
         ],
         "additionalProperties": false,
         "description": "A cursor page of the feed, oldest first. Poll with after=meta.nextAfter; nextAfter equals the incoming cursor when nothing new happened."
+      },
+      "FloorSnapshot": {
+        "type": "object",
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "backlog",
+                    "needs_refinement",
+                    "todo",
+                    "in_progress",
+                    "blocked",
+                    "needs_user_decision",
+                    "needs_user_action",
+                    "needs_qa",
+                    "done",
+                    "deferred"
+                  ]
+                },
+                "statusNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "priority": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "urgent"
+                  ]
+                },
+                "project": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "assignee": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "parentId": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "exclusiveMinimum": 0
+                },
+                "childCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "createdBy": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "claim": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "actor": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "actor",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                },
+                "pullRequestUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "completedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "openBlockerCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "unblocksCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "matches": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "reference",
+                "title",
+                "status",
+                "statusNote",
+                "priority",
+                "project",
+                "assignee",
+                "labels",
+                "parentId",
+                "childCount",
+                "createdBy",
+                "claim",
+                "pullRequestUrl",
+                "version",
+                "createdAt",
+                "updatedAt",
+                "completedAt",
+                "openBlockerCount",
+                "unblocksCount",
+                "matches"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "blockerId": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "dependentId": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "satisfied": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "blockerId",
+                "dependentId",
+                "satisfied"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "backlog",
+                    "needs_refinement",
+                    "todo",
+                    "in_progress",
+                    "blocked",
+                    "needs_user_decision",
+                    "needs_user_action",
+                    "needs_qa",
+                    "done",
+                    "deferred"
+                  ]
+                },
+                "project": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "reference",
+                "title",
+                "status",
+                "project"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "olderClosedCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "statusCounts": {
+                "type": "object",
+                "properties": {
+                  "backlog": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "needs_refinement": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "todo": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "in_progress": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "blocked": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "needs_user_decision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "needs_user_action": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "needs_qa": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "done": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "deferred": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "matchCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "shippedSince": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "lastEventId": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "generatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "total",
+              "truncated",
+              "olderClosedCount",
+              "statusCounts",
+              "matchCount",
+              "shippedSince",
+              "at",
+              "lastEventId",
+              "generatedAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "tasks",
+          "edges",
+          "refs",
+          "meta"
+        ],
+        "additionalProperties": false,
+        "description": "The floor view's snapshot: compact task rows, the dependency edges touching them, cross-scope refs, and meta (status counts, the shipped window, the replay instant, and the events cursor to start polling from)."
+      },
+      "GithubIntegrationStatus": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "tokenConfigured": {
+            "type": "boolean"
+          },
+          "webhookConfigured": {
+            "type": "boolean"
+          },
+          "webhookPath": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "tokenConfigured",
+          "webhookConfigured",
+          "webhookPath"
+        ],
+        "additionalProperties": false,
+        "description": "What the optional GitHub integration is switched on for. Reachable even when the integration is off, so a client can tell why every other operation here answers INTEGRATION_NOT_CONFIGURED."
+      },
+      "TaskGithubStatus": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "pull",
+                    "issue"
+                  ]
+                },
+                "repo": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "open",
+                    "draft",
+                    "merged",
+                    "closed",
+                    null
+                  ]
+                },
+                "checks": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "success",
+                    "failure",
+                    "pending",
+                    null
+                  ]
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fetchedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "url",
+                "kind",
+                "repo",
+                "number",
+                "title",
+                "state",
+                "checks",
+                "error",
+                "fetchedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false,
+        "description": "Live status of every GitHub link on the task. One link's failure never fails the response — it carries `error` instead of `state`."
+      },
+      "HistoryResponse": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "hour",
+              "day",
+              "week"
+            ]
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "created": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "completed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "deferred": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sentBack": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "statusCounts": {
+                  "type": "object",
+                  "properties": {
+                    "backlog": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "needs_refinement": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "todo": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "in_progress": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "blocked": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "needs_user_decision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "needs_user_action": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "needs_qa": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "done": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "deferred": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                },
+                "humanWait": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "medianMinutes": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "p90Minutes": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "count",
+                    "medianMinutes",
+                    "p90Minutes"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "created",
+                "completed",
+                "deferred",
+                "sentBack",
+                "statusCounts",
+                "humanWait"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "created": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "completed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "deferred": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sentBack": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "decisionsRequested": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "decisionsAnswered": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "humanWait": {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "medianMinutes": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "p90Minutes": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "count",
+                  "medianMinutes",
+                  "p90Minutes"
+                ],
+                "additionalProperties": false
+              },
+              "cycleTime": {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "medianMinutes": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "p90Minutes": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "count",
+                  "medianMinutes",
+                  "p90Minutes"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "created",
+              "completed",
+              "deferred",
+              "sentBack",
+              "decisionsRequested",
+              "decisionsAnswered",
+              "humanWait",
+              "cycleTime"
+            ],
+            "additionalProperties": false
+          },
+          "cycleTimes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "taskId": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "actor": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minutes": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "finishedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "taskId",
+                "reference",
+                "title",
+                "actor",
+                "minutes",
+                "finishedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "longestWaits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "taskId": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "backlog",
+                    "needs_refinement",
+                    "todo",
+                    "in_progress",
+                    "blocked",
+                    "needs_user_decision",
+                    "needs_user_action",
+                    "needs_qa",
+                    "done",
+                    "deferred"
+                  ]
+                },
+                "minutes": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "taskId",
+                "reference",
+                "title",
+                "status",
+                "minutes",
+                "startedAt",
+                "endedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actor": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "submitted": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "approved": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sentBack": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "decisionsRequested": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "claims": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "releases": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "actor",
+                "submitted",
+                "approved",
+                "sentBack",
+                "decisionsRequested",
+                "claims",
+                "releases"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket",
+          "buckets",
+          "totals",
+          "cycleTimes",
+          "longestWaits",
+          "agents"
+        ],
+        "additionalProperties": false,
+        "description": "The Logbook's charts: per-bucket created/completed/deferred/sent-back counts and a CFD status snapshot, human-wait and cycle-time percentiles, the longest waits, recent cycle times, and per-agent activity — all computed from TaskEvent."
       },
       "HealthResponse": {
         "type": "object",
@@ -2419,7 +3437,9 @@
                 "status:asc",
                 "status:desc",
                 "priority:asc",
-                "priority:desc"
+                "priority:desc",
+                "completedAt:asc",
+                "completedAt:desc"
               ],
               "default": "createdAt:desc",
               "description": "Sort clause, \"field:direction\". Sorting by status or priority orders by lifecycle and severity, not alphabetically."
@@ -2492,6 +3512,21 @@
           },
           {
             "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._/-]{0,31}$"
+              },
+              "minItems": 1,
+              "description": "Repeatable, same OR/AND rule as status. Tasks carrying at least one of these labels — a label narrows work inside a project (a monorepo workspace, a kind of work). Send a value from GET /tasks/facets."
+            },
+            "required": false,
+            "description": "Repeatable, same OR/AND rule as status. Tasks carrying at least one of these labels — a label narrows work inside a project (a monorepo workspace, a kind of work). Send a value from GET /tasks/facets.",
+            "name": "label",
+            "in": "query"
+          },
+          {
+            "schema": {
               "type": "string",
               "minLength": 1,
               "maxLength": 80,
@@ -2558,13 +3593,58 @@
           },
           {
             "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "true",
+                    "false"
+                  ]
+                }
+              ],
+              "description": "true returns only top-level tasks (no parent); false returns only subtasks. Mutually exclusive with parentId."
+            },
+            "required": false,
+            "description": "true returns only top-level tasks (no parent); false returns only subtasks. Mutually exclusive with parentId.",
+            "name": "parentIsNull",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$",
+              "description": "Tasks that depend on this task id — its dependents (\"who waits on 42?\"). Decimal digits only."
+            },
+            "required": false,
+            "description": "Tasks that depend on this task id — its dependents (\"who waits on 42?\"). Decimal digits only.",
+            "name": "dependsOn",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$",
+              "description": "Tasks this task id depends on — its dependencies (\"what does 42 wait on?\"). Decimal digits only."
+            },
+            "required": false,
+            "description": "Tasks this task id depends on — its dependencies (\"what does 42 wait on?\"). Decimal digits only.",
+            "name": "dependencyOf",
+            "in": "query"
+          },
+          {
+            "schema": {
               "type": "string",
               "minLength": 1,
               "maxLength": 120,
-              "description": "Free-text search over title and description, case-insensitive, ANDed with every other filter rather than widening past it. A task reference (TASK-000042, #42, 42) also matches that task."
+              "description": "Free-text search: whitespace-separated terms (a \"quoted phrase\" is one term), every term must match (ANDed with each other and with every other filter, never widening past them). A term matches a task if it appears anywhere in the title, description, acceptance criteria, status note, links, or the body of any comment on it — case-insensitive. A term that parses as a task reference (TASK-000042, #42, 42) also matches that task by id."
             },
             "required": false,
-            "description": "Free-text search over title and description, case-insensitive, ANDed with every other filter rather than widening past it. A task reference (TASK-000042, #42, 42) also matches that task.",
+            "description": "Free-text search: whitespace-separated terms (a \"quoted phrase\" is one term), every term must match (ANDed with each other and with every other filter, never widening past them). A term matches a task if it appears anywhere in the title, description, acceptance criteria, status note, links, or the body of any comment on it — case-insensitive. A term that parses as a task reference (TASK-000042, #42, 42) also matches that task by id.",
             "name": "q",
             "in": "query"
           },
@@ -2855,6 +3935,13 @@
                     },
                     "maxItems": 20
                   },
+                  "labels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._/-]{0,31}$"
+                    }
+                  },
                   "parentId": {
                     "type": [
                       "integer",
@@ -3132,7 +4219,7 @@
           "Tasks"
         ],
         "summary": "Filter options present in the data",
-        "description": "Declared before /tasks/{taskId} in the router, so `facets` is not captured as an id. The only safe source of values for the assignee, project, and createdBy filters, which match exactly.",
+        "description": "Declared before /tasks/{taskId} in the router, so `facets` is not captured as an id. The only safe source of values for the assignee, project, label, and createdBy filters, which match exactly.",
         "security": [
           {
             "bearerAuth": []
@@ -3154,7 +4241,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Distinct non-null assignees, projects, and creators, sorted.",
+            "description": "Distinct non-null assignees, projects, labels, and creators, sorted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3821,6 +4908,13 @@
                     },
                     "maxItems": 20
                   },
+                  "labels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._/-]{0,31}$"
+                    }
+                  },
                   "parentId": {
                     "type": [
                       "integer",
@@ -4416,7 +5510,7 @@
           "Workflow"
         ],
         "summary": "Claim the best available task",
-        "description": "Atomically picks and claims one task for the caller, moving it to in_progress. Candidates, best first (priority descending, then oldest):\n\n- `todo` tasks whose dependencies are all `done`, and\n- `in_progress` tasks with no live claim — a crashed agent's work, noted as \"Reclaimed from …\".\n\nFiltered by `project` and `minPriority` when given. Two agents calling at once never receive the same task. Nothing available is `{ task: null }`, not an error.",
+        "description": "Atomically picks and claims one task for the caller, moving it to in_progress. Candidates, best first (priority descending, then oldest):\n\n- `todo` tasks whose dependencies are all `done`, and\n- `in_progress` tasks with no live claim — a crashed agent's work, noted as \"Reclaimed from …\".\n\nFiltered by `project`, `label` (any of), and `minPriority` when given. Two agents calling at once never receive the same task. Nothing available is `{ task: null }`, not an error.",
         "security": [
           {
             "bearerAuth": []
@@ -4448,6 +5542,14 @@
                     "items": {
                       "type": "string",
                       "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                    },
+                    "minItems": 1
+                  },
+                  "label": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._/-]{0,31}$"
                     },
                     "minItems": 1
                   },
@@ -8040,7 +9142,7 @@
           "Events"
         ],
         "summary": "Read the change feed",
-        "description": "Every write appends an event — task.created/updated/deleted/status_changed/claimed/released, comment.created/deleted, decision.requested/answered/withdrawn, dependency.added/removed — in the same transaction as the change.\n\nOldest first, cursor-paged rather than page/pageSize: the feed grows while it is read, and an offset would shift under a poller and skip events. Poll with `after=<meta.nextAfter>`; when nothing happened, nextAfter echoes the cursor back.\n\nEvents are never deleted, and `taskId` is not a foreign key, so the feed still describes deleted tasks.",
+        "description": "Every write appends an event — task.created/updated/deleted/status_changed/claimed/released, comment.created/deleted, decision.requested/answered/withdrawn, dependency.added/removed, github.pull_request — in the same transaction as the change.\n\nOldest first by default, cursor-paged rather than page/pageSize: the feed grows while it is read, and an offset would shift under a poller and skip events. Poll with `after=<meta.nextAfter>`; when nothing happened, nextAfter echoes the cursor back.\n\n`order=desc` pages newest-first instead, with `before=<meta.nextBefore>` for the next (older) page — the Logbook's event log. `from`/`to` narrow to an instant range (`from` inclusive, `to` exclusive).\n\nEvents are never deleted, and `taskId` is not a foreign key, so the feed still describes deleted tasks. Each event carries `project` — the task's project *when the event was recorded* — which is how `?project=` still finds it afterwards.",
         "security": [
           {
             "bearerAuth": []
@@ -8063,11 +9165,116 @@
             "schema": {
               "type": "string",
               "pattern": "^\\d{1,15}$",
+              "description": "Cursor: return only events with an id less than this — paging backwards with order=desc. Send the meta.nextBefore of the previous response."
+            },
+            "required": false,
+            "description": "Cursor: return only events with an id less than this — paging backwards with order=desc. Send the meta.nextBefore of the previous response.",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "asc",
+              "description": "asc (default) is the poller's order, oldest first, paged with after. desc is the Logbook's: newest first, paged with before=meta.nextBefore."
+            },
+            "required": false,
+            "description": "asc (default) is the poller's order, oldest first, paged with after. desc is the Logbook's: newest first, paged with before=meta.nextBefore.",
+            "name": "order",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only events recorded at or after this instant (inclusive)."
+            },
+            "required": false,
+            "description": "Only events recorded at or after this instant (inclusive).",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only events recorded before this instant (exclusive)."
+            },
+            "required": false,
+            "description": "Only events recorded before this instant (exclusive).",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$",
               "description": "Only events about this task — including ones recorded after it was deleted."
             },
             "required": false,
             "description": "Only events about this task — including ones recorded after it was deleted.",
             "name": "taskId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+              },
+              "minItems": 1,
+              "description": "Only events of tasks in any of these projects, as recorded on the event at the time — so a task moved or deleted afterwards is still found under the project it had when the event happened. Repeatable, ORed together."
+            },
+            "required": false,
+            "description": "Only events of tasks in any of these projects, as recorded on the event at the time — so a task moved or deleted afterwards is still found under the project it had when the event happened. Repeatable, ORed together.",
+            "name": "project",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "description": "Exact actor that recorded the event, lowercased like the stored value."
+            },
+            "required": false,
+            "description": "Exact actor that recorded the event, lowercased like the stored value.",
+            "name": "actor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "task.created",
+                  "task.updated",
+                  "task.deleted",
+                  "task.status_changed",
+                  "task.claimed",
+                  "task.released",
+                  "comment.created",
+                  "comment.deleted",
+                  "decision.requested",
+                  "decision.answered",
+                  "decision.withdrawn",
+                  "dependency.added",
+                  "dependency.removed",
+                  "github.pull_request"
+                ]
+              },
+              "minItems": 1,
+              "description": "Only these event types. Repeatable, ORed together."
+            },
+            "required": false,
+            "description": "Only these event types. Repeatable, ORed together.",
+            "name": "type",
             "in": "query"
           },
           {
@@ -8149,6 +9356,1744 @@
           },
           "422": {
             "description": "An unknown parameter, a cursor or taskId that is not decimal digits, or a limit out of range. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/floor": {
+      "get": {
+        "tags": [
+          "Floor"
+        ],
+        "summary": "The floor snapshot",
+        "description": "Everything the floor view needs in one call: compact task rows (open tasks, plus done/deferred ones inside the `shipped` window), the dependency edges touching them, refs for the tasks those edges (or a parentId) point at outside the returned set, and `meta` — status counts for the whole scope, the shipped window, and `lastEventId` to start polling `GET /events?after=` from.\n\n`project` is **scope**: it removes rows entirely. Every other filter marks `matches` on a row instead of removing it — the floor dims non-matching crates in place rather than moving anything. `meta.matchCount` counts the returned rows with `matches: true`.\n\nCapped at FLOOR_TASK_CAP rows, must-show first (needs a human, in progress, blocked, urgent priority), then by priority and recency — `meta.truncated` says so, and `meta.statusCounts` still counts everything in scope regardless of the cap.\n\n`at` replays the floor at an earlier instant: status and existence come from `task.status_changed` events (a task created after `at` is absent), everything else is today's data, and claims are always null.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "backlog",
+                  "needs_refinement",
+                  "todo",
+                  "in_progress",
+                  "blocked",
+                  "needs_user_decision",
+                  "needs_user_action",
+                  "needs_qa",
+                  "done",
+                  "deferred"
+                ]
+              },
+              "minItems": 1,
+              "description": "Repeatable. Values within one parameter OR together; different parameters AND together."
+            },
+            "required": false,
+            "description": "Repeatable. Values within one parameter OR together; different parameters AND together.",
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "urgent"
+                ]
+              },
+              "minItems": 1,
+              "description": "Repeatable, same OR/AND rule as status."
+            },
+            "required": false,
+            "description": "Repeatable, same OR/AND rule as status.",
+            "name": "priority",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+              },
+              "minItems": 1,
+              "description": "Scope, not a filter — rows outside these projects are not returned at all. Repeatable. Omit for every project."
+            },
+            "required": false,
+            "description": "Scope, not a filter — rows outside these projects are not returned at all. Repeatable. Omit for every project.",
+            "name": "project",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._/-]{0,31}$"
+              },
+              "minItems": 1,
+              "description": "Repeatable, same OR/AND rule as status. Tasks carrying at least one of these labels — a label narrows work inside a project (a monorepo workspace, a kind of work). Send a value from GET /tasks/facets."
+            },
+            "required": false,
+            "description": "Repeatable, same OR/AND rule as status. Tasks carrying at least one of these labels — a label narrows work inside a project (a monorepo workspace, a kind of work). Send a value from GET /tasks/facets.",
+            "name": "label",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "description": "Exact, case-sensitive match. Send a value from GET /tasks/facets rather than something a user typed. Mutually exclusive with assigneeIsNull."
+            },
+            "required": false,
+            "description": "Exact, case-sensitive match. Send a value from GET /tasks/facets rather than something a user typed. Mutually exclusive with assigneeIsNull.",
+            "name": "assignee",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "true",
+                    "false"
+                  ]
+                }
+              ],
+              "description": "true returns unassigned tasks only. Mutually exclusive with assignee."
+            },
+            "required": false,
+            "description": "true returns unassigned tasks only. Mutually exclusive with assignee.",
+            "name": "assigneeIsNull",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Exact actor that created the task, e.g. agent:claude-code. Lowercased before matching, like the stored value; GET /tasks/facets lists the creators present."
+            },
+            "required": false,
+            "description": "Exact actor that created the task, e.g. agent:claude-code. Lowercased before matching, like the stored value; GET /tasks/facets lists the creators present.",
+            "name": "createdBy",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Exact actor holding the task's claim, e.g. agent:claude-code — lowercased before matching. Matches the stored holder even after the lease expired, so an agent can find the work it was doing before a crash."
+            },
+            "required": false,
+            "description": "Exact actor holding the task's claim, e.g. agent:claude-code — lowercased before matching. Matches the stored holder even after the lease expired, so an agent can find the work it was doing before a crash.",
+            "name": "claimedBy",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$",
+              "description": "Only the direct subtasks of this task id. Decimal digits only."
+            },
+            "required": false,
+            "description": "Only the direct subtasks of this task id. Decimal digits only.",
+            "name": "parentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "true",
+                    "false"
+                  ]
+                }
+              ],
+              "description": "true returns only top-level tasks (no parent); false returns only subtasks. Mutually exclusive with parentId."
+            },
+            "required": false,
+            "description": "true returns only top-level tasks (no parent); false returns only subtasks. Mutually exclusive with parentId.",
+            "name": "parentIsNull",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$",
+              "description": "Tasks that depend on this task id — its dependents (\"who waits on 42?\"). Decimal digits only."
+            },
+            "required": false,
+            "description": "Tasks that depend on this task id — its dependents (\"who waits on 42?\"). Decimal digits only.",
+            "name": "dependsOn",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$",
+              "description": "Tasks this task id depends on — its dependencies (\"what does 42 wait on?\"). Decimal digits only."
+            },
+            "required": false,
+            "description": "Tasks this task id depends on — its dependencies (\"what does 42 wait on?\"). Decimal digits only.",
+            "name": "dependencyOf",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "description": "Free-text search: whitespace-separated terms (a \"quoted phrase\" is one term), every term must match (ANDed with each other and with every other filter, never widening past them). A term matches a task if it appears anywhere in the title, description, acceptance criteria, status note, links, or the body of any comment on it — case-insensitive. A term that parses as a task reference (TASK-000042, #42, 42) also matches that task by id."
+            },
+            "required": false,
+            "description": "Free-text search: whitespace-separated terms (a \"quoted phrase\" is one term), every term must match (ANDed with each other and with every other filter, never widening past them). A term matches a task if it appears anywhere in the title, description, acceptance criteria, status note, links, or the body of any comment on it — case-insensitive. A term that parses as a task reference (TASK-000042, #42, 42) also matches that task by id.",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Inclusive lower bound, YYYY-MM-DD, UTC."
+            },
+            "required": false,
+            "description": "Inclusive lower bound, YYYY-MM-DD, UTC.",
+            "name": "createdFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Inclusive upper bound, YYYY-MM-DD, UTC — the named day is included."
+            },
+            "required": false,
+            "description": "Inclusive upper bound, YYYY-MM-DD, UTC — the named day is included.",
+            "name": "createdTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "24h",
+                "7d"
+              ],
+              "default": "24h",
+              "description": "How far back the Shipped shelf reaches for done/deferred tasks (24h default, or 7d). Older closed tasks only count toward meta.olderClosedCount."
+            },
+            "required": false,
+            "description": "How far back the Shipped shelf reaches for done/deferred tasks (24h default, or 7d). Older closed tasks only count toward meta.olderClosedCount.",
+            "name": "shipped",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Replay: the floor as it stood at this instant. Status and existence are replayed from task.status_changed events; titles, priority, and labels are today's values, and claims are always null."
+            },
+            "required": false,
+            "description": "Replay: the floor as it stood at this instant. Status and existence are replayed from task.status_changed events; titles, priority, and labels are today's values, and claims are always null.",
+            "name": "at",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloorSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "An unknown parameter, an invalid filter value, or a malformed `at`. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/github": {
+      "get": {
+        "tags": [
+          "GitHub"
+        ],
+        "summary": "GitHub integration status",
+        "description": "What is switched on. Unlike every other operation in this tag, this one answers even when the integration is off (enabled: false) rather than INTEGRATION_NOT_CONFIGURED — a client needs a way to ask why.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Integration status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubIntegrationStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Only the X-Actor header can fail here. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/github/import": {
+      "post": {
+        "tags": [
+          "GitHub"
+        ],
+        "summary": "Import a GitHub issue as a task",
+        "description": "Fetches the issue, then creates a task through the same path as POST /tasks: `title` from the issue title, `description` from its body (falling back to a line naming the source when empty), and a link back. `project` defaults to the repository name as a slug (null if that name is not one).\n\nIdempotent per issue, the same way `idempotencyKey` on POST /tasks is: importing the same open issue twice returns the task the first import made, 200 instead of 201.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "issue": {
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "backlog",
+                      "needs_refinement"
+                    ],
+                    "default": "backlog"
+                  },
+                  "priority": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "urgent"
+                    ]
+                  },
+                  "labels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._/-]{0,31}$"
+                    }
+                  }
+                },
+                "required": [
+                  "issue"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Idempotent replay: this issue was already imported, and this is that task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Imported. The Location header points at the new task.",
+            "headers": {
+              "Location": {
+                "description": "URL of the created task.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "MALFORMED_JSON"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "GITHUB_NOT_FOUND: GitHub has no such issue, or it is private and the token cannot see it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "GITHUB_NOT_FOUND",
+                            "INTEGRATION_NOT_CONFIGURED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than BODY_LIMIT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "PAYLOAD_TOO_LARGE"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A field failed validation, or `issue` names a pull request rather than an issue. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GITHUB_UNAVAILABLE: GitHub did not answer, answered with an error, or rate-limited the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "GITHUB_UNAVAILABLE"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{taskId}/github": {
+      "get": {
+        "tags": [
+          "GitHub"
+        ],
+        "summary": "Live status of a task's GitHub links",
+        "description": "Resolves every link on the task that is a GitHub PR or issue URL against the live API (60s cache per URL, ~5s timeout per call). A link GitHub could not resolve carries `error` instead of `state` rather than failing the whole response.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$"
+            },
+            "required": true,
+            "name": "taskId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live status of the task's GitHub links.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskGithubStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "TASK_NOT_FOUND",
+                            "INTEGRATION_NOT_CONFIGURED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Only the X-Actor header can fail here. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/github/webhook": {
+      "post": {
+        "tags": [
+          "GitHub"
+        ],
+        "summary": "GitHub webhook delivery",
+        "description": "GitHub calls this directly, so it carries neither a bearer token nor X-Actor — authentication is the HMAC-SHA256 signature in `X-Hub-Signature-256`, checked against the raw body with GITHUB_WEBHOOK_SECRET.\n\n`ping` → `{ ok: true }`. `pull_request` (opened, reopened, ready_for_review, closed, edited) → every `TASK-<id>` referenced in the title, body, or head branch gets the PR linked (skipping a URL already present, and the 20-link cap), a `github.pull_request` event, and — for opened/reopened/closed — a one-line comment from `system:github`. Never changes task status. Redeliveries (same `X-GitHub-Delivery`) are no-ops per task. Any other event → `{ ignored: true }`, 202.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "HMAC-SHA256 of the raw body, as `sha256=<hex>`."
+            },
+            "required": false,
+            "description": "HMAC-SHA256 of the raw body, as `sha256=<hex>`.",
+            "name": "X-Hub-Signature-256",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "e.g. ping, pull_request."
+            },
+            "required": false,
+            "description": "e.g. ping, pull_request.",
+            "name": "X-GitHub-Event",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Unique per delivery; redeliveries of the same id are no-ops."
+            },
+            "required": false,
+            "description": "Unique per delivery; redeliveries of the same id are no-ops.",
+            "name": "X-GitHub-Delivery",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ping, or a pull_request event that was processed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "ok": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        }
+                      },
+                      "required": [
+                        "ok"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "linkedTasks": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          }
+                        }
+                      },
+                      "required": [
+                        "linkedTasks"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "An event type this integration does not act on.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ignored": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ignored"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "MALFORMED_JSON"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid X-Hub-Signature-256.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INVALID_WEBHOOK_SIGNATURE"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The GitHub integration is off — neither GITHUB_TOKEN nor GITHUB_WEBHOOK_SECRET is set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTEGRATION_NOT_CONFIGURED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stats/history": {
+      "get": {
+        "tags": [
+          "Logbook"
+        ],
+        "summary": "History and charts for the Logbook",
+        "description": "Everything the Logbook's charts need, computed from TaskEvent: per-bucket created/completed/deferred/sent-back counts and a status snapshot at the bucket's end (the cumulative flow diagram), human-wait and cycle-time percentiles, the ten longest human waits, up to 500 recent cycle times, and per-agent activity.\n\n`bucket` is one of hour, day, week. The response's `from`/`to` are the *aligned* boundaries — floored/ceiled to whole buckets — not the raw query params, and every count in the response covers exactly that aligned range.\n\nStatus snapshots (per bucket and for the longest-wait / cycle-time lookups) are a full replay of `task.status_changed` events from the beginning of the log, not just the requested window — an old task already `done` before `from` still counts in every bucket's `done` column.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+              },
+              "minItems": 1,
+              "description": "Repeatable. Scope to these projects, as recorded on each event; omit for every project."
+            },
+            "required": false,
+            "description": "Repeatable. Scope to these projects, as recorded on each event; omit for every project.",
+            "name": "project",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Range start (instant, inclusive). Defaults to 7 days before `to`. Floored to the start of its bucket boundary — the response echoes back the aligned value."
+            },
+            "required": false,
+            "description": "Range start (instant, inclusive). Defaults to 7 days before `to`. Floored to the start of its bucket boundary — the response echoes back the aligned value.",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Range end (instant, exclusive). Defaults to now. Ceiled to the next bucket boundary."
+            },
+            "required": false,
+            "description": "Range end (instant, exclusive). Defaults to now. Ceiled to the next bucket boundary.",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "hour",
+                "day",
+                "week"
+              ],
+              "default": "day",
+              "description": "hour, day, or week (Monday-starting), default day. The aligned range must not produce more than 400 buckets."
+            },
+            "required": false,
+            "description": "hour, day, or week (Monday-starting), default day. The aligned range must not produce more than 400 buckets.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The charts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "An unknown parameter, an inverted range (`to` at or before `from`), or a range producing more than 400 buckets. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
             "content": {
               "application/json": {
                 "schema": {

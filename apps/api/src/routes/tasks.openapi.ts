@@ -105,6 +105,8 @@ export const QUERY_DESCRIPTIONS: Record<string, string> = {
   priority: "Repeatable, same OR/AND rule as status.",
   project:
     "Repeatable, same OR/AND rule as status. A lowercase slug; the input is lowercased before matching, so HelpDesk finds helpdesk.",
+  label:
+    "Repeatable, same OR/AND rule as status. Tasks carrying at least one of these labels — a label narrows work inside a project (a monorepo workspace, a kind of work). Send a value from GET /tasks/facets.",
   assignee:
     "Exact, case-sensitive match. Send a value from GET /tasks/facets rather than something a user typed. Mutually exclusive with assigneeIsNull.",
   assigneeIsNull: "true returns unassigned tasks only. Mutually exclusive with assignee.",
@@ -113,7 +115,13 @@ export const QUERY_DESCRIPTIONS: Record<string, string> = {
   claimedBy:
     "Exact actor holding the task's claim, e.g. agent:claude-code — lowercased before matching. Matches the stored holder even after the lease expired, so an agent can find the work it was doing before a crash.",
   parentId: "Only the direct subtasks of this task id. Decimal digits only.",
-  q: "Free-text search over title and description, case-insensitive, ANDed with every other filter rather than widening past it. A task reference (TASK-000042, #42, 42) also matches that task.",
+  parentIsNull:
+    "true returns only top-level tasks (no parent); false returns only subtasks. Mutually exclusive with parentId.",
+  dependsOn:
+    'Tasks that depend on this task id — its dependents ("who waits on 42?"). Decimal digits only.',
+  dependencyOf:
+    'Tasks this task id depends on — its dependencies ("what does 42 wait on?"). Decimal digits only.',
+  q: 'Free-text search: whitespace-separated terms (a "quoted phrase" is one term), every term must match (ANDed with each other and with every other filter, never widening past them). A term matches a task if it appears anywhere in the title, description, acceptance criteria, status note, links, or the body of any comment on it — case-insensitive. A term that parses as a task reference (TASK-000042, #42, 42) also matches that task by id.',
   createdFrom: "Inclusive lower bound, YYYY-MM-DD, UTC.",
   createdTo: "Inclusive upper bound, YYYY-MM-DD, UTC — the named day is included.",
 };
@@ -218,10 +226,10 @@ function registerResourcePaths(): void {
     tags: ["Tasks"],
     summary: "Filter options present in the data",
     description:
-      "Declared before /tasks/{taskId} in the router, so `facets` is not captured as an id. The only safe source of values for the assignee, project, and createdBy filters, which match exactly.",
+      "Declared before /tasks/{taskId} in the router, so `facets` is not captured as an id. The only safe source of values for the assignee, project, label, and createdBy filters, which match exactly.",
     responses: {
       200: {
-        description: "Distinct non-null assignees, projects, and creators, sorted.",
+        description: "Distinct non-null assignees, projects, labels, and creators, sorted.",
         content: { "application/json": { schema: TaskFacetsComponent } },
       },
       422: VALIDATION_422("Only the X-Actor header can fail here."),
@@ -320,7 +328,7 @@ function registerWorkflowPaths(): void {
       "- `todo` tasks whose dependencies are all `done`, and",
       '- `in_progress` tasks with no live claim — a crashed agent\'s work, noted as "Reclaimed from …".',
       "",
-      "Filtered by `project` and `minPriority` when given. Two agents calling at once never receive the same task. Nothing available is `{ task: null }`, not an error.",
+      "Filtered by `project`, `label` (any of), and `minPriority` when given. Two agents calling at once never receive the same task. Nothing available is `{ task: null }`, not an error.",
     ].join("\n"),
     request: { body: jsonBody(nextTaskInputSchema, false) },
     responses: {

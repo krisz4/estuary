@@ -10,6 +10,9 @@ import { requestId } from "./middleware/requestId.js";
 import { commentsRouter } from "./routes/comments.route.js";
 import { createDocsRouter } from "./routes/docs.route.js";
 import { eventsRouter } from "./routes/events.route.js";
+import { floorRouter } from "./routes/floor.route.js";
+import { githubRouter, githubWebhookRouter, taskGithubRouter } from "./routes/github.route.js";
+import { historyRouter } from "./routes/history.route.js";
 import { tasksRouter } from "./routes/tasks.route.js";
 
 /**
@@ -39,11 +42,23 @@ export const DOCS_PATH = "/docs";
  * Order between the two does not matter — `tasksRouter` declares nothing that
  * matches a three-segment path — but comments are listed first so the more
  * specific mount reads first.
+ *
+ * `githubWebhookRouter` is listed here too, even though `createApp()` mounts
+ * it **separately and earlier** (before `apiToken` and `actor` — GitHub can
+ * send neither). Listing it is what keeps it visible to
+ * `routes/openapi.contract.test.ts`, which walks this array to find every
+ * route the app is supposed to document; `createApp()` skips mounting it a
+ * second time here.
  */
 export const ROUTER_MOUNTS: readonly { path: string; router: Router }[] = [
   { path: `${API_V1}/tasks/:taskId/comments`, router: commentsRouter },
   { path: `${API_V1}/tasks`, router: tasksRouter },
+  { path: `${API_V1}/tasks`, router: taskGithubRouter },
   { path: `${API_V1}/events`, router: eventsRouter },
+  { path: `${API_V1}/floor`, router: floorRouter },
+  { path: `${API_V1}/stats/history`, router: historyRouter },
+  { path: `${API_V1}/integrations/github`, router: githubRouter },
+  { path: `${API_V1}/integrations/github/webhook`, router: githubWebhookRouter },
 ];
 
 /**
@@ -55,15 +70,27 @@ export const ROUTER_MOUNTS: readonly { path: string; router: Router }[] = [
  * The chain, in order, and the order is load-bearing:
  *
  * ```
- *   requestId    →  every response, including a body-parser failure, carries an id
- *   cors         →  ALLOWED_ORIGINS
- *   json         →  BODY_LIMIT; failures surface as entity.parse.failed / entity.too.large
- *   apiToken     →  /api/v1 only, and only when API_TOKEN is set → UNAUTHORIZED
- *   actor        →  /api/v1 only; X-Actor → req.actor, malformed → VALIDATION_ERROR
- *   routers      →  /health at the root, /api/v1/tasks(/…/comments) and /api/v1/events below it
- *   notFound     →  unmatched path or verb → NOT_FOUND 404
- *   errorHandler →  the single exit for every failure
+ *   requestId       →  every response, including a body-parser failure, carries an id
+ *   cors            →  ALLOWED_ORIGINS
+ *   githubWebhook   →  /api/v1/integrations/github/webhook only; its own express.raw(),
+ *                       authenticated by HMAC signature — no apiToken, no actor
+ *   json            →  BODY_LIMIT; failures surface as entity.parse.failed / entity.too.large
+ *   apiToken        →  /api/v1 only, and only when API_TOKEN is set → UNAUTHORIZED
+ *   actor           →  /api/v1 only; X-Actor → req.actor, malformed → VALIDATION_ERROR
+ *   routers         →  /health at the root, the rest of ROUTER_MOUNTS below /api/v1
+ *   notFound        →  unmatched path or verb → NOT_FOUND 404
+ *   errorHandler    →  the single exit for every failure
  * ```
+ *
+ * **The webhook router sits before `json`, and that is load-bearing too.**
+ * GitHub signs the exact bytes it sends; `express.json()` would already have
+ * parsed and re-serialized the body by the time a route saw it, and
+ * re-serializing JSON is not guaranteed to reproduce the same bytes (key
+ * order, whitespace, number formatting). The webhook route parses its own body
+ * with `express.raw()`, checks the signature against those raw bytes, and only
+ * then `JSON.parse`s it. It also runs before `apiToken` and `actor`: GitHub can
+ * send neither a bearer token nor `X-Actor`, and the signature is the whole of
+ * its authentication.
  *
  * **`cors` precedes `json`, and that is the load-bearing part.** When the JSON
  * parser rejects a body it calls `next(err)`, which skips every remaining
@@ -105,6 +132,15 @@ export function createApp(): Express {
     }),
   );
 
+  /**
+   * The one route mounted before the JSON parser, so its handler sees the raw
+   * body bytes rather than a parsed-and-reconstructed one. See `WEBHOOK_PATH`
+   * in `services/github.service.ts` for where this string comes from — it is
+   * repeated literally here rather than imported so this mount cannot end up
+   * pointed anywhere but exactly where the ROUTER_MOUNTS entry below expects.
+   */
+  app.use(`${API_V1}/integrations/github/webhook`, githubWebhookRouter);
+
   app.use(express.json({ limit: env.BODY_LIMIT }));
 
   /**
@@ -134,6 +170,9 @@ export function createApp(): Express {
   app.use(API_V1, actor);
 
   for (const mount of ROUTER_MOUNTS) {
+    // Mounted separately, above, before the JSON parser and the token/actor
+    // gate — mounting it again here would register it twice.
+    if (mount.router === githubWebhookRouter) continue;
     app.use(mount.path, mount.router);
   }
 

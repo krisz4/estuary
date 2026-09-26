@@ -111,6 +111,17 @@ export const describeEvent = (event: TaskEvent): { summary: ReactNode; detail?: 
       return { summary: <>made it depend on {taskLink(p.dependsOnId)}</> };
     case "dependency.removed":
       return { summary: <>removed the dependency on {taskLink(p.dependsOnId)}</> };
+    case "github.pull_request": {
+      // Posted by the GitHub webhook, not a person — its `action` names what
+      // happened on GitHub's side ("opened", "closed", "merged", …), read
+      // defensively like every other payload here.
+      const action = str(p.action);
+      const number = typeof p.number === "number" ? p.number : undefined;
+      const pr = number === undefined ? "a pull request" : `PR #${number}`;
+      return {
+        summary: action === undefined ? `updated ${pr} on GitHub` : `${action} ${pr} on GitHub`,
+      };
+    }
   }
 };
 

@@ -48,112 +48,219 @@
  * without shouting; solid fills are reserved for actions.
  * ------------------------------------------------------------------ */
 
+/*
+ * How the palette is built (the research behind it is summarised in
+ * docs/engineering/UI_DESIGN_GUIDELINES.md § Color system):
+ *
+ * - **Elevation is lightness.** In dark mode a shadow barely reads, so every
+ *   step up the stack (page → card → popover) is a few points lighter, and
+ *   `--highlight` adds a 1px top edge that catches "light". Light mode does
+ *   the opposite: an off-white page so white cards can sit on it, with
+ *   `--shadow` doing the lifting.
+ * - **No pure black, no pure white.** The dark base is a lifted slate
+ *   (~#262c36), text is ~94% — full-contrast white on near-black halates and
+ *   tires the eye over a long session.
+ * - **One hue, one job.** Blue = what you can do (primary actions, focus).
+ *   Amber (`--attention`) = what is waiting on *you*, and nothing else — so the
+ *   eye can find it without reading. Red = blocked/destructive, green =
+ *   done/working, yellow (`--warning`) = high priority. Dark-mode accents are
+ *   lighter and a little desaturated so they don't vibrate on the dark ground.
+ */
 :root {
-  /* Surfaces */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.21 0.03 256);
+  /* Surfaces — a cool off-white page so white cards visibly sit on it */
+  --background: oklch(0.972 0.005 250);
+  --foreground: oklch(0.22 0.03 256);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.03 256);
+  --card-foreground: oklch(0.22 0.03 256);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.03 256);
-  --muted: oklch(0.968 0.005 256);
-  --muted-foreground: oklch(0.47 0.02 257);
+  --popover-foreground: oklch(0.22 0.03 256);
+  --muted: oklch(0.948 0.007 252);
+  --muted-foreground: oklch(0.47 0.022 257);
 
   /* Lines, fields, focus, scrim */
-  --border: oklch(0.91 0.01 256);
-  --input: oklch(0.87 0.012 256);
+  --border: oklch(0.9 0.01 254);
+  --input: oklch(0.84 0.014 254);
   --ring: oklch(0.58 0.16 254);
-  --overlay: oklch(0.21 0.03 256 / 0.5);
+  --overlay: oklch(0.21 0.03 256 / 0.45);
+
+  /* Elevation — read by the `shadow-raised` / `shadow-floating` utilities */
+  --highlight: oklch(1 0 0 / 0.9);
+  --shadow: oklch(0.3 0.04 256 / 0.1);
 
   /* Primary — actions and focus */
-  --primary: oklch(0.52 0.17 256);
+  --primary: oklch(0.53 0.17 256);
   --primary-foreground: oklch(0.985 0 0);
-  --primary-subtle: oklch(0.95 0.03 254);
-  --primary-subtle-foreground: oklch(0.4 0.14 256);
+  --primary-subtle: oklch(0.945 0.032 254);
+  --primary-subtle-foreground: oklch(0.42 0.15 256);
 
   /* Neutral — secondary buttons, inert badges */
-  --neutral: oklch(0.93 0.008 256);
-  --neutral-foreground: oklch(0.25 0.03 256);
-  --neutral-subtle: oklch(0.965 0.005 256);
-  --neutral-subtle-foreground: oklch(0.33 0.02 257);
+  --neutral: oklch(0.925 0.01 254);
+  --neutral-foreground: oklch(0.26 0.03 256);
+  --neutral-subtle: oklch(0.945 0.008 254);
+  --neutral-subtle-foreground: oklch(0.36 0.022 257);
 
-  /* Destructive — delete, error */
-  --destructive: oklch(0.52 0.19 27);
+  /* Attention — reserved for "waits on you" (the inbox, the needs-you rail) */
+  --attention: oklch(0.62 0.16 52);
+  --attention-foreground: oklch(0.99 0.01 60);
+  --attention-subtle: oklch(0.955 0.04 68);
+  --attention-subtle-foreground: oklch(0.47 0.13 48);
+
+  /* Destructive — delete, error, blocked */
+  --destructive: oklch(0.54 0.19 27);
   --destructive-foreground: oklch(0.985 0 0);
-  --destructive-subtle: oklch(0.955 0.025 25);
-  --destructive-subtle-foreground: oklch(0.44 0.17 27);
+  --destructive-subtle: oklch(0.95 0.028 22);
+  --destructive-subtle-foreground: oklch(0.46 0.17 27);
 
-  /* Success — resolved, confirmations */
-  --success: oklch(0.5 0.13 152);
+  /* Success — done, working, confirmations */
+  --success: oklch(0.52 0.13 155);
   --success-foreground: oklch(0.985 0 0);
-  --success-subtle: oklch(0.95 0.04 152);
-  --success-subtle-foreground: oklch(0.39 0.11 152);
+  --success-subtle: oklch(0.95 0.04 155);
+  --success-subtle-foreground: oklch(0.4 0.11 155);
 
-  /* Warning — high priority, caution */
-  --warning: oklch(0.58 0.13 70);
-  --warning-foreground: oklch(0.985 0 0);
-  --warning-subtle: oklch(0.96 0.04 85);
-  --warning-subtle-foreground: oklch(0.42 0.1 60);
+  /* Warning — high priority, caution (yellower than attention on purpose) */
+  --warning: oklch(0.62 0.13 85);
+  --warning-foreground: oklch(0.2 0.04 85);
+  --warning-subtle: oklch(0.96 0.05 95);
+  --warning-subtle-foreground: oklch(0.44 0.1 75);
 
   /* Info — in progress, neutral notices */
-  --info: oklch(0.53 0.13 240);
+  --info: oklch(0.55 0.13 235);
   --info-foreground: oklch(0.985 0 0);
-  --info-subtle: oklch(0.95 0.03 240);
-  --info-subtle-foreground: oklch(0.42 0.11 240);
+  --info-subtle: oklch(0.945 0.032 235);
+  --info-subtle-foreground: oklch(0.43 0.12 238);
+
+  /*
+   * The Map (`/tasks/map`) — Estuary palette, read at runtime by
+   * `features/floor/scene.ts` rather than mapped through `@theme inline` alone:
+   * canvas fill styles need resolved colour strings. Still declared in both
+   * light and dark blocks — `tests/design-tokens.test.ts` enforces that pairing
+   * for every `--map-*` token the same way it does for the rest.
+   */
+  --map-ground: oklch(0.925 0.012 95);
+  --map-ground-2: oklch(0.945 0.01 95);
+  --map-panel: oklch(1 0 0);
+  --map-panel-2: oklch(0.955 0.007 250);
+  --map-panel-3: oklch(0.92 0.01 250);
+  --map-ink-3: oklch(0.58 0.012 230);
+  --map-line: oklch(0.35 0.02 230 / 0.13);
+  --map-line-2: oklch(0.35 0.02 230 / 0.26);
+  --map-contour: oklch(0.42 0.03 110 / 0.1);
+  --map-flat: oklch(0.885 0.035 92);
+  --map-water: oklch(0.8 0.045 215);
+  --map-water-edge: oklch(0.64 0.06 215);
+  --map-flow: oklch(0.35 0.04 225 / 0.32);
+  --map-pool-attn: oklch(0.62 0.16 52);
+  --map-pool-block: oklch(0.55 0.17 20);
+  --map-ok: oklch(0.52 0.11 165);
+  /*
+   * A curated categorical "lane" palette, assigned by sorted project order
+   * (`layout.ts`'s `projectColorIndex`) or by group sector otherwise — not a
+   * hash — so two projects/groups are guaranteed distinct up to 8 of them.
+   * No amber/orange and no red in it: those hues mean "waits on you" and
+   * "blocked" on the map, and a project coloured like them reads as a status.
+   */
+  --map-lane-1: oklch(0.52 0.17 258);
+  --map-lane-2: oklch(0.52 0.18 305);
+  --map-lane-3: oklch(0.55 0.14 150);
+  --map-lane-4: oklch(0.55 0.19 350);
+  --map-lane-5: oklch(0.56 0.11 200);
+  --map-lane-6: oklch(0.58 0.15 125);
+  --map-lane-7: oklch(0.5 0.14 280);
+  --map-lane-8: oklch(0.55 0.05 60);
 }
 
 .dark {
-  /* Surfaces */
-  --background: oklch(0.19 0.02 257);
-  --foreground: oklch(0.95 0.008 256);
-  --card: oklch(0.23 0.02 257);
-  --card-foreground: oklch(0.95 0.008 256);
-  --popover: oklch(0.24 0.02 257);
+  /* Surfaces — a lifted slate, each layer a few points lighter than the one below */
+  --background: oklch(0.255 0.017 256);
+  --foreground: oklch(0.94 0.008 256);
+  --card: oklch(0.295 0.019 256);
+  --card-foreground: oklch(0.94 0.008 256);
+  --popover: oklch(0.33 0.02 256);
   --popover-foreground: oklch(0.95 0.008 256);
-  --muted: oklch(0.27 0.02 257);
-  --muted-foreground: oklch(0.72 0.02 257);
+  --muted: oklch(0.325 0.018 256);
+  --muted-foreground: oklch(0.77 0.018 256);
 
   /* Lines, fields, focus, scrim */
-  --border: oklch(0.32 0.02 257);
-  --input: oklch(0.38 0.02 257);
-  --ring: oklch(0.7 0.13 254);
-  --overlay: oklch(0.13 0.02 257 / 0.7);
+  --border: oklch(0.385 0.02 256);
+  --input: oklch(0.45 0.022 256);
+  --ring: oklch(0.75 0.13 250);
+  --overlay: oklch(0.14 0.02 256 / 0.6);
+
+  /* Elevation */
+  --highlight: oklch(1 0 0 / 0.07);
+  --shadow: oklch(0.12 0.02 256 / 0.5);
 
   /* Primary */
-  --primary: oklch(0.68 0.15 254);
-  --primary-foreground: oklch(0.18 0.03 257);
-  --primary-subtle: oklch(0.3 0.06 256);
-  --primary-subtle-foreground: oklch(0.85 0.09 254);
+  --primary: oklch(0.71 0.14 252);
+  --primary-foreground: oklch(0.2 0.04 257);
+  --primary-subtle: oklch(0.37 0.07 256);
+  --primary-subtle-foreground: oklch(0.89 0.07 252);
 
   /* Neutral */
-  --neutral: oklch(0.3 0.02 257);
+  --neutral: oklch(0.375 0.02 256);
   --neutral-foreground: oklch(0.95 0.008 256);
-  --neutral-subtle: oklch(0.27 0.02 257);
-  --neutral-subtle-foreground: oklch(0.86 0.012 257);
+  --neutral-subtle: oklch(0.355 0.018 256);
+  --neutral-subtle-foreground: oklch(0.88 0.012 256);
+
+  /* Attention */
+  --attention: oklch(0.79 0.14 65);
+  --attention-foreground: oklch(0.24 0.05 55);
+  --attention-subtle: oklch(0.38 0.07 58);
+  --attention-subtle-foreground: oklch(0.9 0.1 72);
 
   /* Destructive */
-  --destructive: oklch(0.62 0.19 25);
-  --destructive-foreground: oklch(0.16 0.03 25);
-  --destructive-subtle: oklch(0.31 0.08 25);
-  --destructive-subtle-foreground: oklch(0.86 0.09 25);
+  --destructive: oklch(0.67 0.17 24);
+  --destructive-foreground: oklch(0.18 0.04 25);
+  --destructive-subtle: oklch(0.37 0.08 22);
+  --destructive-subtle-foreground: oklch(0.89 0.07 22);
 
   /* Success */
-  --success: oklch(0.68 0.15 152);
-  --success-foreground: oklch(0.16 0.03 152);
-  --success-subtle: oklch(0.29 0.06 152);
-  --success-subtle-foreground: oklch(0.86 0.1 152);
+  --success: oklch(0.73 0.14 155);
+  --success-foreground: oklch(0.2 0.04 155);
+  --success-subtle: oklch(0.36 0.06 158);
+  --success-subtle-foreground: oklch(0.89 0.09 155);
 
   /* Warning */
-  --warning: oklch(0.76 0.14 75);
-  --warning-foreground: oklch(0.18 0.03 75);
-  --warning-subtle: oklch(0.31 0.06 75);
-  --warning-subtle-foreground: oklch(0.88 0.1 82);
+  --warning: oklch(0.84 0.13 90);
+  --warning-foreground: oklch(0.24 0.05 85);
+  --warning-subtle: oklch(0.38 0.06 88);
+  --warning-subtle-foreground: oklch(0.91 0.1 92);
 
   /* Info */
-  --info: oklch(0.7 0.12 235);
-  --info-foreground: oklch(0.16 0.03 235);
-  --info-subtle: oklch(0.3 0.06 235);
-  --info-subtle-foreground: oklch(0.86 0.08 235);
+  --info: oklch(0.75 0.11 232);
+  --info-foreground: oklch(0.2 0.04 235);
+  --info-subtle: oklch(0.37 0.06 238);
+  --info-subtle-foreground: oklch(0.89 0.07 232);
+
+  /*
+   * The Map — dark-mode pairing of the block above `:root`. The canvas ground
+   * sits a step *below* the page (a recessed well the river runs through);
+   * the card around it is at card height, like every other panel.
+   */
+  --map-ground: oklch(0.255 0.02 245);
+  --map-ground-2: oklch(0.235 0.02 245);
+  --map-panel: oklch(0.295 0.019 256);
+  --map-panel-2: oklch(0.335 0.02 256);
+  --map-panel-3: oklch(0.37 0.021 256);
+  --map-ink-3: oklch(0.64 0.018 240);
+  --map-line: oklch(0.92 0.01 240 / 0.14);
+  --map-line-2: oklch(0.92 0.01 240 / 0.26);
+  --map-contour: oklch(0.8 0.035 200 / 0.09);
+  --map-flat: oklch(0.3 0.022 235);
+  --map-water: oklch(0.42 0.065 232);
+  --map-water-edge: oklch(0.54 0.075 218);
+  --map-flow: oklch(0.86 0.05 205 / 0.42);
+  --map-pool-attn: oklch(0.79 0.14 65);
+  --map-pool-block: oklch(0.72 0.15 18);
+  --map-ok: oklch(0.75 0.11 165);
+  --map-lane-1: oklch(0.7 0.14 258);
+  --map-lane-2: oklch(0.72 0.15 305);
+  --map-lane-3: oklch(0.74 0.13 150);
+  --map-lane-4: oklch(0.72 0.16 350);
+  --map-lane-5: oklch(0.76 0.1 200);
+  --map-lane-6: oklch(0.8 0.15 125);
+  --map-lane-7: oklch(0.66 0.13 280);
+  --map-lane-8: oklch(0.72 0.04 60);
 }
 
 /* ------------------------------------------------------------------ *
@@ -188,6 +295,14 @@
   --color-neutral-subtle: var(--neutral-subtle);
   --color-neutral-subtle-foreground: var(--neutral-subtle-foreground);
 
+  --color-highlight: var(--highlight);
+  --color-shadow: var(--shadow);
+
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-attention-subtle: var(--attention-subtle);
+  --color-attention-subtle-foreground: var(--attention-subtle-foreground);
+
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-subtle: var(--destructive-subtle);
@@ -207,6 +322,40 @@
   --color-info-foreground: var(--info-foreground);
   --color-info-subtle: var(--info-subtle);
   --color-info-subtle-foreground: var(--info-subtle-foreground);
+
+  /* The Map's own palette — see the `--map-*` block under `:root` / `.dark`. */
+  --color-map-ground: var(--map-ground);
+  --color-map-ground-2: var(--map-ground-2);
+  --color-map-panel: var(--map-panel);
+  --color-map-panel-2: var(--map-panel-2);
+  --color-map-panel-3: var(--map-panel-3);
+  --color-map-ink-3: var(--map-ink-3);
+  --color-map-line: var(--map-line);
+  --color-map-line-2: var(--map-line-2);
+  --color-map-contour: var(--map-contour);
+  --color-map-flat: var(--map-flat);
+  --color-map-water: var(--map-water);
+  --color-map-water-edge: var(--map-water-edge);
+  --color-map-flow: var(--map-flow);
+  --color-map-pool-attn: var(--map-pool-attn);
+  --color-map-pool-block: var(--map-pool-block);
+  --color-map-ok: var(--map-ok);
+  --color-map-lane-1: var(--map-lane-1);
+  --color-map-lane-2: var(--map-lane-2);
+  --color-map-lane-3: var(--map-lane-3);
+  --color-map-lane-4: var(--map-lane-4);
+  --color-map-lane-5: var(--map-lane-5);
+  --color-map-lane-6: var(--map-lane-6);
+  --color-map-lane-7: var(--map-lane-7);
+  --color-map-lane-8: var(--map-lane-8);
+
+  /*
+   * Elevation. `raised` is every resting card/panel; `floating` is popovers,
+   * drawers and hover-lifted cards. Both lead with a 1px inset top highlight —
+   * in dark mode that edge, not the drop shadow, is what reads as "lifted".
+   */
+  --shadow-raised: inset 0 1px 0 0 var(--highlight), 0 1px 2px 0 var(--shadow), 0 2px 8px -2px var(--shadow);
+  --shadow-floating: inset 0 1px 0 0 var(--highlight), 0 2px 6px -1px var(--shadow), 0 12px 32px -8px var(--shadow);
 
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;

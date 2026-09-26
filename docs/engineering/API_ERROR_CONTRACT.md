@@ -41,6 +41,10 @@ In the order of `API_ERROR_CODES` in `packages/contracts/src/errors.ts`. The `de
 | `NOT_CLAIM_HOLDER` | 409 | `heartbeat` by anyone but the holder, `release` by an agent that does not hold the claim, or either on a task that is not `in_progress` | `{ claimedBy, expiresAt }` when someone holds a live claim; absent otherwise |
 | `DEPENDENCY_CYCLE` | 409 | A new dependency (`POST …/dependencies`, or `blockedBy` on a transition) would close a loop | `{ path: number[] }` — the loop, starting and ending at the task being changed (`dependencyCycleDetailsSchema`) |
 | `NO_OPEN_DECISION` | 409 | `POST …/decision/answer` on a task that is not in `needs_user_decision` or has no open decision | — |
+| `INTEGRATION_NOT_CONFIGURED` | 404 | A GitHub integration route while neither `GITHUB_TOKEN` nor `GITHUB_WEBHOOK_SECRET` is set (the webhook route needs the secret specifically) | — |
+| `INVALID_WEBHOOK_SIGNATURE` | 401 | `POST /integrations/github/webhook` with a missing or wrong `X-Hub-Signature-256` | — |
+| `GITHUB_NOT_FOUND` | 404 | Issue import: GitHub has no such issue, or it is private and the token cannot see it | — |
+| `GITHUB_UNAVAILABLE` | 502 | Issue import: GitHub did not answer, answered with an error, or rate-limited the request | — |
 | `MALFORMED_JSON` | 400 | Body is not parseable JSON (`entity.parse.failed`) | — |
 | `PAYLOAD_TOO_LARGE` | 413 | Body over `BODY_LIMIT` (`entity.too.large`) | — |
 | `NOT_FOUND` | 404 | Unknown route or verb, or a resource missing on a path that did not check explicitly | — |

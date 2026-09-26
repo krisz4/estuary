@@ -1,19 +1,23 @@
-import { FilterX, Inbox, Plus } from "lucide-react";
+import { FilterX, GitPullRequest, Inbox, Plus } from "lucide-react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { Pagination } from "@/components/Pagination";
 import { Button } from "@/components/ui";
+import { useGithubIntegrationQuery } from "@/api/github";
 import { useTaskFacetsQuery, useTasksQuery } from "@/api/tasks";
 import { TaskCardList, TaskCardListSkeleton } from "@/features/tasks/TaskCardList";
 import { TaskFilterBar } from "@/features/tasks/TaskFilterBar";
 import { TaskTable, TaskTableSkeleton } from "@/features/tasks/TaskTable";
 import { ViewSwitch } from "@/features/tasks/ViewSwitch";
+import { GithubImportDialog } from "@/features/tasks/GithubImportDialog";
 import { cn } from "@/lib/cn";
 import { formatCount } from "@/lib/formatting";
 import { MD_BREAKPOINT_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useTaskListParams } from "@/pages/tasks-list/useTaskListParams";
+import { useRememberProjectScope } from "@/stores/projectScope";
 import { useRememberTaskView } from "@/stores/taskView";
 
 /**
@@ -38,7 +42,7 @@ export const TasksListPage = () => {
 
   /*
     The one piece of *user* state this screen records: which view they are in,
-    so a task opened from here comes back to here rather than to the board.
+    so a task opened from here comes back to here rather than to the map.
     The list's own state stays in the URL — see `stores/taskView.ts` for why
     the view is the exception.
   */
@@ -46,6 +50,7 @@ export const TasksListPage = () => {
 
   const { params, setPage, setPageSize, setSort, setFilters, clearFilters, activeFilterCount } =
     useTaskListParams();
+  useRememberProjectScope(params.project);
 
   /**
    * `md` decides which of two different components renders — not which of two
@@ -55,6 +60,10 @@ export const TasksListPage = () => {
 
   const facetsQuery = useTaskFacetsQuery();
   const tasksQuery = useTasksQuery(params);
+
+  const githubIntegrationQuery = useGithubIntegrationQuery();
+  const isGithubEnabled = githubIntegrationQuery.data?.enabled === true;
+  const [isImportOpen, setImportOpen] = useState(false);
 
   const { data, error, isPending, isFetching, isPlaceholderData, refetch } = tasksQuery;
 
@@ -91,12 +100,25 @@ export const TasksListPage = () => {
           </p>
         </div>
 
-        {/*
-          The switch carries the current search string to `/tasks/board`, which
-          reads the same filters out of the URL — see `ViewSwitch`.
-        */}
-        <ViewSwitch />
+        <div className="flex items-center gap-2">
+          {isGithubEnabled ? (
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <GitPullRequest aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">Import issue</span>
+            </Button>
+          ) : null}
+
+          {/*
+            The switch carries the current search string to `/tasks/map`,
+            which reads the same filters out of the URL — see `ViewSwitch`.
+          */}
+          <ViewSwitch />
+        </div>
       </header>
+
+      {isGithubEnabled ? (
+        <GithubImportDialog open={isImportOpen} onOpenChange={setImportOpen} />
+      ) : null}
 
       <TaskFilterBar
         params={params}
@@ -143,9 +165,14 @@ export const TasksListPage = () => {
           className={cn("transition-opacity", isRefreshing && "opacity-60")}
         >
           {isWide ? (
-            <TaskTable tasks={tasks} sort={params.sort} onSortChange={setSort} />
+            <TaskTable
+              tasks={tasks}
+              sort={params.sort}
+              onSortChange={setSort}
+              searchQuery={params.q}
+            />
           ) : (
-            <TaskCardList tasks={tasks} />
+            <TaskCardList tasks={tasks} searchQuery={params.q} />
           )}
         </div>
       )}

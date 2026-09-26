@@ -7,6 +7,8 @@ import {
   TASK_SORT_FIELDS,
   taskListQuerySchema,
   taskStatsQuerySchema,
+  parseSearchTerms,
+  TASK_Q_MAX_TERMS,
 } from "./task-query.js";
 import { buildPaginationMeta, MAX_PAGE, MAX_PAGE_SIZE } from "./pagination.js";
 import { TASK_STATUSES } from "./task.js";
@@ -368,7 +370,9 @@ describe("paginatedTasksSchema", () => {
           assignee: null,
           acceptanceCriteria: "All five tools callable from Claude Code.",
           links: [],
+          labels: [],
           parentId: null,
+          childCount: 0,
           createdBy: "human:krisz",
           claim: { actor: "agent:claude-code", expiresAt: "2026-09-20T10:30:00.000Z" },
           version: 3,
@@ -392,5 +396,41 @@ describe("paginatedTasksSchema", () => {
       meta: buildPaginationMeta({ page: 1, pageSize: 20, total: 1 }),
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("parseSearchTerms", () => {
+  it("splits on whitespace and keeps quoted phrases whole", () => {
+    expect(parseSearchTerms('"page resets" board')).toEqual(["page resets", "board"]);
+    expect(parseSearchTerms("pagination  reset")).toEqual(["pagination", "reset"]);
+  });
+
+  it("dedupes case-insensitively, runs an unterminated quote to the end, and caps the count", () => {
+    expect(parseSearchTerms("Board board")).toEqual(["Board"]);
+    expect(parseSearchTerms('"open ended')).toEqual(["open ended"]);
+    expect(parseSearchTerms("a b c d e f g h i j")).toHaveLength(TASK_Q_MAX_TERMS);
+  });
+});
+
+describe("taskListQuerySchema — relation filters", () => {
+  it("parses parentIsNull, dependsOn, dependencyOf, and label", () => {
+    const parsed = taskListQuerySchema.parse({
+      parentIsNull: "true",
+      dependsOn: "4",
+      dependencyOf: "18",
+      label: ["Web", "api"],
+    });
+    expect(parsed).toMatchObject({
+      parentIsNull: true,
+      dependsOn: 4,
+      dependencyOf: 18,
+      label: ["web", "api"],
+    });
+  });
+
+  it("refuses parentId together with parentIsNull", () => {
+    expect(taskListQuerySchema.safeParse({ parentId: "3", parentIsNull: "false" }).success).toBe(
+      false,
+    );
   });
 });

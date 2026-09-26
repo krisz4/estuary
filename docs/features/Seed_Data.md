@@ -32,6 +32,7 @@ status: canonical
 | `createdAt` | Spread over the last 60 days (about 1 to 58 days old). Rows are inserted oldest-first, so task numbers run in chronological order and `TASK-000001` is the oldest |
 | Subtasks | Three parents with three children each (`parentId`): the MCP server, PDF rendering, offline mode |
 | Links | 21 tasks carry PR/branch links under `https://github.com/example-org/<project>/…`: every `needs_qa` and `done` task, plus a couple of `needs_user_action` tasks with a PR |
+| Labels | Not every task has one. `helpdesk`-project tasks get a workspace slug (`web`, `api`, `contracts`, `mcp`, `db`, `docs` — that project mirrors this monorepo); any task whose title is about a bug/flaky-test/perf issue gets that kind label too. Exercises `?label=` and the facets `labels` list — see [Labels.md](./Labels.md) |
 | `idempotencyKey` | On every agent-created task, `<agent-name>:<project>:<slug>` (for example `claude-code:billing-service:vies-client`), unique |
 
 ### Status distribution

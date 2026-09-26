@@ -392,6 +392,9 @@ async function readNextCandidates(input: NextTaskInput, now: Date) {
       AND: [
         { OR: [claimableTodo, claimableAbandoned(now)] },
         input.project === undefined ? {} : { project: { in: input.project } },
+        // Only tasks carrying at least one of these labels — how an agent in
+        // one workspace of a monorepo asks for that workspace's work.
+        input.label === undefined ? {} : { labels: { some: { label: { in: input.label } } } },
         input.minPriority === undefined
           ? {}
           : { priorityRank: { gte: PRIORITY_RANK[input.minPriority] } },

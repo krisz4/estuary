@@ -1,5 +1,6 @@
 import {
   parseReference,
+  parseSearchTerms,
   type PaginatedTasks,
   type TaskListQuery,
   type TaskSort,
@@ -120,9 +121,16 @@ const LIKE_METACHARACTERS = new RegExp(`[%_${escapeRegExp(LIKE_ESCAPE_CHAR)}]`);
 export const needsEscapedSearch = (q: string): boolean => LIKE_METACHARACTERS.test(q);
 
 /**
- * Resolves `q` to a set of task ids with a raw, parameterized `LIKE … ESCAPE`.
+ * Resolves one search **term** to a set of task ids with a raw, parameterized
+ * `LIKE … ESCAPE`.
  *
- * Called only for a `q` that `needsEscapedSearch()` — see the equivalence above.
+ * Called only for a term that `needsEscapedSearch()` — see the equivalence
+ * above. `q` is one or more terms (`parseSearchTerms`), ANDed together by
+ * `buildWhere`; this function answers "which tasks does *this* term match" —
+ * a task matches a term if it appears in the title, description, acceptance
+ * criteria, status note, links (the raw JSON string is enough — a URL or a
+ * link label inside it is exactly the kind of thing worth finding), or the
+ * body of any comment on the task.
  *
  * **Why raw SQL for something Prisma has an operator for.** `contains` compiles
  * to `LIKE ?` with **no `ESCAPE` clause**, and with no escape clause SQLite has
@@ -135,12 +143,16 @@ export const needsEscapedSearch = (q: string): boolean => LIKE_METACHARACTERS.te
  *
  * The pattern is a **bound parameter**, never interpolated. `$queryRaw` is used
  * as a tagged template so that is enforced by construction rather than by care.
+ * The comment join is a plain `LEFT JOIN` with `DISTINCT`, not a subquery per
+ * field: SQLite has one query planner either way, and a `LEFT JOIN` keeps a
+ * task with no comments (`c.body` is then `NULL`, and `NULL LIKE …` is `NULL`,
+ * never true) matching on its own columns exactly as before.
  *
  * **The id set is unbounded, and that is a hard ceiling, not just a slope.** A
- * `q` matching every row materialises every id, and those ids come back as one
+ * term matching every row materialises every id, and those ids come back as one
  * `WHERE id IN (?,?,…)` — one bind parameter each. SQLite's
  * `SQLITE_MAX_VARIABLE_NUMBER` is 32766 on modern builds (999 on pre-3.32 ones),
- * so a table large enough for a broad `q` to match more rows than that would
+ * so a table large enough for a broad term to match more rows than that would
  * fail the query outright rather than merely run slowly. It also costs the
  * ordering index: an `id IN (…)` page plans as `SEARCH … USING INTEGER PRIMARY
  * KEY` plus a `USE TEMP B-TREE FOR ORDER BY`, where the unfiltered page walks
@@ -154,9 +166,9 @@ export const needsEscapedSearch = (q: string): boolean => LIKE_METACHARACTERS.te
  */
 export async function resolveTextSearch(
   client: Pick<Prisma.TransactionClient, "$queryRaw">,
-  q: string,
+  term: string,
 ): Promise<number[]> {
-  const pattern = `%${escapeLikePattern(q)}%`;
+  const pattern = `%${escapeLikePattern(term)}%`;
 
   /**
    * **`ESCAPE '!'` is a hand-maintained copy of `LIKE_ESCAPE_CHAR`, and it has
@@ -167,7 +179,7 @@ export async function resolveTextSearch(
    * bound parameter by construction.
    *
    * So the coupling is real and it is manual: **change `LIKE_ESCAPE_CHAR` and
-   * you must change both literals below.** Left out of step, `escapeLikePattern`
+   * you must change every literal below.** Left out of step, `escapeLikePattern`
    * emits (say) `#%` while SQLite still treats `!` as the escape character, so
    * `#` and `%` both reach `LIKE` as ordinary characters and every wildcard
    * search silently returns zero rows with `meta.total: 0` — no error, no log.
@@ -176,9 +188,15 @@ export async function resolveTextSearch(
    * fails a test rather than a user's search.
    */
   const rows = await client.$queryRaw<{ id: number }[]>`
-    SELECT id FROM "Task"
-    WHERE title LIKE ${pattern} ESCAPE '!'
-       OR description LIKE ${pattern} ESCAPE '!'
+    SELECT DISTINCT t.id AS id
+    FROM "Task" t
+    LEFT JOIN "Comment" c ON c."taskId" = t.id
+    WHERE t.title LIKE ${pattern} ESCAPE '!'
+       OR t.description LIKE ${pattern} ESCAPE '!'
+       OR t.acceptanceCriteria LIKE ${pattern} ESCAPE '!'
+       OR t.statusNote LIKE ${pattern} ESCAPE '!'
+       OR t.links LIKE ${pattern} ESCAPE '!'
+       OR c.body LIKE ${pattern} ESCAPE '!'
   `;
 
   return rows.map((row) => Number(row.id));
@@ -190,28 +208,82 @@ export type TaskWhereQuery = Pick<
   | "status"
   | "priority"
   | "project"
+  | "label"
   | "assignee"
   | "assigneeIsNull"
   | "createdBy"
   | "claimedBy"
   | "parentId"
+  | "parentIsNull"
+  | "dependsOn"
+  | "dependencyOf"
   | "q"
   | "createdFrom"
   | "createdTo"
 >;
 
 /**
+ * The task ids each `q` term (that needed the escaped raw path) resolved to,
+ * keyed by the term itself. Built once per request by `listTasks`, outside the
+ * batch transaction — see its own doc comment — and handed to `buildWhere`,
+ * which is otherwise pure and knows nothing about `$queryRaw`.
+ */
+export type TermMatches = ReadonlyMap<string, number[]>;
+
+/**
+ * The `OR` branches one search **term** contributes to the query: every field a
+ * task can match on, plus the task itself when the term parses as a reference.
+ * Shared between the `contains` fast path and the escaped raw path so the two
+ * stay in the same field list by construction.
+ */
+function termBranches(term: string, termMatches: TermMatches | undefined): Prisma.TaskWhereInput[] {
+  const escaped = needsEscapedSearch(term);
+
+  if (escaped && (termMatches === undefined || !termMatches.has(term))) {
+    // A programmer error, and one that would otherwise turn user input back
+    // into live `LIKE` pattern syntax — the bug the raw path exists to fix.
+    throw new Error(
+      "buildWhere: a `q` term carrying LIKE metacharacters must be given its matchedIds",
+    );
+  }
+
+  const branches: Prisma.TaskWhereInput[] = escaped
+    ? // The resolved id set already covers every field `resolveTextSearch`
+      // checks (see its doc comment): title, description, acceptance
+      // criteria, status note, links, and comment bodies.
+      [{ id: { in: termMatches!.get(term)! } }]
+    : [
+        { title: { contains: term } },
+        { description: { contains: term } },
+        { acceptanceCriteria: { contains: term } },
+        { statusNote: { contains: term } },
+        { links: { contains: term } },
+        { comments: { some: { body: { contains: term } } } },
+      ];
+
+  // A term that parses as a reference (`TASK-42`, `task-000042`, `#42`, `42`)
+  // also matches that id exactly, so pasting a task number into search finds
+  // it even inside a longer query.
+  const referenceId = parseReference(term);
+  if (referenceId !== null) branches.push({ id: referenceId });
+
+  return branches;
+}
+
+/**
  * Translates parsed query params into a Prisma `where`.
  *
  * **Shape is the whole point.** Every filter is a separate entry in one
- * top-level `AND`, and `q` contributes exactly **one entry** — an `OR` group
- * nested inside that `AND`. Hoisting the `q` branches up to the top level is the
- * classic bug here: `title contains "vpn"` sitting beside the status filter as a
+ * top-level `AND`, and `q` contributes **one entry per term** (`parseSearchTerms`)
+ * — every term must match (that is the AND across terms), and each is an `OR`
+ * group nested inside the outer `AND` (that is what lets one term match via
+ * *any* field). Hoisting a term's branches up to the top level is the classic
+ * bug here: `title contains "vpn"` sitting beside the status filter as a
  * sibling `OR` makes search *widen* the result set past the active filters
  * instead of narrowing it, so a `resolved` task appears in a view filtered to
  * `open`. `docs/engineering/TESTING.md` requires a test for precisely that.
  *
- * Three translations that are not one-to-one with the param name:
+ * Four translations that are not one-to-one with the param name:
  *
  * 1. **`status` / `priority` filter on the rank column *and* the text column.**
  *    The rank term is the one an index can serve —
@@ -245,13 +317,25 @@ export type TaskWhereQuery = Pick<
  *    in one direction is a trap for anyone who ever sends `false` explicitly.
  *    It is mutually exclusive with `assignee`, which the query schema enforces.
  * 3. **`createdTo`** expands to an exclusive next-day bound (see above).
+ * 4. **`dependsOn` / `dependencyOf`** read the two ends of `TaskDependency` in
+ *    opposite directions. `dependsOn=<id>` answers "who waits on id" — tasks
+ *    with a dependency row *pointing at* id, i.e. id's dependents, which on the
+ *    `Task` model is the `dependencies` relation (`taskId` = the row this filter
+ *    is choosing, `dependsOnId` = `id`). `dependencyOf=<id>` answers "what does
+ *    id wait on" — tasks named by one of id's own dependency rows, which is the
+ *    `dependents` relation (`taskId` = `id`, `dependsOnId` = the row this filter
+ *    is choosing). The names are deliberately the mirror of the relation they
+ *    read, because they describe the *other* task's role, not this one's.
  *
  * No `mode: "insensitive"` anywhere — the SQLite connector does not support it.
  * Exact-match filters compare canonical values instead: `category` is an enum,
  * `requesterEmail` is lowercased by the schema and stored lowercase, and
- * `assignee` options come from `GET /tasks/facets`.
+ * `assignee` / `label` options come from `GET /tasks/facets`.
  */
-export function buildWhere(query: TaskWhereQuery, matchedIds?: number[]): Prisma.TaskWhereInput {
+export function buildWhere(
+  query: TaskWhereQuery,
+  termMatches?: TermMatches,
+): Prisma.TaskWhereInput {
   const clauses: Prisma.TaskWhereInput[] = [];
 
   if (query.status !== undefined) {
@@ -268,6 +352,9 @@ export function buildWhere(query: TaskWhereQuery, matchedIds?: number[]): Prisma
   }
   if (query.project !== undefined) {
     clauses.push({ project: { in: query.project } });
+  }
+  if (query.label !== undefined) {
+    clauses.push({ labels: { some: { label: { in: query.label } } } });
   }
 
   if (query.assignee !== undefined) {
@@ -286,6 +373,15 @@ export function buildWhere(query: TaskWhereQuery, matchedIds?: number[]): Prisma
   if (query.parentId !== undefined) {
     clauses.push({ parentId: query.parentId });
   }
+  if (query.parentIsNull !== undefined) {
+    clauses.push({ parentId: query.parentIsNull ? null : { not: null } });
+  }
+  if (query.dependsOn !== undefined) {
+    clauses.push({ dependencies: { some: { dependsOnId: query.dependsOn } } });
+  }
+  if (query.dependencyOf !== undefined) {
+    clauses.push({ dependents: { some: { taskId: query.dependencyOf } } });
+  }
 
   if (query.createdFrom !== undefined) {
     clauses.push({ createdAt: { gte: startOfUtcDay(query.createdFrom) } });
@@ -295,30 +391,13 @@ export function buildWhere(query: TaskWhereQuery, matchedIds?: number[]): Prisma
   }
 
   if (query.q !== undefined) {
-    if (matchedIds === undefined && needsEscapedSearch(query.q)) {
-      // A programmer error, and one that would otherwise turn user input back
-      // into live `LIKE` pattern syntax — the bug the raw path exists to fix.
-      throw new Error(
-        "buildWhere: a `q` carrying LIKE metacharacters must be given its matchedIds",
-      );
+    // One entry per term, each nested. Not spread into `clauses` — that is
+    // what would make search widen past the active filters instead of
+    // narrowing within them, and what would turn "every term must match" into
+    // "any term may match".
+    for (const term of parseSearchTerms(query.q)) {
+      clauses.push({ OR: termBranches(term, termMatches) });
     }
-
-    // Two spellings of the same query. `contains` for a term escaping would not
-    // change (see `needsEscapedSearch`), which keeps the ordering index and has
-    // no id list; the resolved id set for a term carrying `%`, `_`, or `!`.
-    const branches: Prisma.TaskWhereInput[] =
-      matchedIds === undefined
-        ? [{ title: { contains: query.q } }, { description: { contains: query.q } }]
-        : [{ id: { in: matchedIds } }];
-
-    // A `q` that parses as a reference (`TASK-42`, `task-000042`, `#42`, `42`) also
-    // matches that id exactly, so pasting a task number into search finds it.
-    const referenceId = parseReference(query.q);
-    if (referenceId !== null) branches.push({ id: referenceId });
-
-    // One entry, nested. Not spread into `clauses` — that is what would make
-    // search widen past the active filters instead of narrowing within them.
-    clauses.push({ OR: branches });
   }
 
   return clauses.length === 0 ? {} : { AND: clauses };
@@ -344,6 +423,14 @@ const SORT_COLUMN: Record<TaskSort["field"], keyof Prisma.TaskOrderByWithRelatio
   title: "title",
   status: "statusRank",
   priority: "priorityRank",
+  // Null for every open task. SQLite has no explicit NULLS FIRST/LAST (Prisma's
+  // `nulls:` option is not supported on this connector), so this rides SQLite's
+  // native rule instead: NULL sorts as the lowest possible value. Ascending
+  // puts every open task before the first completed one; descending — the
+  // archive's default, newest-completed first — puts them all *after* the
+  // completed ones, which is the reading a "completed" sort implies: open work
+  // has not completed at all, so it belongs past the ones that have.
+  completedAt: "completedAt",
 };
 
 /**
@@ -375,24 +462,33 @@ export function buildOrderBy(sort: TaskSort): Prisma.TaskOrderByWithRelationInpu
  * the count yields a `meta.total` that disagrees with the page it describes — a
  * pager reporting 21 results over one page of 20 with no second page to visit.
  *
- * The `q` prefilter — taken only for a term carrying a `LIKE` metacharacter —
- * runs **before** that batch, not inside it: reads never open an interactive
- * transaction (`lib/prisma.ts`). The page and the count still agree with each
- * other, because both filter by the same resolved id set; a task created after
- * the prefilter ran is simply absent from both until the next request.
+ * The `q` prefilter — taken only for each **term** carrying a `LIKE`
+ * metacharacter — runs **before** that batch, not inside it: reads never open
+ * an interactive transaction (`lib/prisma.ts`). The page and the count still
+ * agree with each other, because both filter by the same resolved id sets; a
+ * task created after the prefilter ran is simply absent from both until the
+ * next request.
  *
  * Returns serialized contract types, not Prisma rows: stage 8's route sends what
  * this returns and therefore cannot forget `serialize.ts`.
  */
 export async function listTasks(query: TaskListQuery): Promise<PaginatedTasks> {
-  // The raw prefilter is the exception, not the rule: only a `q` carrying a
-  // `LIKE` metacharacter needs it, and only that `q` pays for it.
-  const matchedIds =
-    query.q !== undefined && needsEscapedSearch(query.q)
-      ? await resolveTextSearch(prisma, query.q)
-      : undefined;
+  // The raw prefilter is the exception, not the rule: only a term carrying a
+  // `LIKE` metacharacter needs it, and only that term pays for it. Distinct
+  // terms only — `parseSearchTerms` already dedupes case-insensitively, but a
+  // term repeated with different casing would otherwise resolve twice.
+  const escapedTerms =
+    query.q === undefined ? [] : parseSearchTerms(query.q).filter(needsEscapedSearch);
+  const termMatches: TermMatches = new Map(
+    await Promise.all(
+      escapedTerms.map(async (term): Promise<[string, number[]]> => [
+        term,
+        await resolveTextSearch(prisma, term),
+      ]),
+    ),
+  );
 
-  const where = buildWhere(query, matchedIds);
+  const where = buildWhere(query, termMatches);
 
   const [rows, total] = await prisma.$transaction([
     prisma.task.findMany({

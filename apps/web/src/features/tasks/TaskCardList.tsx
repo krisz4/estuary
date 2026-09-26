@@ -4,6 +4,8 @@ import { Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatAbsolute, formatRelative, toDateTimeAttribute } from "@/lib/formatting";
 import { ActorBadge } from "@/features/tasks/ActorBadge";
+import { HighlightText } from "@/features/tasks/HighlightText";
+import { LabelChips } from "@/features/tasks/LabelChips";
 import { PRIORITY_STRIPE, PriorityBadge } from "@/features/tasks/PriorityBadge";
 import { StatusBadge } from "@/features/tasks/StatusBadge";
 import { TaskRowMeta } from "@/features/tasks/TaskTable";
@@ -25,9 +27,11 @@ import { TaskRowMeta } from "@/features/tasks/TaskTable";
 
 export type TaskCardListProps = {
   tasks: TaskSummary[];
+  /** The active search, for highlighting matched terms in the title. */
+  searchQuery?: string | undefined;
 };
 
-export const TaskCardList = ({ tasks }: TaskCardListProps) => {
+export const TaskCardList = ({ tasks, searchQuery }: TaskCardListProps) => {
   /*
     The search string the list is rendered under, carried into the detail page's
     history state so its "Back to tasks" link returns to *this* filtered,
@@ -45,7 +49,7 @@ export const TaskCardList = ({ tasks }: TaskCardListProps) => {
             to={`/tasks/${task.id}`}
             state={{ from: search }}
             className={cn(
-              "flex flex-col gap-2 rounded-lg border border-l-4 border-border bg-card p-3",
+              "flex flex-col gap-2 rounded-lg border border-l-4 border-border bg-card p-3 shadow-raised",
               "transition-colors hover:bg-muted/40",
               PRIORITY_STRIPE[task.priority],
             )}
@@ -61,7 +65,16 @@ export const TaskCardList = ({ tasks }: TaskCardListProps) => {
               </time>
             </div>
 
-            <p className="line-clamp-2 text-sm font-medium text-foreground">{task.title}</p>
+            <p className="line-clamp-2 text-sm font-medium text-foreground">
+              <HighlightText text={task.title} query={searchQuery} />
+            </p>
+
+            {/*
+              Plain, unlinked chips here — the whole card is already an `<a>`,
+              and a link cannot nest inside one. The table row (where the title
+              and reference are their own links) is where a label is clickable.
+            */}
+            <LabelChips labels={task.labels} />
 
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={task.status} />
@@ -88,7 +101,7 @@ export const TaskCardListSkeleton = ({ rows = 6 }: { rows?: number }) => (
     {Array.from({ length: rows }, (_, index) => (
       <div
         key={index}
-        className="flex flex-col gap-2 rounded-lg border border-l-4 border-border bg-card p-3"
+        className="flex flex-col gap-2 rounded-lg border border-l-4 border-border bg-card p-3 shadow-raised"
       >
         <div className="flex justify-between gap-2">
           <Skeleton className="h-3 w-20" />

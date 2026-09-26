@@ -1,4 +1,10 @@
-import { type TaskListQueryInput } from "@helpdesk/contracts";
+import {
+  type EventsQueryInput,
+  type FloorQueryInput,
+  type HistoryQueryInput,
+  type TaskListQueryInput,
+  type TaskStatsQuery,
+} from "@helpdesk/contracts";
 
 /**
  * Every TanStack Query key in the app.
@@ -19,6 +25,7 @@ import { type TaskListQueryInput } from "@helpdesk/contracts";
  *     ["tasks","detail",42]          ← tasks.detail()
  *   ["tasks","facets"]               ← tasks.facets()
  *   ["tasks","stats"]                ← tasks.stats()  count per status + inbox badge
+ *     ["tasks","stats",{project}]    ← tasks.statsFor() one project scope's counts
  * ["events"]                         ← events.all     the activity feed
  *   ["events",{taskId:42}]           ← events.task()  one task's timeline
  * ```
@@ -40,7 +47,7 @@ import { type TaskListQueryInput } from "@helpdesk/contracts";
  * | Delete | `lists()` + `facets()` + `stats()` + `events` | Plus `detail(id)` marked stale with `refetchType: "none"` — see `useDeleteTaskMutation` for why refetching it would be a guaranteed 404 |
  *
  * The workflow row is worth the extra lines rather than folding into `all`: the
- * board keeps a facets observer mounted, so `all` there is a `GET /tasks/facets`
+ * map keeps a facets observer mounted, so `all` there is a `GET /tasks/facets`
  * per drag that cannot return anything new.
  */
 export const queryKeys = {
@@ -57,10 +64,38 @@ export const queryKeys = {
     detail: (taskId: number) => [...queryKeys.tasks.details(), taskId] as const,
     facets: () => [...queryKeys.tasks.all, "facets"] as const,
     stats: () => [...queryKeys.tasks.all, "stats"] as const,
+    /** Counts for one scope. Under `stats()`, so every existing invalidation covers it. */
+    statsFor: (query: TaskStatsQuery) => [...queryKeys.tasks.stats(), query] as const,
+    /**
+     * `GET /floor` — under `tasks.all` (not its own top-level family), so every
+     * existing task-write invalidation (`tasks.all`, `invalidateAfterWorkflowWrite`)
+     * refreshes the floor for free — a transition made from the floor's own
+     * drawer, or from the detail page, or by an agent whose write we polled into
+     * view, all land the same way.
+     */
+    floor: (query: FloorQueryInput) => [...queryKeys.tasks.all, "floor", query] as const,
   },
   events: {
     all: ["events"] as const,
     task: (taskId: number) => [...queryKeys.events.all, { taskId }] as const,
+    /**
+     * The Logbook's event log — `order=desc`, paged backwards with `before`.
+     * The filter set (project/actor/type/range) is part of the key, same
+     * reasoning as `tasks.list()`.
+     */
+    log: (params: EventsQueryInput) => [...queryKeys.events.all, "log", params] as const,
+  },
+  history: {
+    all: ["history"] as const,
+    /** `GET /stats/history` for one scope + range + bucket. */
+    query: (params: HistoryQueryInput) => [...queryKeys.history.all, params] as const,
+  },
+  github: {
+    all: ["github"] as const,
+    /** `GET /integrations/github` — whether the integration is switched on. */
+    status: () => [...queryKeys.github.all, "status"] as const,
+    /** `GET /tasks/:taskId/github` — live state of one task's GitHub links. */
+    taskStatus: (taskId: number) => [...queryKeys.github.all, "task", taskId] as const,
   },
 } as const;
 

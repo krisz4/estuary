@@ -26,7 +26,7 @@ import { API_BASE_URL } from "./env";
  *
  * Fixtures are built over the **API**, not through the UI. `create-task.spec.ts`
  * is the one that proves the form works; the others are about transitions,
- * the inbox, the board, and deletion, and driving the form to get there would
+ * the inbox, the map, and deletion, and driving the form to get there would
  * make them fail for a reason they are not testing.
  *
  * The API helpers also play the **agent**. The product is a task manager that

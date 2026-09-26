@@ -18,3 +18,6 @@ export * from "./task.js";
 export * from "./task-query.js";
 export * from "./task-workflow.js";
 export * from "./event.js";
+export * from "./github.js";
+export * from "./floor.js";
+export * from "./history.js";

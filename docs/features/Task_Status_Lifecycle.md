@@ -91,7 +91,7 @@ Applied in the same write as the status:
 
 ## UI mapping
 
-Badges always render the text label; colour never carries the meaning alone ([../engineering/UI_DESIGN_GUIDELINES.md](../engineering/UI_DESIGN_GUIDELINES.md)). The board groups columns by lane (Plan, Doing, Waiting, Closed; Closed collapsed by default). Dropping a card on a status that needs payload opens the transition dialog; cancelling it puts the card back.
+Badges always render the text label; colour never carries the meaning alone ([../engineering/UI_DESIGN_GUIDELINES.md](../engineering/UI_DESIGN_GUIDELINES.md)). Moving to a status that needs payload opens the transition dialog, from the detail page's picker, the inbox, or the map; cancelling it puts the task back where it was.
 
 No client keeps its own copy of these rules beyond the shared contract: the web dialog asks for the fields `transitionInputSchema` requires for the target status, and server `VALIDATION_ERROR` details map back onto them.
 
@@ -110,4 +110,4 @@ No client keeps its own copy of these rules beyond the shared contract: the web 
 
 - [Task_Workflow_API.md](./Task_Workflow_API.md) — every endpoint and the cross-cutting rules
 - [Actors.md](./Actors.md) — who counts as an agent
-- [../pages/Tasks_Board.md](../pages/Tasks_Board.md), [../pages/Inbox.md](../pages/Inbox.md)
+- [../pages/Tasks_Map.md](../pages/Tasks_Map.md), [../pages/Inbox.md](../pages/Inbox.md)

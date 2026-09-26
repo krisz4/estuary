@@ -11,6 +11,8 @@ import { cn } from "@/lib/cn";
 import { formatAbsolute, formatRelative, toDateTimeAttribute } from "@/lib/formatting";
 import { ActorBadge } from "@/features/tasks/ActorBadge";
 import { ClaimIndicator } from "@/features/tasks/ClaimIndicator";
+import { HighlightText } from "@/features/tasks/HighlightText";
+import { LabelChips } from "@/features/tasks/LabelChips";
 import { PriorityBadge } from "@/features/tasks/PriorityBadge";
 import { StatusBadge } from "@/features/tasks/StatusBadge";
 
@@ -72,9 +74,11 @@ export type TaskTableProps = {
   tasks: TaskSummary[];
   sort: TaskSort;
   onSortChange: (sort: TaskSort) => void;
+  /** The active search, for highlighting matched terms in the title column. */
+  searchQuery?: string | undefined;
 };
 
-export const TaskTable = ({ tasks, sort, onSortChange }: TaskTableProps) => {
+export const TaskTable = ({ tasks, sort, onSortChange, searchQuery }: TaskTableProps) => {
   /*
     The search string this list is rendered under, carried into the detail page's
     history state so its "Back to tasks" link returns to *this* filtered,
@@ -85,7 +89,7 @@ export const TaskTable = ({ tasks, sort, onSortChange }: TaskTableProps) => {
   const { search } = useLocation();
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
+    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-raised">
       <table className="w-full table-fixed border-collapse text-sm">
         <caption className="sr-only">
           Tasks, sorted by {sort.field} {DIRECTION_LABEL[sort.direction]}
@@ -142,9 +146,16 @@ export const TaskTable = ({ tasks, sort, onSortChange }: TaskTableProps) => {
                   state={{ from: search }}
                   className="text-foreground hover:underline"
                 >
-                  <span className="line-clamp-2">{task.title}</span>
+                  <span className="line-clamp-2">
+                    <HighlightText text={task.title} query={searchQuery} />
+                  </span>
                 </Link>
-                <TaskRowMeta task={task} />
+                <LabelChips
+                  labels={task.labels}
+                  linkTo={(label) => `/tasks?label=${encodeURIComponent(label)}`}
+                  className="mt-1"
+                />
+                <TaskRowMeta task={task} linkSubtasks />
               </td>
 
               <td className="px-3 py-3">
@@ -190,12 +201,38 @@ export const TaskTable = ({ tasks, sort, onSortChange }: TaskTableProps) => {
  *
  * Only what is *true* is drawn — a task with no claim, no open dependencies,
  * no question and no comments gets no line at all. These are the facts an
- * agent-driven board changes most, and the ones a human scanning the list is
- * looking for.
+ * agent-driven task list changes most, and the ones a human scanning the list
+ * is looking for.
  */
-export const TaskRowMeta = ({ task }: { task: TaskSummary }) => {
+export const TaskRowMeta = ({
+  task,
+  linkSubtasks = false,
+}: {
+  task: TaskSummary;
+  /**
+   * `true` only where this is **not** nested inside another `<a>` — the table
+   * row (the reference and title cells are their own links, this text sits in
+   * a plain `<td>`). The mobile card wraps its whole body in one link, so
+   * there the count renders as plain text; a nested `<a>` is invalid HTML.
+   */
+  linkSubtasks?: boolean;
+}) => {
+  const subtaskLabel = `${task.childCount} ${task.childCount === 1 ? "subtask" : "subtasks"}`;
+
   const parts = [
     task.claim === null ? null : <ClaimIndicator key="claim" claim={task.claim} />,
+    task.childCount === 0 ? null : linkSubtasks ? (
+      <Link
+        key="subtasks"
+        to={`/tasks?parentId=${task.id}`}
+        onClick={(event) => event.stopPropagation()}
+        className="hover:text-foreground hover:underline"
+      >
+        {subtaskLabel}
+      </Link>
+    ) : (
+      <span key="subtasks">{subtaskLabel}</span>
+    ),
     task.openDependencyCount === 0 ? null : (
       <span key="deps">
         Waits on {task.openDependencyCount} {task.openDependencyCount === 1 ? "task" : "tasks"}
@@ -272,7 +309,7 @@ const SortButton = ({
  * data lands and nothing jumps.
  */
 export const TaskTableSkeleton = ({ rows = 8 }: { rows?: number }) => (
-  <div className="overflow-hidden rounded-lg border border-border">
+  <div className="overflow-hidden rounded-lg border border-border bg-card shadow-raised">
     <table className="w-full table-fixed border-collapse text-sm">
       <caption className="sr-only">Loading tasks</caption>
       <thead className="bg-muted/60">

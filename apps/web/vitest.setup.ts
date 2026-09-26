@@ -2,8 +2,11 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import { harnessFaults, server } from "./src/test/server";
+import { resetProjectScopeStore } from "./src/stores/projectScope";
 import { resetTaskViewStore } from "./src/stores/taskView";
 import { resetSessionStore } from "./src/stores/session";
+import { resetLogbookVisitStore } from "./src/stores/logbookVisit";
+import { resetMapVisitStore } from "./src/stores/mapVisit";
 
 /**
  * Vitest runs with `globals: false`, so React Testing Library's automatic
@@ -12,6 +15,19 @@ import { resetSessionStore } from "./src/stores/session";
  */
 afterEach(() => {
   cleanup();
+  // After `cleanup()`, not with the stores below: the header's inbox badge reads
+  // this store, and after-hooks run in reverse, so a reset there would re-render
+  // a still-mounted header into a fresh stats request after MSW's handlers
+  // were already reset — an unhandled request charged to the next test.
+  resetProjectScopeStore();
+  // Also after `cleanup()`, and in this same hook rather than the one below:
+  // `useLastVisit`'s unmount effect writes "now" to this store, and after-hooks
+  // run in reverse — so a reset registered in a *later* `afterEach` would fire
+  // *before* this one's `cleanup()` unmounts the Logbook, leaving the write to
+  // land after the reset and leak "now" into the next test as a stale visit.
+  resetLogbookVisitStore();
+  // Same reasoning, same fix, separate store — see `stores/mapVisit.ts`.
+  resetMapVisitStore();
 });
 
 /**
@@ -166,3 +182,64 @@ export const setViewportWidth = (width: number): void => {
   Object.defineProperty(window, "innerWidth", { value: width, configurable: true, writable: true });
   window.dispatchEvent(new Event("resize"));
 };
+
+/**
+ * jsdom implements no `ResizeObserver` at all (unlike a real browser), and the
+ * Map (`/tasks/map`) measures its own canvas pane with one on every mount —
+ * so without a stub, mounting that page under test throws
+ * `ResizeObserver is not defined` from inside a passive effect, which the
+ * nearest error boundary (or React Router's own default one, for a route
+ * rendered without `AppLayout`) swallows into a blank "Unexpected Application
+ * Error!" page instead of the component tree the test wrote assertions against.
+ *
+ * A no-op stub, not a working implementation: nothing under test asserts on an
+ * actual resize firing through this path (that would need real layout, which
+ * jsdom does not do either), only on the component surviving `observe()`
+ * existing and returning `contentRect`-shaped entries never comes up because
+ * `observe()` here never calls back at all — callers fall through to their own
+ * `Math.max(fallback, 0)` guards, the same as an observer that legitimately
+ * has not fired yet.
+ */
+if (typeof window !== "undefined" && typeof window.ResizeObserver === "undefined") {
+  class ResizeObserverStub {
+    observe(): void {
+      /* never fires in jsdom — callers already handle "no size yet" */
+    }
+    unobserve(): void {
+      /* nothing to stop observing */
+    }
+    disconnect(): void {
+      /* nothing to disconnect */
+    }
+  }
+  window.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+}
+
+/**
+ * Same gap, same fix, for `IntersectionObserver`: the Map landing page's
+ * `MiniNav` uses one to detect "the hero scrolled past" and to scroll-spy the
+ * active section. A no-op stub — nothing under test asserts on it actually
+ * firing (jsdom does no real layout to intersect against); component tests
+ * assert the nav's default (hidden until the hero scrolls out) rather than a
+ * simulated scroll.
+ */
+if (typeof window !== "undefined" && typeof window.IntersectionObserver === "undefined") {
+  class IntersectionObserverStub {
+    readonly root = null;
+    readonly rootMargin = "";
+    readonly thresholds: readonly number[] = [];
+    observe(): void {
+      /* never fires in jsdom */
+    }
+    unobserve(): void {
+      /* nothing to stop observing */
+    }
+    disconnect(): void {
+      /* nothing to disconnect */
+    }
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
+    }
+  }
+  window.IntersectionObserver = IntersectionObserverStub as unknown as typeof IntersectionObserver;
+}

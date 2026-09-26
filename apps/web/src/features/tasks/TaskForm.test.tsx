@@ -90,6 +90,7 @@ describe("TaskForm — validation comes from the contract schema", () => {
       assignee: null,
       acceptanceCriteria: null,
       links: [],
+      labels: [],
       parentId: null,
     });
   });
@@ -267,5 +268,44 @@ describe("TaskForm — dirty reporting", () => {
 
     await user.type(screen.getByLabelText(/assignee/i), "M");
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+  });
+});
+
+describe("TaskForm — labels", () => {
+  it("adds a label on Enter, sorted and lowercased, and submits the set", async () => {
+    const user = userEvent.setup();
+    const { submitted } = renderForm({ defaultValues: filled() });
+
+    const labelBox = screen.getByLabelText("Labels");
+    await user.type(labelBox, "Web{Enter}");
+    await user.type(labelBox, "bug{Enter}");
+
+    expect(screen.getByText("web")).toBeInTheDocument();
+    expect(screen.getByText("bug")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted[0]).toMatchObject({ labels: ["bug", "web"] });
+  });
+
+  it("removes a label with its own remove button", async () => {
+    const user = userEvent.setup();
+    renderForm({ defaultValues: filled({ labels: ["bug", "web"] }) });
+
+    await user.click(screen.getByRole("button", { name: "Remove label bug" }));
+
+    expect(screen.queryByText("bug")).not.toBeInTheDocument();
+    expect(screen.getByText("web")).toBeInTheDocument();
+  });
+
+  it("rejects a malformed label before it becomes a chip", async () => {
+    const user = userEvent.setup();
+    renderForm({ defaultValues: filled() });
+
+    await user.type(screen.getByLabelText("Labels"), "has space{Enter}");
+
+    expect(await screen.findByText(/Label must be a slug/)).toBeInTheDocument();
+    expect(screen.queryByText("has space")).not.toBeInTheDocument();
   });
 });

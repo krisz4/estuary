@@ -171,6 +171,7 @@ const TaskEditView = ({ taskId }: { taskId: number }) => {
         task={task}
         isSubmitting={mutation.isPending}
         projectSuggestions={facetsQuery.data?.projects}
+        labelSuggestions={facetsQuery.data?.labels}
         notice={
           hasConflict ? <ConflictNotice onReload={reload} isReloading={isFetching} /> : undefined
         }
@@ -233,6 +234,7 @@ type TaskEditFormProps = {
   task: Task;
   isSubmitting: boolean;
   projectSuggestions: readonly string[] | undefined;
+  labelSuggestions: readonly string[] | undefined;
   notice: ReactNode;
   onDirtyChange: (isDirty: boolean) => void;
   onCancel: () => void;
@@ -266,6 +268,7 @@ const TaskEditForm = ({
   task,
   isSubmitting,
   projectSuggestions,
+  labelSuggestions,
   notice,
   onDirtyChange,
   onCancel,
@@ -288,6 +291,7 @@ const TaskEditForm = ({
       isSubmitting={isSubmitting}
       submitLabel="Save changes"
       projectSuggestions={projectSuggestions}
+      labelSuggestions={labelSuggestions}
       notice={notice}
       onDirtyChange={onDirtyChange}
       onCancel={onCancel}
@@ -321,6 +325,7 @@ export const toFormValues = (task: Task): TaskFormValues => ({
   assignee: task.assignee ?? "",
   acceptanceCriteria: task.acceptanceCriteria ?? "",
   links: task.links.map((link) => ({ label: link.label, url: link.url })),
+  labels: task.labels,
   parentId: task.parentId === null ? "" : String(task.parentId),
 });
 
@@ -345,6 +350,7 @@ export const diffTaskPatch = (values: UpdateTaskInput, task: Task): UpdateTaskIn
     assignee: task.assignee,
     acceptanceCriteria: task.acceptanceCriteria,
     links: task.links,
+    labels: task.labels,
     parentId: task.parentId,
   };
 
@@ -352,7 +358,9 @@ export const diffTaskPatch = (values: UpdateTaskInput, task: Task): UpdateTaskIn
   for (const [key, value] of Object.entries(values)) {
     const before = (current as Record<string, unknown>)[key];
     const same =
-      key === "links" ? JSON.stringify(value) === JSON.stringify(before) : value === before;
+      key === "links" || key === "labels"
+        ? JSON.stringify(value) === JSON.stringify(before)
+        : value === before;
     if (!same) patch[key] = value;
   }
   return patch as UpdateTaskInput;

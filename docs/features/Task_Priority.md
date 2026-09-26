@@ -39,7 +39,7 @@ Priority is set on create (default `medium`) and adjustable afterwards via `PATC
 | -------- | ----- | ---- |
 | `low` | outline, muted | — |
 | `medium` | outline, neutral | — |
-| `high` | amber | `ArrowUp` |
+| `high` | outline, yellow — outlined so it never reads as an amber "needs you" status pill | `ArrowUp` |
 | `urgent` | red, filled | `AlertTriangle` |
 
 Icons are `aria-hidden`; the text label carries the meaning. On the mobile card layout, priority renders as a left border stripe plus the label so it is scannable in a stacked list.

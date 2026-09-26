@@ -57,7 +57,7 @@ Length bounds, enum membership, email format, date coercion, page bounds, sort-f
 
 ## Coercion and normalization
 
-Query strings are all strings, so the query schema uses `z.coerce.number().int()` for `page`/`pageSize` and a preprocessor that wraps single values into arrays for the repeatable filters (`status`, `priority`, `project`). Body schemas do **not** coerce — a JSON body sending `"page": "2"` is a client bug and should say so.
+Query strings are all strings, so the query schema uses `z.coerce.number().int()` for `page`/`pageSize` and a preprocessor (`repeatable()`) that wraps single values into arrays for the repeatable filters (`status`, `priority`, `project`, `label`). Body schemas do **not** coerce — a JSON body sending `"page": "2"` is a client bug and should say so.
 
 Two normalizations are load-bearing rather than cosmetic:
 

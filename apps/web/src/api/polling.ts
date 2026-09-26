@@ -3,7 +3,7 @@
  *
  * Agents write to this app all day through the MCP server, and there are no
  * websockets (`docs/features/Task_Workflow_API.md` § Events) — so the list, the
- * board, the inbox badge, the detail page and its activity timeline poll.
+ * map, the inbox badge, the detail page and its activity timeline poll.
  *
  * Fifteen seconds is "an agent's change shows up while you are still looking
  * at the screen" without turning an idle tab into load. TanStack Query pauses

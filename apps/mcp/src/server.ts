@@ -15,14 +15,17 @@ export const SERVER_VERSION = "0.1.0";
  */
 export const buildInstructions = (config: Config): string =>
   [
-    `Task manager for coding agents. You act as ${config.actor}.`,
+    `Task manager for coding agents. You act as ${config.actor}` +
+      (config.defaultProject === undefined
+        ? "; no default project, so name one on task_create."
+        : `; this repository's project is "${config.defaultProject}".`),
     "Statuses: backlog (captured, not ready) · needs_refinement (unclear; statusNote says what is missing) · todo (ready, has acceptance criteria) · " +
       "in_progress (claimed by whoever works it) · blocked (waiting on other tasks or an outside event) · needs_user_decision / needs_user_action (waiting on a human) · " +
       "needs_qa (work finished, awaiting human verification) · done (verified; humans only) · deferred (parked on purpose, with a reason).",
     "Work loop: task_next (or task_claim a named task) → read acceptance criteria and comments → task_heartbeat at least every 10 minutes → " +
       "task_comment kind=progress at milestones → finish with exactly one of task_submit_for_qa, task_request_decision, task_request_action, task_block, or task_release.",
     "Rules: agents never mark tasks done — hand off with task_submit_for_qa. Never leave a task claimed and idle. " +
-      "Pass expectedVersion from your last read on writes. File follow-ups you discover as new backlog tasks instead of widening the current one.",
+      "Pass expectedVersion from your last read on writes. File follow-ups you discover as new backlog tasks instead of widening the current one — task_list q=… first, so you do not file a duplicate.",
   ].join("\n");
 
 export const createServer = (config: Config, fetchImpl?: FetchLike): McpServer => {

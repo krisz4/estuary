@@ -159,6 +159,31 @@ const envSchema = z.object({
    * long enough that an agent deep in a build does not lose its task.
    */
   CLAIM_LEASE_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
+
+  /**
+   * The optional GitHub integration (`docs/features/GitHub_Integration.md`). Off
+   * by default — no accounts, no OAuth app, just server-level config.
+   *
+   * The integration is **enabled** when either this or `GITHUB_WEBHOOK_SECRET`
+   * is set. A fine-grained PAT or GitHub App token used for read calls (link
+   * status, issue import); without it, calls are anonymous and limited to public
+   * repos at 60 requests/hour. Never logged, never echoed on a response.
+   */
+  GITHUB_TOKEN: z.string().min(1).optional(),
+
+  /**
+   * Enables `POST /integrations/github/webhook`. GitHub signs each delivery
+   * with this secret (`X-Hub-Signature-256`, HMAC-SHA256 over the raw body); a
+   * missing or wrong signature is `INVALID_WEBHOOK_SIGNATURE` (401). At least 16
+   * characters, so a placeholder cannot pass as real protection.
+   */
+  GITHUB_WEBHOOK_SECRET: z
+    .string()
+    .min(16, "GITHUB_WEBHOOK_SECRET must be at least 16 characters")
+    .optional(),
+
+  /** GitHub Enterprise base URL. Defaults to the public API. */
+  GITHUB_API_URL: z.string().min(1).default("https://api.github.com"),
 });
 
 export type Env = z.infer<typeof envSchema>;

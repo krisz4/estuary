@@ -41,7 +41,7 @@ Offset paging (`skip`/`take`), not cursor paging: the UI needs jump-to-page and 
 | ----- | ---- | ------- | ----- |
 | `sort` | `field:direction` | `createdAt:desc` | One clause. `direction` ∈ `asc`,`desc` |
 
-Sortable fields: `id`, `createdAt`, `updatedAt`, `title`, `status`, `priority`.
+Sortable fields: `id`, `createdAt`, `updatedAt`, `title`, `status`, `priority`, `completedAt`.
 
 `id` is the reference order (`TASK-000042`'s number). Two fields do **not** sort alphabetically:
 
@@ -49,6 +49,8 @@ Sortable fields: `id`, `createdAt`, `updatedAt`, `title`, `status`, `priority`.
 - **`status`** sorts by lifecycle order (`backlog` → `needs_refinement` → `todo` → `in_progress` → `blocked` → `needs_user_decision` → `needs_user_action` → `needs_qa` → `done` → `deferred` — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md)).
 
 SQLite cannot express that ordering on a text column, so both are backed by integer rank columns (`priorityRank`, `statusRank`) maintained by the service on every write. Any code path that sets `status` or `priority` **must** go through `applyTaskRanks()` or sorting silently breaks. See [Task_Priority.md](./Task_Priority.md).
+
+**`completedAt` is `null` for every open task — this is the archive sort.** SQLite has no `NULLS FIRST`/`LAST` (Prisma's `nulls:` option is not supported on this connector), so ordering rides SQLite's native rule instead: `NULL` sorts as the lowest possible value. `sort=completedAt:asc` therefore puts every open task first, then the earliest completion; `sort=completedAt:desc` — the archive's default, newest-completed first — puts every open task *last*, after every closed one, which is the reading "sort by when it completed" implies for work that has not completed at all. Pair it with `status=done&status=deferred` to view the archive alone.
 
 **Stable ordering:** `{ id: "desc" }` is appended as a tiebreaker so paging never repeats or drops a row whose sort key is not unique. It is omitted when `id` is already the sort field, since a second clause on the same column is dead weight.
 
@@ -63,17 +65,19 @@ So `desc` is free on descending sorts and costs a temp B-tree on ascending ones 
 | `status` | repeatable enum | OR within the param: `?status=todo&status=in_progress` |
 | `priority` | repeatable enum | OR within the param |
 | `project` | repeatable slug | OR within the param. Send values from `GET /tasks/facets` |
+| `label` | repeatable slug | Tasks carrying **any** of the given labels (OR within the param). Send values from `GET /tasks/facets`. See [Labels.md](./Labels.md) |
 | `assignee` | string | **Exact, case-sensitive.** Send a value from `GET /tasks/facets` |
 | `assigneeIsNull` | boolean | `true` returns only unassigned tasks, `false` only assigned ones. Mutually exclusive with `assignee` (sending both → `VALIDATION_ERROR`) |
 | `createdBy` | actor | Exact; lowercased before compare, matching how `X-Actor` is stored |
 | `claimedBy` | actor | Exact; matches the stored `claimedBy` even once the lease has expired — pair with `status=in_progress` and check `claim` on the rows when only *live* claims matter |
 | `parentId` | task id | Subtasks of one parent. Digits only, like `:taskId` (`0x2a` → 422) |
-| `q` | string, 1–120 | Free text — see below |
+| `parentIsNull` | boolean | `true` = top-level tasks only (no parent), `false` = subtasks only. Mutually exclusive with `parentId` (sending both → `VALIDATION_ERROR`) |
+| `dependsOn` | task id | Tasks that depend on this one — its **dependents** ("who waits on 42?") |
+| `dependencyOf` | task id | Tasks this one depends on — its **dependencies** ("what does 42 wait on?") |
+| `q` | string, 1–120 | Free text, up to 8 AND'd terms — see below |
 | `createdFrom` / `createdTo` | `YYYY-MM-DD` | Inclusive day bounds, UTC — see below |
 
 Different params AND together; repeated values within one param OR together. `?status=todo&status=blocked&priority=urgent` = "(todo OR blocked) AND urgent".
-
-**On the board (`/tasks/board`) `status` selects which *columns* render**, and every column then sends its own single-status request. The parameter's meaning on the wire is unchanged — the difference is entirely in which requests the screen makes — but it is worth knowing before "fixing" the board to also filter rows: on a screen whose columns are the statuses, applying the filter twice leaves columns that are empty for a reason nothing on screen explains. See [../pages/Tasks_Board.md](../pages/Tasks_Board.md).
 
 `assigneeIsNull` filters in **both** directions. `false` is not "no filter" — it is "assigned to someone". A boolean that only means something when it is `true` is a trap for the next caller who sends the other value explicitly.
 
@@ -90,34 +94,45 @@ The text term does not merely *misfile* a drifted row, it makes it **unreachable
 
 #### `q`
 
-Searches `title`, `description`, and the task reference. `title`/`description` use `contains`, which compiles to SQLite `LIKE` and is therefore **case-insensitive for ASCII only** — accented characters compare case-sensitively. That is a documented SQLite limitation, not a bug to fix at query time.
+`q` is split into **terms** by `parseSearchTerms` (in `packages/contracts`, shared with the web app so it can highlight exactly what matched): whitespace separates terms, a double-quoted run is one term (`"page resets" board` is two terms, the first a phrase), an unterminated quote runs to the end, and terms are deduplicated case-insensitively and capped at 8 (`TASK_Q_MAX_TERMS`) — more terms than that is a paragraph, not a search, and the rest are ignored.
 
-A `q` that parses as a reference (`TASK-42`, `task-000042`, `#42`, or a bare integer — see [Task_Numbering.md](./Task_Numbering.md)) additionally matches `id` exactly, so pasting a task number into search finds that task.
+**Every term must match** (terms AND together); **a term matches if it appears in any of:** `title`, `description`, `acceptanceCriteria`, `statusNote`, `links` (the raw JSON — a URL or link label inside it counts), or **the body of any comment on the task**. `title`/`description`/etc. use `contains`, which compiles to SQLite `LIKE` and is therefore **case-insensitive for ASCII only** — accented characters compare case-sensitively. That is a documented SQLite limitation, not a bug to fix at query time.
 
-**The `q` clause is one `OR` group nested inside the top-level `AND`:**
+A term that parses as a reference (`TASK-42`, `task-000042`, `#42`, or a bare integer — see [Task_Numbering.md](./Task_Numbering.md)) additionally matches `id` exactly, so pasting a task number into search finds that task even inside a longer query.
+
+**Each term contributes one `OR` group nested inside the top-level `AND`, one group per term:**
 
 ```ts
 where = {
   AND: [
     ...filterClauses,
-    { OR: [ { title: { contains: q } }, { description: { contains: q } },
-            ...(refId ? [{ id: refId }] : []) ] },
+    ...terms.map((term) => ({
+      OR: [
+        { title: { contains: term } }, { description: { contains: term } },
+        { acceptanceCriteria: { contains: term } }, { statusNote: { contains: term } },
+        { links: { contains: term } }, { comments: { some: { body: { contains: term } } } },
+        ...(refId ? [{ id: refId }] : []),
+      ],
+    })),
   ],
 }
 ```
 
-Hoisting those `OR` branches to the top level is the classic implementation bug here: search would then widen the result set past the active filters instead of narrowing it.
+Hoisting a term's `OR` branches to the top level is the classic implementation bug here: search would then widen the result set past the active filters instead of narrowing it, and would turn "every term must match" into "any term may match".
 
-**`%` and `_` in `q` are literal characters, not wildcards.** Prisma's `contains` compiles to `LIKE ?` with **no `ESCAPE` clause**, and with no escape clause SQLite has no escape character at all — so unescaped input is live pattern syntax (`?q=%` returns every task, `?q=50%` matches "500 errors"), and pre-escaping the string before handing it to `contains` does not help either, because `!%` is then two literal characters that match nothing. Prisma will not add an escape option ([prisma#19506](https://github.com/prisma/prisma/issues/19506)).
+**`%` and `_` in a term are literal characters, not wildcards.** Prisma's `contains` compiles to `LIKE ?` with **no `ESCAPE` clause**, and with no escape clause SQLite has no escape character at all — so unescaped input is live pattern syntax (`?q=%` returns every task, `?q=50%` matches "500 errors"), and pre-escaping the string before handing it to `contains` does not help either, because `!%` is then two literal characters that match nothing. Prisma will not add an escape option ([prisma#19506](https://github.com/prisma/prisma/issues/19506)).
 
-So a `q` carrying `%`, `_`, or `!` is resolved with a parameterized raw query carrying its own escape character:
+So a **term** carrying `%`, `_`, or `!` is resolved with a parameterized raw query carrying its own escape character, checking the same fields `contains` would (title, description, acceptance criteria, status note, links, and — via a `LEFT JOIN` — every comment body):
 
 ```sql
-SELECT id FROM "Task"
-WHERE title LIKE ?1 ESCAPE '!' OR description LIKE ?1 ESCAPE '!'
+SELECT DISTINCT t.id AS id FROM "Task" t
+LEFT JOIN "Comment" c ON c."taskId" = t.id
+WHERE t.title LIKE ?1 ESCAPE '!' OR t.description LIKE ?1 ESCAPE '!'
+   OR t.acceptanceCriteria LIKE ?1 ESCAPE '!' OR t.statusNote LIKE ?1 ESCAPE '!'
+   OR t.links LIKE ?1 ESCAPE '!' OR c.body LIKE ?1 ESCAPE '!'
 ```
 
-and feeds the resulting id set into the nested `OR` group above, alongside the reference branch. It runs inside the same transaction as the page and the count.
+run **once per term that needs it**, before the page/count transaction, and feeds each term's resulting id set into that term's `OR` group above, alongside its reference branch.
 
 **That raw path is the exception, not the rule.** A term containing none of `%`, `_`, or `!` is escaped by a no-op, so `contains` and the escaped raw `LIKE` are provably the same query — same columns, same case-insensitive-ASCII `LIKE`, same rows, same order. Such a term keeps the `contains` spelling and with it the ordering index, no id list, and no bind-parameter ceiling. `?q=printer` should not pay for a problem it does not have. (`!` is in that character class because it *is* the escape character: a term containing it is one whose escaped form differs from itself.)
 
@@ -182,7 +197,7 @@ Indexes backing these queries are listed in [../engineering/DATABASE.md](../engi
 
 | Code | Status | When |
 | ---- | ------ | ---- |
-| `VALIDATION_ERROR` | 422 | Bad page/pageSize, unknown sort field, unknown param, malformed date, `assignee` together with `assigneeIsNull`, or `createdFrom` after `createdTo` |
+| `VALIDATION_ERROR` | 422 | Bad page/pageSize, unknown sort field, unknown param, malformed date, `assignee` together with `assigneeIsNull`, `parentId` together with `parentIsNull`, or `createdFrom` after `createdTo` |
 
 The last one is worth stating explicitly: the **server rejects** an inverted date range (`createdTo must be on or after createdFrom`, reported on `createdTo`). The client never sends one — it clamps instead, as described above — so this 422 is reachable only by a hand-edited URL or a non-browser caller.
 

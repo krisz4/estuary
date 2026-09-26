@@ -22,6 +22,8 @@ The product is small enough to hold in your head: **one resource (Task) with one
 | Which status transitions are legal? | [features/Task_Status_Lifecycle.md](./features/Task_Status_Lifecycle.md) |
 | Where does `TASK-000042` come from? | [features/Task_Numbering.md](./features/Task_Numbering.md) |
 | How do comments work? | [features/Comments.md](./features/Comments.md) |
+| How do labels work? | [features/Labels.md](./features/Labels.md) |
+| How does the GitHub link / webhook / issue import work? | [features/GitHub_Integration.md](./features/GitHub_Integration.md) |
 | What JSON does a failure return? | [engineering/API_ERROR_CONTRACT.md](./engineering/API_ERROR_CONTRACT.md) · [features/Error_Handling.md](./features/Error_Handling.md) |
 | How is the OpenAPI spec produced? | [features/API_Documentation.md](./features/API_Documentation.md) |
 | Schema, indexes, migrations, SQLite caveats | [engineering/DATABASE.md](./engineering/DATABASE.md) |

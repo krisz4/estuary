@@ -496,7 +496,9 @@ describe("task response schemas", () => {
     assignee: null,
     acceptanceCriteria: "All five tools callable from Claude Code.",
     links: [link],
+    labels: ["mcp"],
     parentId: null,
+    childCount: 1,
     createdBy: "human:krisz",
     claim: null,
     version: 4,
@@ -509,7 +511,13 @@ describe("task response schemas", () => {
     commentCount: 3,
   };
 
-  const ref = { id: 43, reference: "TASK-000043", title: "Write the tool schemas", status: "todo" };
+  const ref = {
+    id: 43,
+    reference: "TASK-000043",
+    title: "Write the tool schemas",
+    status: "todo",
+    project: "helpdesk",
+  };
 
   const task = {
     ...summary,
@@ -631,6 +639,7 @@ describe("taskFacetsSchema", () => {
     const facets = {
       assignees: ["agent:claude-code", "human:krisz"],
       projects: ["helpdesk", "infra"],
+      labels: ["api", "web"],
       creators: ["human:krisz", "system:taskmanager"],
     };
     expect(taskFacetsSchema.parse(facets)).toEqual(facets);

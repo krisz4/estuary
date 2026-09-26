@@ -3,6 +3,7 @@ import { decisionRequestSchema } from "./decision.js";
 import {
   acceptanceCriteriaInputSchema,
   expectedVersionSchema,
+  labelSchema,
   projectSchema,
   TASK_STATUS_NOTE_MAX,
   taskIdSchema,
@@ -147,6 +148,12 @@ export const nextTaskInputSchema = z
   .object({
     /** Only consider these projects. Omit for any project. */
     project: z.array(projectSchema).min(1).optional(),
+    /**
+     * Only consider tasks carrying at least one of these labels — how an agent
+     * working in one workspace of a monorepo (`web`) asks for that workspace's
+     * work. Omit for any label, including unlabelled tasks.
+     */
+    label: z.array(labelSchema).min(1).optional(),
     /** Only consider tasks at or above this priority. */
     minPriority: taskPrioritySchema.optional(),
   })

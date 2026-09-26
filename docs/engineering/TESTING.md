@@ -96,8 +96,24 @@ This section carries the most weight.
 ### Events ([../features/Task_Workflow_API.md](../features/Task_Workflow_API.md) § Events)
 
 - Oldest first; `after` returns only newer events; `taskId` filters; `limit` pages with `hasMore`; `nextAfter` is the last id, or the incoming cursor echoed back when nothing is new.
+- `order=desc` pages backwards with `before` (smallest id on the page, `null` once empty); `from`/`to` narrow to an instant range independent of `order`; `order=asc` with none of them sent is byte-identical to the original behaviour.
+- `taskTitle` is joined at read time from the task's current row (one query per page) and is `null` once the task is deleted, independent of the `project` snapshot stamped on the event itself.
 - **Events survive the task's deletion.** Real writes land in the feed with the right actor and payload.
 - Bad cursor / `taskId` / `limit`, or an unknown param → 422; empty values are absent.
+
+### Floor snapshot ([../features/Floor_Snapshot.md](../features/Floor_Snapshot.md))
+
+- Scope (`project`) removes rows; every other filter marks `matches` instead — nothing moves.
+- Cap ordering (must-show, then priority, then recency), `meta.truncated`, and `meta.statusCounts` counting everything regardless of the cap or the shipped window.
+- `openBlockerCount`/`unblocksCount` computed once per node from the full `TaskDependency` table, unaffected by the floor's own scope.
+- Replay (`?at=`): status/existence rebuilt from `task.status_changed`/`task.created` events; a task created after `at` is absent; a deleted task is absent even if it existed at `at`.
+
+### History stats ([../features/History_Stats.md](../features/History_Stats.md))
+
+- Bucket alignment to UTC boundaries; a range over `HISTORY_MAX_BUCKETS` → 422.
+- `statusCounts` is a full replay from the start of the event log, not just the requested window.
+- `cycleTimes`/`longestWaits` caps, and an open (`endedAt: null`) wait measured against now, not the range's `to`.
+- Per-agent `submitted`/`approved`/`sentBack` counts attribute a `needs_qa` outcome to the actor who made the closing transition, not the one who submitted it.
 
 ### Concurrency ([DATABASE.md](./DATABASE.md) § Concurrent writes)
 
@@ -123,8 +139,9 @@ This section carries the most weight.
 - Task detail page: inline status change is optimistic and rolls back on failure; claim panel renders Release / Claim only when a live claim or an unclaimed `in_progress` task calls for it; delete confirms first.
 - Edit page: only changed fields are sent (`diffTaskPatch`); a `VERSION_CONFLICT` shows the reload notice without discarding typed values.
 - Inbox page: groups by status in lifecycle order; a decision, action, and QA item each expose their own clearing controls without navigating away.
-- Board page: one request per status column, grouped into four lanes with Closed collapsed by default; a move transitions and lands the card — **and the column count** — in the new column; a rejection (`TASK_ALREADY_CLAIMED` 409, `ACTOR_NOT_PERMITTED` 403) puts the card back and toasts the failure, while a `VALIDATION_ERROR` (missing acceptance criteria, an empty required field) reopens `TransitionDialog` on the fields it named instead; the status filter picks columns rather than filtering rows. There is no client-side transition table to assert against — any status may move to any other — so these tests are about the payload a target needs, not about which moves are "allowed". Its `mockApi` handlers hold state, because a move is only interesting after the refetch it triggers: against a fixed body the refetch would restore the pre-move world and a passing rollback test would be indistinguishable from a broken one.
 - `ConfirmDialog`: cancel does not fire the mutation.
+
+There is no client-side transition table to assert against — any status may move to any other — so the `TransitionDialog`/`StatusSelect` tests above are about the payload a target needs, not about which moves are "allowed".
 
 MSW intercepts at the network layer so the real query hooks and fetch client are exercised — mocking the hooks would test the mock.
 
@@ -145,13 +162,11 @@ Because the suite shares one database across specs, **every test that mutates cr
 | Detail: → Blocked and → Deferred through `TransitionDialog` (Deferred submitted empty first), a `progress` comment, the activity timeline in order; all persisted across a reload and matched against the event feed | `e2e/task-detail-workflow.spec.ts` |
 | Agent files a task, takes it with `next`, asks a decision → inbox shows it and the header badge equals `stats.needsAttention` → human picks a (non-recommended) option with a note → task leaves the inbox, badge drops by one, detail shows To do, "Decision: …" note, and the past decision | `e2e/inbox-decision.spec.ts` |
 | Agent hands work to QA with a summary and PR link → human sends it back from the inbox (→ To do + `qa_feedback` comment) → agent re-submits (link de-duplicated) → human approves (→ Done) | `e2e/qa-handoff.spec.ts` |
-| Board: four lanes with Closed collapsed; drag a card onto Blocked → dialog → cancel reverts → drag again → confirm moves it and persists; the card's status select as the keyboard path; 360px lane scrolling; no dead space under the board; status filter picks columns; List ⇄ Board keeps filters and the remembered view | `e2e/board.spec.ts` |
+| The retired Kanban board's route redirects to the map, keeping the query string | `e2e/board-redirect.spec.ts` |
 | Delete behind the confirm dialog (which names the comment it cascades to; cancel first) → gone from the list, a search, and the API — its events survive | `e2e/delete-task.spec.ts` |
 | The list at 360px renders cards, not a table, and nothing scrolls sideways | `e2e/mobile-list.spec.ts` |
 | "You": set a name → comments and transitions are recorded as `human:<slug>` (checked via the API), and the name survives a reload | `e2e/session-actor.spec.ts` |
 | Edit form open, agent PATCHes the task → human's save is refused with the version-conflict notice, typed values kept → reload → save carries the agent's change forward | `e2e/edit-conflict.spec.ts` |
-
-**The board spec is where the drag lives, and it has to be.** `@dnd-kit` is driven entirely by pointer geometry: its `MouseSensor` waits for 6px of movement, and its collision detection asks every droppable for a bounding rect — in jsdom every rect is 0×0, so a simulated drag there asserts the test's own arithmetic and nothing about the app. The component suite drives the *other* entry into the same `move()` (the card's status select) and leaves the pointer to a browser that has a layout. The drag grabs the card by its title (the select in its lower half stops `pointerdown`), and runs at a 1280×1200 viewport so the Waiting lane is on screen — a drop target below the fold would be testing auto-scroll. The same reasoning covers the 360px overflow check: the bug it caught (`position: absolute` `sr-only` spans escaping a scroll container's clip and stretching the document) has no representation in jsdom at all.
 
 **Its own ports, and `reuseExistingServer: false`.** The API runs on `4010` and the web app on `5183`, never `4000`/`5173`. On the development ports, `reuseExistingServer` would hand the suite a developer's `pnpm dev` servers — pointed at `apps/api/prisma/data/helpdesk.db` — and the specs create, transition, and *delete* tasks. That is the same rule as § Database isolation above, applied to the E2E layer: a test run must not be able to touch local data. A busy port is therefore an error rather than a substitution. Everything is spelled `127.0.0.1` and never `localhost`, and Vite is started with `--host 127.0.0.1`: told `localhost`, it binds whichever loopback the resolver prefers, which on some machines is `::1` only — and the run then fails as a bare "Timed out waiting 60000ms from config.webServer".
 

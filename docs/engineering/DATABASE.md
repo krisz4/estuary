@@ -8,7 +8,7 @@ SQLite means a reviewer clones, runs one command, and has a working system — n
 
 ## Schema
 
-Five models: `Task`, `Comment`, `Decision`, `TaskDependency`, and `TaskEvent`. The full, current definitions — with the column-by-column reasoning inline — live in `apps/api/prisma/schema.prisma`; that file's own header comment covers the five things that surprise people (no native enums, `autoincrement()` only on `@id`, the derived rank columns, JSON-in-`String` columns, and `TaskEvent.taskId` deliberately not being a foreign key). The shape, trimmed to what this page's reasoning depends on:
+Six models: `Task`, `Comment`, `Decision`, `TaskDependency`, `TaskEvent`, and `TaskLabel`. The full, current definitions — with the column-by-column reasoning inline — live in `apps/api/prisma/schema.prisma`; that file's own header comment covers the things that surprise people (no native enums, `autoincrement()` only on `@id`, the derived rank columns, JSON-in-`String` columns, `TaskEvent.taskId` deliberately not being a foreign key, `TaskEvent.project` denormalised for the same reason, and `TaskLabel` being a join table rather than a JSON array). The shape, trimmed to what this page's reasoning depends on:
 
 ```prisma
 model Task {
@@ -72,9 +72,36 @@ model Comment {
 
   @@index([taskId, id])
 }
+
+model TaskEvent {
+  id        Int      @id @default(autoincrement())
+  taskId    Int                                    // not a relation — outlives its task
+  type      String                                 // TaskEventType (contracts)
+  actor     String
+  project   String?                                // the task's project *when recorded* — see below
+  payload   String    @default("{}")                // JSON
+  createdAt DateTime  @default(now())
+
+  @@index([taskId, id])
+  @@index([project, id])
+}
+
+model TaskLabel {
+  taskId Int
+  label  String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, label])
+  @@index([label])
+}
 ```
 
-`Decision` (one open decision per task, `requestedBy`/`answeredBy` actors), `TaskDependency` (a composite-key edge table, `taskId` depends on `dependsOnId`), and `TaskEvent` (the append-only feed, `taskId` **not** a foreign key) are in the schema file. See [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md#decisions), [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md#dependencies), and [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md#events).
+`Decision` (one open decision per task, `requestedBy`/`answeredBy` actors) and `TaskDependency` (a composite-key edge table, `taskId` depends on `dependsOnId`) are in the schema file. See [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md#decisions), [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md#dependencies), and [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md#events).
+
+`TaskEvent.project` is denormalised for the same reason `taskId` is not a foreign key: the events feed must still be filterable by project after the task that produced an event is deleted or moved to another project. It is written once, at event-insert time, from the task's *current* project — never updated retroactively if the task later moves.
+
+`TaskLabel` is a composite-key join table (`taskId`, `label`), not a JSON array on `Task`: SQLite has no array type, and `?label=` has to be an indexed exact match, not a `LIKE` scan over an encoded string. Labels are lowercase slugs (`labelSchema` in `packages/contracts`), replace-not-merge on write (`labelsInputSchema`), capped at `TASK_LABELS_MAX` (10) per task.
 
 ## Integer primary keys (not cuid)
 
@@ -105,6 +132,7 @@ Because `equals` is case-sensitive and `mode: "insensitive"` does not exist here
 | `project` | A slug, lowercased and trimmed by `projectSchema` on write *and* on the filter input |
 | `createdBy` / `claimedBy` / every actor column | Lowercased by `actorSchema` when the `X-Actor` header is parsed; the `createdBy` / `claimedBy` filters lowercase their input the same way |
 | `assignee` | Stored as typed. The filter sends an **exact stored value**, sourced from `GET /api/v1/tasks/facets`, so casing always matches |
+| `TaskLabel.label` | A slug, lowercased and trimmed by `labelSchema` on write *and* on the filter input — same rule as `project` |
 
 (This replaced an earlier IT-helpdesk-era design where `category` was a fixed enum and `requesterEmail` was the lowercase exact-match field; both are gone from the schema. `project` and the actor columns took over the same role.)
 
@@ -140,7 +168,9 @@ Around it:
 | `id` (implicit PK) | Reference lookup, and the stable sort tiebreaker |
 | `(taskId, id)` on Comment | Loading a thread in insertion order |
 | `(taskId, id)` on TaskEvent | The `after=<id>` cursor feed |
+| `(project, id)` on TaskEvent | Filtering the events feed by project (`?project=`) while keeping the `id` cursor order |
 | `(taskId, status)` on Decision | Finding the open decision for a task |
+| `label` on TaskLabel | The `?label=` exact-match filter; `taskId` is covered by the `@@id([taskId, label])` primary key already |
 
 `title` / `description` are unindexed — SQLite cannot use a B-tree for a leading-wildcard `LIKE` anyway.
 
@@ -152,8 +182,8 @@ Three plans measured in stage 7 against the real SQL Prisma emits (63 rows, no `
 | ----- | ---- |
 | `status` filter + `createdAt:desc` | `SEARCH Task USING INDEX Task_statusRank_createdAt_idx (statusRank=?)` — a **search, not covering**: `include: { _count }` projects every column, so each matched index entry still costs a table row lookup. The `count` half of the pair *is* covering |
 | `priority:desc` | `SCAN Task USING INDEX Task_priorityRank_idx`, and **no temp B-tree** — the index is physically `(priorityRank, rowid)`, so a backwards walk already satisfies `priorityRank DESC, id DESC` |
-| `q` search, plain term | One statement: `SCAN Task USING INDEX Task_createdAt_idx`, evaluating both `LIKE`s per row. The scan is expected — a leading-wildcard `LIKE` has no index to use — but the ordering still comes from the index |
-| `q` search, term with `%` / `_` / `!` | Two statements. The raw `LIKE … ESCAPE` prefilter is `SCAN Task`. The page it feeds is `SEARCH Task USING INTEGER PRIMARY KEY (rowid=?)` **plus `USE TEMP B-TREE FOR ORDER BY`** — an `id IN (…)` list gives up the `createdAt` index for ordering. Which is why only a term that needs escaping takes this path |
+| `q` search, plain term | Not re-measured since `q` grew to more fields. As of stage 7 (title/description only): one statement, `SCAN Task USING INDEX Task_createdAt_idx`, evaluating both `LIKE`s per row. `q` now also filters `acceptanceCriteria`, `statusNote`, `links` (all `contains`, so plausibly the same shape) and comment bodies via a `comments: { some: { body: { contains } } }` relation filter, which Prisma compiles as a subquery/semi-join rather than a `LEFT JOIN` — not verified with `EXPLAIN QUERY PLAN` post-change. The scan itself is expected regardless — a leading-wildcard `LIKE` has no index to use — but the ordering still comes from the index |
+| `q` search, term with `%` / `_` / `!` | Two statements. The raw `LIKE … ESCAPE` prefilter (`resolveTextSearch`) is a `SCAN Task` **`LEFT JOIN Comment`**, checking `title`, `description`, `acceptanceCriteria`, `statusNote`, `links`, and every comment's `body` in one pass — the join is explicit here because a parameterized raw query cannot reuse Prisma's relation-filter compilation the plain-term path gets for free. The page it feeds is `SEARCH Task USING INTEGER PRIMARY KEY (rowid=?)` **plus `USE TEMP B-TREE FOR ORDER BY`** — an `id IN (…)` list gives up the `createdAt` index for ordering. Which is why only a term that needs escaping takes this path |
 
 The list query's `commentCount` is the one cost that is not visible in the Prisma call: `_count` compiles to a `LEFT JOIN` on a **materialized** `SELECT taskId, COUNT(*) … GROUP BY taskId` over the whole `Comment` table, plus a runtime `AUTOMATIC COVERING INDEX` on it. It is `O(all comments)` per list page rather than `O(pageSize)`. Irrelevant at seed scale; the lever, if it ever matters, is a second `groupBy` scoped to the 20 ids on the page rather than a schema change.
 

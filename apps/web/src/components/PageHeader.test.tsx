@@ -29,25 +29,25 @@ describe("backToListPath", () => {
   });
 
   /*
-    The view decides the *path*, `state.from` decides the query. The board is a
+    The view decides the *path*, `state.from` decides the query. The map is a
     second list route, and a task opened from it has to come back to it.
   */
-  it("returns to the board's route when the board is the remembered view", () => {
-    expect(backToListPath({ from: "?priority=urgent" }, "board")).toBe(
-      "/tasks/board?priority=urgent",
+  it("returns to the map's route when the map is the remembered view", () => {
+    expect(backToListPath({ from: "?priority=urgent" }, "map")).toBe(
+      "/tasks/map?priority=urgent",
     );
-    expect(backToListPath(null, "board")).toBe("/tasks/board");
+    expect(backToListPath(null, "map")).toBe("/tasks/map");
   });
 });
 
 describe("listReturnState", () => {
-  it.each(["/tasks", "/tasks/board"])("carries the current search from %s", (pathname) => {
+  it.each(["/tasks", "/tasks/map"])("carries the current search from %s", (pathname) => {
     expect(listReturnState({ pathname, search: "?q=vpn", state: null })).toEqual({
       from: "?q=vpn",
     });
   });
 
-  it.each(["/tasks", "/tasks/board"])("carries nothing from an unfiltered %s", (pathname) => {
+  it.each(["/tasks", "/tasks/map"])("carries nothing from an unfiltered %s", (pathname) => {
     expect(listReturnState({ pathname, search: "", state: null })).toBeUndefined();
   });
 
@@ -77,8 +77,8 @@ describe("PageHeader", () => {
     );
   });
 
-  it("points the back link at the board when that is the remembered view", () => {
-    useTaskViewStore.getState().setView("board");
+  it("points the back link at the map when that is the remembered view", () => {
+    useTaskViewStore.getState().setView("map");
 
     renderRoute({
       routes: [{ path: "/tasks/42", element: <PageHeader eyebrow="TASK-000042" title="Hi" /> }],
@@ -87,7 +87,7 @@ describe("PageHeader", () => {
 
     expect(screen.getByRole("link", { name: /back to tasks/i })).toHaveAttribute(
       "href",
-      "/tasks/board?status=open",
+      "/tasks/map?status=open",
     );
   });
 

@@ -80,7 +80,7 @@ import { applyServerValidationErrors } from "@/lib/serverErrors";
  *
  * ## A failed submit never closes or clears it
  *
- * `onSubmit` is the caller's (the board and the detail page each run the
+ * `onSubmit` is the caller's (the map and the detail page each run the
  * mutation their own way). A rejection comes back here: field errors go on
  * their fields, anything else into the summary, and every value stays typed.
  */
@@ -383,7 +383,7 @@ export type TransitionDialogProps = {
   target: TaskStatus;
   /** Performs the transition. A rejection is rendered here; a resolve is the caller's to close. */
   onSubmit: (input: TransitionInput) => Promise<unknown>;
-  /** Dismissed without moving. The board reverts its optimistic card on this. */
+  /** Dismissed without moving. The caller reverts its optimistic state on this. */
   onCancel: () => void;
   /**
    * A rejection from before the dialog opened — a direct move that came back

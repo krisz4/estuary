@@ -30,7 +30,7 @@ helpdesk/
 │   │       ├── features/     Task-domain components
 │   │       ├── components/   Shared presentational (ui/ = primitives)
 │   │       ├── api/          Typed fetch client + query hooks + queryKeys
-│   │       ├── stores/       zustand — client-only preferences (taskView)
+│   │       ├── stores/       zustand — client-only preferences (taskView, projectScope, session)
 │   │       └── lib/          formatting, cn(), url helpers
 │   └── mcp/                  @helpdesk/mcp    — stdio MCP server, thin client over the REST API
 │       └── src/
@@ -126,7 +126,7 @@ Server state lives only in TanStack Query; list state lives only in the URL. Not
 
 Mutations invalidate through `queryKeys`, never inline key arrays.
 
-**Client state is the third bucket, and `src/stores/` (zustand) is the only place it lives.** It holds what is neither the server's nor the URL's: a preference belonging to this user on this machine, which no other screen can reconstruct. Today that is one store — `stores/taskView.ts`, the list ⇄ board choice, persisted to `localStorage` so a task opened from the board returns to the board. The bar for adding a second one is the same test: if pasting the URL into another browser should reproduce it, it is URL state and does not belong here.
+**Client state is the third bucket, and `src/stores/` (zustand) is the only place it lives.** It holds what is neither the server's nor the URL's: a preference belonging to this user on this machine, which no other screen can reconstruct. Today that is `stores/taskView.ts`, the list ⇄ map choice, persisted to `localStorage` so a task opened from the map returns to the map (a previously-stored Kanban-board preference migrates to the map — the board itself is retired); `stores/projectScope.ts`, the last single project the list, map, or inbox URL selected, so the header keeps its project on screens without a filter URL (it follows the URL and never overrides it); and `stores/session.ts`, the display name and API token. The bar for adding a second one is the same test: if pasting the URL into another browser should reproduce it, it is URL state and does not belong here.
 
 ## Key decisions
 

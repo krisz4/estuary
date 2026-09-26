@@ -9,7 +9,7 @@ import {
 
 /**
  * The store itself. The behaviour that matters to a user — "back" going to the
- * board — is asserted end to end in `TasksBoardPage.test.tsx`; these cover the
+ * map — is asserted end to end in `TasksMapPage.test.tsx`; these cover the
  * two things that file cannot see: what reaches `localStorage`, and what happens
  * when what comes back out of it is not a view.
  *
@@ -19,19 +19,19 @@ import {
 describe("taskViewPath", () => {
   it("maps each view to its route", () => {
     expect(taskViewPath("list")).toBe("/tasks");
-    expect(taskViewPath("board")).toBe("/tasks/board");
+    expect(taskViewPath("map")).toBe("/tasks/map");
   });
 });
 
 describe("taskViewFromPathname", () => {
   it.each([
     ["/tasks", "list"],
-    ["/tasks/board", "board"],
+    ["/tasks/map", "map"],
   ])("reads %s as the %s view", (pathname, view) => {
     expect(taskViewFromPathname(pathname)).toBe(view);
   });
 
-  it.each(["/tasks/42", "/tasks/new", "/tasks/42/edit", "/", "/tasks/board/x"])(
+  it.each(["/tasks/42", "/tasks/new", "/tasks/42/edit", "/", "/tasks/board", "/tasks/map/x"])(
     "does not claim %s is a view",
     (pathname) => {
       expect(taskViewFromPathname(pathname)).toBeUndefined();
@@ -88,10 +88,10 @@ describe("useTaskViewStore", () => {
   });
 
   it("persists the chosen view", () => {
-    useTaskViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("map");
 
-    expect(useTaskViewStore.getState().view).toBe("board");
-    expect(window.localStorage.getItem(TASK_VIEW_STORAGE_KEY)).toContain("board");
+    expect(useTaskViewStore.getState().view).toBe("map");
+    expect(window.localStorage.getItem(TASK_VIEW_STORAGE_KEY)).toContain("map");
   });
 
   /*
@@ -104,11 +104,11 @@ describe("useTaskViewStore", () => {
     const seen: string[] = [];
     const unsubscribe = useTaskViewStore.subscribe((state) => seen.push(state.view));
 
-    useTaskViewStore.getState().setView("board");
-    useTaskViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("map");
+    useTaskViewStore.getState().setView("map");
     unsubscribe();
 
-    expect(seen).toEqual(["board"]);
+    expect(seen).toEqual(["map"]);
   });
 
   /*
@@ -130,16 +130,33 @@ describe("useTaskViewStore", () => {
   it("rehydrates a valid stored view", () => {
     window.localStorage.setItem(
       TASK_VIEW_STORAGE_KEY,
+      JSON.stringify({ state: { view: "map" }, version: 0 }),
+    );
+
+    useTaskViewStore.persist.rehydrate();
+
+    expect(useTaskViewStore.getState().view).toBe("map");
+  });
+
+  /*
+    The Kanban board was retired in favor of the map. A returning user's
+    `localStorage` may still hold the pre-migration "board" value; that is the
+    direct predecessor of "map", not an invalid value to fall back from, so it
+    migrates to "map" rather than resetting to the default "list".
+  */
+  it("migrates a stored board view to map", () => {
+    window.localStorage.setItem(
+      TASK_VIEW_STORAGE_KEY,
       JSON.stringify({ state: { view: "board" }, version: 0 }),
     );
 
     useTaskViewStore.persist.rehydrate();
 
-    expect(useTaskViewStore.getState().view).toBe("board");
+    expect(useTaskViewStore.getState().view).toBe("map");
   });
 
   it("clears both halves on reset", () => {
-    useTaskViewStore.getState().setView("board");
+    useTaskViewStore.getState().setView("map");
 
     resetTaskViewStore();
 
@@ -161,8 +178,8 @@ describe("useTaskViewStore", () => {
       }),
     );
 
-    expect(() => useTaskViewStore.getState().setView("board")).not.toThrow();
-    expect(useTaskViewStore.getState().view).toBe("board");
+    expect(() => useTaskViewStore.getState().setView("map")).not.toThrow();
+    expect(useTaskViewStore.getState().view).toBe("map");
     expect(() => useTaskViewStore.persist.rehydrate()).not.toThrow();
   });
 });

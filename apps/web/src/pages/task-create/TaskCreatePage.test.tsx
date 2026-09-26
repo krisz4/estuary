@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Outlet, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { TaskCreatePage } from "@/pages/task-create/TaskCreatePage";
+import { parseCreatePrefill, TaskCreatePage } from "@/pages/task-create/TaskCreatePage";
 import {
   makeQueryClient,
   makeStats,
@@ -77,6 +77,7 @@ describe("TaskCreatePage", () => {
       assignee: null,
       acceptanceCriteria: null,
       links: [],
+      labels: [],
       parentId: null,
       idempotencyKey: expect.stringMatching(/^web:.+/),
     });
@@ -412,5 +413,40 @@ describe("TaskCreatePage", () => {
     await user.click(screen.getByRole("button", { name: "Keep editing" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByLabelText(/^title/i)).toHaveValue("Half a thought");
+  });
+
+  it("prefills status and project from the Map's quick-add query string", async () => {
+    mockApi({});
+    renderRoute({ routes, initialEntries: ["/tasks/new?status=todo&project=mobile-app"], queryClient: makeQueryClient() });
+
+    // `Select` is a Radix combobox (a button showing the chosen label), not a
+    // native `<select>` — assert on the rendered label, not `.value`.
+    expect(await screen.findByLabelText(/starting status/i)).toHaveTextContent("To do");
+    expect(screen.getByLabelText(/^project/i)).toHaveValue("mobile-app");
+  });
+
+  it("ignores a status the create schema doesn't allow, and falls back to the project scope when the URL has none", async () => {
+    mockApi({});
+    renderRoute({ routes, initialEntries: ["/tasks/new?status=done"], queryClient: makeQueryClient() });
+
+    expect(await screen.findByLabelText(/starting status/i)).toHaveTextContent("Backlog");
+  });
+});
+
+describe("parseCreatePrefill", () => {
+  it("reads a creatable status and a trimmed project", () => {
+    expect(parseCreatePrefill(new URLSearchParams("status=todo&project=%20mobile-app%20"))).toEqual({
+      status: "todo",
+      project: "mobile-app",
+    });
+  });
+
+  it("drops an uncreatable or missing status rather than passing it through", () => {
+    expect(parseCreatePrefill(new URLSearchParams("status=done"))).toEqual({ status: undefined, project: undefined });
+    expect(parseCreatePrefill(new URLSearchParams(""))).toEqual({ status: undefined, project: undefined });
+  });
+
+  it("treats an empty project param as absent, not as 'clear the field'", () => {
+    expect(parseCreatePrefill(new URLSearchParams("project=")).project).toBeUndefined();
   });
 });

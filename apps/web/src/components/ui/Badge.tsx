@@ -1,7 +1,7 @@
 import { type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-export type BadgeTone = "neutral" | "primary" | "success" | "warning" | "info" | "destructive";
+export type BadgeTone = "neutral" | "primary" | "success" | "warning" | "info" | "destructive" | "attention";
 
 const TONES: Record<BadgeTone, string> = {
   neutral: "bg-neutral-subtle text-neutral-subtle-foreground",
@@ -10,6 +10,8 @@ const TONES: Record<BadgeTone, string> = {
   warning: "bg-warning-subtle text-warning-subtle-foreground",
   info: "bg-info-subtle text-info-subtle-foreground",
   destructive: "bg-destructive-subtle text-destructive-subtle-foreground",
+  // "Waits on you" — the needs-user-* statuses. Reserved; see index.css.
+  attention: "bg-attention-subtle text-attention-subtle-foreground",
 };
 
 export type BadgeProps = HTMLAttributes<HTMLSpanElement> & {

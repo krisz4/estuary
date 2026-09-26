@@ -30,8 +30,8 @@ Claude Code ──stdio (JSON-RPC)──► apps/mcp ──HTTP /api/v1 + X-Acto
 ```
 
 - **Inputs are the contract schemas.** Tool input schemas are composed from `@helpdesk/contracts` (`createTaskInputSchema`, `transitionInputSchema`, `decisionRequestSchema`, …), so the model sees the API's own bounds and the SDK rejects a bad call before any request. The API still validates everything.
-- **Every request** carries `X-Actor: $TASKS_ACTOR` and, when set, `Authorization: Bearer $TASKS_API_TOKEN`.
-- **Results** are text: a summary line (`TASK-000042 [in_progress] Title · high · project helpdesk · claimed by agent:x until … · v7`), the `statusNote`, the open decision and any answered ones, then the JSON. Lists truncate long descriptions (Claude Code caps MCP output at 25k tokens by default); `task_get` has the full text.
+- **Every request** carries `X-Actor: $TASKS_ACTOR` (or the derived per-checkout actor, below) and, when set, `Authorization: Bearer $TASKS_API_TOKEN`.
+- **Results** are text: a summary line (`TASK-000042 [in_progress] Title · high · project helpdesk · labels web · claimed by agent:x until … · v7`), the `statusNote`, the open decision and any answered ones, parent/subtasks/dependencies/dependents (with their project when it differs), the live state of GitHub links, then the JSON. `task_get` includes the 10 most recent comments by default (`commentLimit`, 0–200, and a line saying how many older ones were left out). `task_list` is compact by default — one line per task (reference, status, title, priority, project, labels, parent, subtask count, open dependencies, claim holder, version, updated date) plus a 160-character description snippet — and appends the page as JSON only with `verbose: true` (Claude Code caps MCP output at 25k tokens by default).
 - **Errors** come back as `isError` results with the API's `code`, `message`, `details`, `requestId`, and a one-line hint for the codes an agent can act on. An unreachable API yields "Task manager API not reachable at <url> … Is it running (`pnpm dev:api`)?".
 - **Server instructions** (sent at MCP initialize, shown to the model while connected) carry the status list, the work loop, and the hard rules. The skill carries the long form.
 
@@ -39,8 +39,8 @@ Claude Code ──stdio (JSON-RPC)──► apps/mcp ──HTTP /api/v1 + X-Acto
 
 | Tool | API call | Use |
 | ---- | -------- | --- |
-| `task_list` | `GET /tasks` | Search/filter; the inbox is `status: [needs_user_decision, needs_user_action, needs_qa]` |
-| `task_get` | `GET /tasks/:id` | Full task incl. comments, decisions, dependencies; accepts `42` or `"TASK-000042"` |
+| `task_list` | `GET /tasks` | Search/filter (`q` terms AND; `label`, `parentIsNull`, `dependsOn`, `dependencyOf`, …); the inbox is `status: [needs_user_decision, needs_user_action, needs_qa]` |
+| `task_get` | `GET /tasks/:id` (+ `GET /tasks/:id/github`) | Full task incl. recent comments, decisions, dependencies, GitHub link state; accepts `42` or `"TASK-000042"` |
 | `task_create` | `POST /tasks` (+ `POST /tasks/:id/transition`) | File a task; optional `transition` applied after (see below) |
 | `task_update` | `PATCH /tasks/:id` | Edit fields (never status) |
 | `task_transition` | `POST /tasks/:id/transition` | Any status, with the payload it requires |
@@ -55,15 +55,18 @@ Claude Code ──stdio (JSON-RPC)──► apps/mcp ──HTTP /api/v1 + X-Acto
 | `task_block` | transition → `blocked` | Waiting on tasks (`blockedBy`) or an outside event |
 | `task_add_dependency` / `task_remove_dependency` | `POST` / `DELETE /tasks/:id/dependencies[/:dependsOnId]` | Ordering between tasks |
 | `task_answer_decision` | `POST /tasks/:id/decision/answer` | Record a human's answer given in chat |
-| `task_events` | `GET /events` | Change feed from a cursor |
+| `task_events` | `GET /events` | Change feed from a cursor; all projects unless narrowed by `taskId`, `project`, `actor`, `type` |
+| `task_import_github_issue` | `POST /integrations/github/import` | Turn a GitHub issue (URL, `owner/repo#n`, or `#n` for the origin repo) into a task; needs the GitHub integration |
 | `task_stats` | `GET /tasks/stats` | Counts per status + `needsAttention` |
 
 The four hand-off tools are deliberately redundant with `task_transition`: agents choose tools by name, and `task_submit_for_qa` makes the right ending obvious where "transition to needs_qa" does not.
 
 ### Behaviour the tools add on top of the API
 
-- **Default project.** `task_create` and `task_next` use `TASKS_DEFAULT_PROJECT`, else the slug of the project directory's name (`CLAUDE_PROJECT_DIR`, set by Claude Code). `task_next` accepts `allProjects: true` to look everywhere. `task_list` and `task_stats` never apply it — a read must not silently hide work.
-- **Idempotency key, always.** `task_create` derives one from project + title (`mcp:<project>:<title-slug>`) when the caller sends none, so a retried call, a resumed session, or a second agent noticing the same follow-up gets the existing task back (200) instead of a duplicate. Filing a new task under an old title needs an explicit key.
+- **Default project.** `task_create` and `task_next` use the first valid slug of: `TASKS_DEFAULT_PROJECT`; the repository name of `git remote get-url origin` (`git@github.com:owner/repo.git`, `https://…/repo(.git)`, `ssh://…`); the main checkout's directory name (parent of `git rev-parse --git-common-dir`, the same from every worktree); the project directory's name. Git runs in `CLAUDE_PROJECT_DIR` with a short timeout, and any failure (no git, no remote) falls through — so a worktree at `.claude/worktrees/agent-a1b2` still files under `helpdesk`. `task_next` accepts `allProjects: true` to look everywhere, and `label` to stay in one monorepo workspace. `task_list`, `task_stats`, and `task_events` never apply it — a read must not silently hide work.
+- **Derived actor.** With `TASKS_ACTOR` empty, the actor is `agent:claude-code@<project>` in a main checkout and `agent:claude-code@<project>/<worktree>` in a linked worktree (worktree = the checkout's directory name), cut to 64 characters with a hash suffix if longer. It is stable across restarts of the same checkout, so a resumed session still owns its claims, and parallel sessions in different worktrees cannot take over each other's. **Two sessions in the same checkout share it** — set `TASKS_ACTOR` per session if you run that way. The plugin's SessionStart hook derives the same actor (a dependency-free twin of `apps/mcp/src/config.ts`) to list the tasks you still hold.
+- **Idempotency key, always.** `task_create` derives one from project + title (`mcp:<project>:<title-slug>`) when the caller sends none, so a retried call, a resumed session, or a second agent noticing the same follow-up gets the existing task back (200) instead of a duplicate — while that task is open. Once it is `done` or `deferred` the API retires the key and creates a fresh task (201). Filing a second open task under an existing title needs an explicit key.
+- **GitHub, best-effort.** When a task has GitHub links, `task_get` asks `GET /tasks/:id/github` and prints one line per link (`PR owner/repo#12 merged · checks success`). A failure prints nothing; `INTEGRATION_NOT_CONFIGURED` is remembered for the life of the server so a disabled integration costs one request, once.
 - **Create + transition is not atomic.** `task_create` with `transition` makes two requests, the second guarded by `expectedVersion` = the created version. If it fails, the error says the task **was created** and to use `task_transition` — never to create again. On an idempotent replay the transition runs only if the task is still in its creation status: a task that has moved on (claimed, handed to QA) is not dragged back.
 
 ## The work loop
@@ -85,7 +88,7 @@ pnpm dev:api                         # API on :4000
 claude                               # approve the "tasks" server from .mcp.json when prompted
 ```
 
-`.mcp.json` registers `tasks` as `node ${CLAUDE_PROJECT_DIR:-.}/apps/mcp/dist/index.js`, with `TASKS_API_URL`, `TASKS_ACTOR`, and `TASKS_API_TOKEN` passed through from your shell (defaults: local API, `agent:claude-code`, no token). The skill is available as `.claude/skills/task-workflow` (a symlink into the plugin, so there is one copy). `pnpm --filter @helpdesk/mcp dev` rebuilds on change; reconnect with `/mcp`.
+`.mcp.json` registers `tasks` as `node ${CLAUDE_PROJECT_DIR:-.}/apps/mcp/dist/index.js`, with `TASKS_API_URL`, `TASKS_ACTOR`, and `TASKS_API_TOKEN` passed through from your shell (defaults: local API, the derived per-checkout actor, no token). The skill is available as `.claude/skills/task-workflow` (a symlink into the plugin, so there is one copy). `pnpm --filter @helpdesk/mcp dev` rebuilds on change; reconnect with `/mcp`.
 
 The SessionStart hook is part of the plugin only. Installing the plugin as well as using `.mcp.json` gives you the tools twice (`mcp__tasks__*` and `mcp__plugin_task-manager_tasks__*`) — pick one per repo, e.g. decline the project server or list it in `disabledMcpjsonServers`.
 
@@ -98,8 +101,7 @@ The MCP server is not published to npm; it runs from a built checkout of this re
 ```bash
 claude plugin marketplace add /path/to/helpdesk/integrations
 claude plugin install task-manager@helpdesk-tasks \
-  --config api_url=http://localhost:4000/api/v1 \
-  --config actor=agent:claude-code
+  --config api_url=http://localhost:4000/api/v1   # actor: leave unset to derive it per checkout
 ```
 
 The marketplace is a local directory, so Claude Code loads the plugin **in place** rather than copying it into its cache — which is what lets the plugin's launcher (`scripts/start-mcp.mjs`) find the server at `../../apps/mcp/dist/index.js` with no path configured, and makes a `git pull` + rebuild take effect on the next session. If you install the plugin some other way (a copied cache install, e.g. from a git-hosted marketplace), set `server_path` to `/path/to/helpdesk/apps/mcp/dist/index.js`. Change options later with `/plugin configure task-manager`; the token (`api_token`) is marked sensitive and goes to the OS credential store. For a one-off session: `claude --plugin-dir /path/to/helpdesk/integrations/claude-code`.
@@ -111,13 +113,12 @@ We chose a local-path launcher over bundling the server into the plugin or publi
 ```bash
 claude mcp add tasks --scope user \
   -e TASKS_API_URL=http://localhost:4000/api/v1 \
-  -e TASKS_ACTOR=agent:claude-code \
   -- node /path/to/helpdesk/apps/mcp/dist/index.js
 ```
 
 The server name goes first because `-e` takes several values and would otherwise swallow it; `--` separates Claude Code's options from the server command. Use `--scope project` to write a shareable `.mcp.json` into one repo instead. Copy `integrations/claude-code/skills/task-workflow` into that repo's `.claude/skills/` (or `~/.claude/skills/`) if you want the skill without the plugin.
 
-Either way, tasks are filed under the repo's directory name as the project unless you set `TASKS_DEFAULT_PROJECT` (option B) or the agent passes `project`.
+Either way, tasks are filed under the repo's name (from `origin`, else the main checkout's directory) as the project unless you set `TASKS_DEFAULT_PROJECT` (option B) or the agent passes `project`, and the actor is derived per checkout unless you set `actor` / `TASKS_ACTOR`.
 
 ## Self-hosted server
 

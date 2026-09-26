@@ -99,6 +99,26 @@ describe("parseTaskListParams", () => {
     expect(parse(`?q=${"a".repeat(121)}`).q).toBeUndefined();
     expect(parse(`?q=${"a".repeat(120)}`).q).toHaveLength(120);
   });
+
+  it("keeps label slugs, lowercased and de-duplicated, and drops anything invalid", () => {
+    expect(parse("?label=Web&label=web&label=has%20space&label=apps/web").label).toEqual([
+      "web",
+      "apps/web",
+    ]);
+  });
+
+  it("parses parentId, dependsOn, and dependencyOf as task ids", () => {
+    expect(parse("?parentId=12").parentId).toBe(12);
+    expect(parse("?parentId=0x2a").parentId).toBeUndefined();
+    expect(parse("?dependsOn=7").dependsOn).toBe(7);
+    expect(parse("?dependencyOf=9").dependencyOf).toBe(9);
+  });
+
+  it("never returns parentId and parentIsNull together", () => {
+    const params = parse("?parentId=12&parentIsNull=true");
+    expect(params.parentId).toBe(12);
+    expect(params.parentIsNull).toBeUndefined();
+  });
 });
 
 describe("serializeTaskListParams", () => {
@@ -206,6 +226,37 @@ describe("useTaskListParams", () => {
     expect(h.current.api.params.page).toBe(1);
     expect(h.current.api.params.pageSize).toBe(50);
     expect(h.current.api.params.sort).toEqual({ field: "title", direction: "asc" });
+  });
+
+  it("treats project as the header's scope: not counted, and kept when filters are cleared", () => {
+    const h = renderParams("/tasks?project=helpdesk&status=todo");
+
+    expect(h.current.api.activeFilterCount).toBe(1);
+
+    act(() => h.current.api.clearFilters());
+
+    expect(h.current.api.params.status).toEqual([]);
+    expect(h.current.api.params.project).toEqual(["helpdesk"]);
+    expect(h.current.api.hasActiveFilters).toBe(false);
+  });
+
+  it("clears the other half of the parentId/parentIsNull pair on a partial patch", () => {
+    const h = renderParams("/tasks?parentIsNull=true");
+
+    act(() => h.current.api.setFilters({ parentId: 12 }));
+
+    expect(h.current.api.params.parentId).toBe(12);
+    expect(h.current.api.params.parentIsNull).toBeUndefined();
+    expect(h.current.search).not.toContain("parentIsNull");
+  });
+
+  it("resets page to 1 when the label filter changes", () => {
+    const h = renderParams("/tasks?page=3");
+
+    act(() => h.current.api.setFilters({ label: ["web"] }));
+
+    expect(h.current.api.params.page).toBe(1);
+    expect(h.current.api.params.label).toEqual(["web"]);
   });
 
   it("clears the other half of the assignee pair on a partial patch", () => {

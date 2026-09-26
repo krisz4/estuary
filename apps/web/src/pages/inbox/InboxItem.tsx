@@ -87,7 +87,7 @@ export const InboxItem = ({ task }: { task: TaskSummary }) => {
 const ItemShell = ({ task, children }: { task: TaskSummary; children: ReactNode }) => (
   <article
     aria-labelledby={`inbox-task-${task.id}`}
-    className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4"
+    className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-raised"
   >
     <header className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">

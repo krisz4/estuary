@@ -35,8 +35,9 @@ The single core resource. Everything else in the product — comments, decisions
 | `project` | `String?` | Lowercase slug grouping tasks by codebase/effort. Canonicalized on write so exact-match filtering is safe |
 | `assignee` | `String?` | Free-form name/handle of who is working it |
 | `createdBy` | `String` | The actor (`agent:…` / `human:…`) that created it — see [Actors.md](./Actors.md) |
-| `links` | `TaskLink[]` | `{ label, url }` pairs (PRs, branches, docs), max 20, de-duplicated by URL on `needs_qa` |
-| `parentId` | `Int?` | Subtask parent. Cannot be itself or its own descendant |
+| `links` | `TaskLink[]` | `{ label, url }` pairs (PRs, branches, docs), max 20, de-duplicated by URL on `needs_qa` and by the GitHub webhook — see [GitHub_Integration.md](./GitHub_Integration.md) |
+| `labels` | `string[]` | Sorted lowercase slugs, max 10, stored in the `TaskLabel` join table (not a column). Replace-not-merge on write, same rule as `links`. See [Labels.md](./Labels.md) |
+| `parentId` | `Int?` | Subtask parent. Cannot be itself or its own descendant. `childCount` on the summary is the number of subtasks (non-zero marks a task as an epic in a list) |
 | `claimedBy` / `claimExpiresAt` | `String?` / `DateTime?` | The active lease, meaningful only while `in_progress`. See [Task_Workflow_API.md](./Task_Workflow_API.md#claims-leases) |
 | `version` | `Int` | Optimistic concurrency, starts at 1, +1 on every write to the task row |
 | `idempotencyKey` | `String?` | Unique. A repeated `POST /tasks` with the same key replays the original task |
@@ -50,9 +51,11 @@ The single core resource. Everything else in the product — comments, decisions
 
 `project` replaced the old fixed IT `category` enum — it is free text but canonicalized (lowercased, slug-shaped) because it is filtered by exact match, and SQLite's `equals` is case-sensitive with no `mode: "insensitive"`. See [../engineering/DATABASE.md](../engineering/DATABASE.md#canonical-values-instead-of-case-insensitive-matching).
 
+A pointer to another task (`TaskRef` — used for `parent`, `children`, `dependencies`, `dependents`) carries its own `project`, because dependencies and subtasks can cross repositories: an agent in `mobile-app` waiting on a `helpdesk` task needs to see that from the pointer alone.
+
 ## Rules
 
-- **Client-supplied fields on create:** `title`, `description`, `status?` (creatable statuses only), `priority?`, `project?`, `assignee?`, `acceptanceCriteria?`, `links?`, `parentId?`, `idempotencyKey?`. Everything else is server-owned.
+- **Client-supplied fields on create:** `title`, `description`, `status?` (creatable statuses only), `priority?`, `project?`, `assignee?`, `acceptanceCriteria?`, `links?`, `labels?`, `parentId?`, `idempotencyKey?`. Everything else is server-owned.
 - **Immutable after create:** `id`, `createdAt`, `createdBy`, `version`. Schemas are `.strict()`, so a payload containing a server-owned field is rejected with `VALIDATION_ERROR` rather than silently ignored.
 - **`PATCH` never accepts `status`.** Status changes carry requirements and side effects (claims, decisions, unblocking) and go through `POST /tasks/:taskId/transition` exclusively — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md).
 - **Update is a partial PATCH.** An empty body (`{}`), or a body carrying only `expectedVersion`, returns `AT_LEAST_ONE_FIELD` (422). A body whose fields all resolve to their current values performs **no write at all** — no version bump, no `updatedAt` move, no event.
@@ -99,7 +102,7 @@ Returns the full task and `Location: /api/v1/tasks/42`.
 ### Facets
 
 ```json
-{ "assignees": ["agent:claude-code", "human:dana"], "projects": ["billing-service", "helpdesk", "mobile-app"], "creators": ["agent:claude-code", "human:krisz"] }
+{ "assignees": ["agent:claude-code", "human:dana"], "projects": ["billing-service", "helpdesk", "mobile-app"], "labels": ["api", "bug", "web"], "creators": ["agent:claude-code", "human:krisz"] }
 ```
 
 Distinct non-null values actually present in the table, sorted. It exists because the list page's assignee/project selects have no other source of options, and because sending an exact stored value is what makes case-sensitive equality matching safe.

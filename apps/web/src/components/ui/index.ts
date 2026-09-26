@@ -21,6 +21,7 @@ export {
 } from "./Dialog";
 export { Field, type FieldProps, type FieldRenderProps } from "./Field";
 export { Input, fieldClassName, type InputProps } from "./Input";
+export { Popover, type PopoverProps } from "./Popover";
 export { Select, SelectItem, type SelectOption, type SelectProps } from "./Select";
 export { Skeleton } from "./Skeleton";
 export { Textarea, type TextareaProps } from "./Textarea";

@@ -7,7 +7,9 @@ import {
   eventsQuerySchema,
   expectedVersionSchema,
   formatTaskSort,
+  githubImportInputSchema,
   nextTaskInputSchema,
+  parseGithubUrl,
   parseReference,
   releaseTaskInputSchema,
   taskIdSchema,
@@ -17,9 +19,11 @@ import {
   updateTaskInputSchema,
   type Comment,
   type EventsResponse,
+  type GithubLinkStatus,
   type NextTaskResponse,
   type PaginatedTasks,
   type Task,
+  type TaskGithubStatus,
   type TaskStats,
   type TaskStatus,
   type TransitionInput,
@@ -94,6 +98,11 @@ const variantFor = <T extends TaskStatus>(to: T): VariantFor<T> => {
 };
 
 const listShape = taskListQuerySchema.out.shape;
+const eventsShape = eventsQuerySchema.out.shape;
+
+/** Most recent comments `task_get` shows by default; the thread can be long. */
+export const DEFAULT_COMMENT_LIMIT = 10;
+export const MAX_COMMENT_LIMIT = 200;
 
 /* ------------------------------------------------------------------ *
  * Result plumbing
@@ -135,6 +144,31 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
   const transition = (id: number, body: TransitionInput) =>
     api.post<Task>(taskPath(id, "/transition"), body);
 
+  /**
+   * Live state of a task's GitHub links, for `task_get`. Best-effort by design:
+   * any failure prints nothing rather than failing the read. The integration is
+   * optional, so the first "not configured" answer is remembered and every later
+   * `task_get` skips the request; a transient failure is not remembered.
+   */
+  let githubEnabled = true;
+  const githubStatus = async (task: Task): Promise<GithubLinkStatus[]> => {
+    if (!githubEnabled) return [];
+    if (!task.links.some((link) => parseGithubUrl(link.url) !== null)) return [];
+    try {
+      const { data } = await api.get<TaskGithubStatus>(taskPath(task.id, "/github"));
+      return data.data;
+    } catch (error) {
+      // NOT_FOUND: an API from before the integration existed has no such route.
+      if (
+        error instanceof ApiError &&
+        (error.code === "INTEGRATION_NOT_CONFIGURED" || error.code === "NOT_FOUND")
+      ) {
+        githubEnabled = false;
+      }
+      return [];
+    }
+  };
+
   /* ---------------------------- reads ---------------------------- */
 
   server.registerTool(
@@ -142,22 +176,39 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     {
       title: "List tasks",
       description:
-        "Search and list tasks (summaries, paged, newest first by default). Filters AND together; values inside one filter OR. " +
-        "status/priority/project take arrays. q matches title/description text or a reference like TASK-42. " +
+        "Search and list tasks, paged, newest first by default: one line per task (status, priority, project, labels, parent, subtasks, open dependencies, claim, version) plus a description snippet. " +
+        "Filters AND together; values inside one filter OR. status/priority/project/label take arrays. " +
+        'q: every whitespace-separated term must match (double-quote a phrase: "login redirect" safari is two terms), searched across title, description, acceptance criteria, status note, links, and comments; a term like TASK-42 also matches that task. ' +
+        "Relations: dependsOn: X = who waits on X (its dependents); dependencyOf: X = what X waits on; parentId: X = X's subtasks; parentIsNull: true = top-level tasks and epics only. " +
+        "label narrows inside a project — in a monorepo, the workspace (web, api). " +
+        "Search before filing a follow-up, so you do not file a duplicate. " +
         'sort is "field:direction" with field one of id, createdAt, updatedAt, title, status, priority. ' +
         'To answer a human\'s "what needs me?", use status [needs_user_decision, needs_user_action, needs_qa]. ' +
-        "Descriptions are truncated here — task_get a task before working on it.",
-      inputSchema: listShape,
+        "verbose: true appends the rows as JSON. task_get a task before working on it.",
+      inputSchema: {
+        ...listShape,
+        parentId: taskIdInput.optional().describe("Only subtasks of this task."),
+        dependsOn: taskIdInput
+          .optional()
+          .describe("Only tasks that depend on this one (who waits on it)."),
+        dependencyOf: taskIdInput
+          .optional()
+          .describe("Only tasks this one depends on (what it waits on)."),
+        verbose: z
+          .boolean()
+          .optional()
+          .describe("Append the page as JSON (descriptions truncated). Costs ~3x the tokens."),
+      },
       annotations: { readOnlyHint: true },
     },
     (args) =>
       run(async () => {
-        const { sort, ...filters } = args;
+        const { sort, verbose, ...filters } = args;
         const { data } = await api.get<PaginatedTasks>("/tasks", {
           ...filters,
           sort: formatTaskSort(sort),
         });
-        return formatTaskList(data);
+        return formatTaskList(data, verbose === true);
       }),
   );
 
@@ -166,15 +217,31 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     {
       title: "Get a task",
       description:
-        "The full task: description, acceptance criteria, statusNote (why it is in its status), comments, parent/children, " +
-        "dependencies/dependents, open decision, claim, and version. Read it before starting work and before any write you want to guard with expectedVersion.",
-      inputSchema: { taskId: taskIdInput },
+        "The full task: description, acceptance criteria, statusNote (why it is in its status), the most recent comments, parent/subtasks, " +
+        "dependencies/dependents, open and answered decisions, claim, version, and the live state of its GitHub PR/issue links when the server has the GitHub integration. " +
+        "Read it before starting work and before any write you want to guard with expectedVersion.",
+      inputSchema: {
+        taskId: taskIdInput,
+        commentLimit: z
+          .number()
+          .int()
+          .min(0)
+          .max(MAX_COMMENT_LIMIT)
+          .optional()
+          .describe(
+            `How many of the most recent comments to include (default ${DEFAULT_COMMENT_LIMIT}; 0 = none). The output says how many older ones were left out.`,
+          ),
+      },
       annotations: { readOnlyHint: true },
     },
-    ({ taskId }) =>
+    ({ taskId, commentLimit }) =>
       run(async () => {
         const { data } = await api.get<Task>(taskPath(taskId));
-        return formatTask(data);
+        const github = await githubStatus(data);
+        return formatTask(data, undefined, {
+          commentLimit: commentLimit ?? DEFAULT_COMMENT_LIMIT,
+          github,
+        });
       }),
   );
 
@@ -183,8 +250,9 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     {
       title: "Task events feed",
       description:
-        "What changed since a cursor: every create, edit, status change, claim, comment, decision, and dependency change, oldest first. " +
-        "Omit `after` (or pass 0) the first time, then pass the returned nextAfter to see only newer events. Optionally narrow to one task.",
+        "What changed since a cursor: every create, edit, status change, claim, comment, decision, dependency change, and linked GitHub PR event, oldest first. " +
+        "Omit `after` (or pass 0) the first time, then pass the returned nextAfter to see only newer events. " +
+        `Covers every project unless you narrow it: taskId (one task), project (e.g. ["${config.defaultProject ?? "helpdesk"}"]), actor (who did it, e.g. a human's human:<name>), type (e.g. ["task.status_changed", "decision.answered"]).`,
       inputSchema: {
         after: z
           .number()
@@ -193,7 +261,10 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
           .optional()
           .describe("Event id cursor: the nextAfter from your previous call."),
         taskId: taskIdInput.optional(),
-        limit: eventsQuerySchema.out.shape.limit,
+        project: eventsShape.project.describe("Only events of tasks in these projects."),
+        actor: eventsShape.actor.describe("Only events by this actor, e.g. human:dana."),
+        type: eventsShape.type.describe("Only these event types."),
+        limit: eventsShape.limit,
       },
       annotations: { readOnlyHint: true },
     },
@@ -231,7 +302,9 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         "File a new task. New work goes in backlog (the default). Use needs_refinement when it is too vague to act on, and todo only when you can write acceptanceCriteria (required for todo). " +
         `project is the repository's slug. ${defaultProjectNote} ` +
         "Subtasks: set parentId. " +
-        "An idempotencyKey is always sent: if you omit one it is derived from project + title, so retrying or re-running never files a duplicate — a repeat returns the existing task unchanged. Pass your own key to file a new task that reuses an old title. " +
+        "labels: the monorepo workspace(s) the task is about (web, api) and/or its kind (bug, flaky-test). " +
+        "An idempotencyKey is always sent: if you omit one it is derived from project + title, so retrying or re-running never files a duplicate — while a task with that key is still open, a repeat returns it unchanged. " +
+        "Once that task is done or deferred the key is retired and a new task is created. Pass your own key to file a second open task under an existing title. " +
         "Optional `transition` moves the task on right after creating it (e.g. to blocked with blockedBy, or in_progress to claim it). " +
         "That is two requests, not one atomic write: if the transition fails the task still exists — the error says so; fix it with task_transition, do not create again.",
       inputSchema: createTaskInputSchema.safeExtend({
@@ -249,7 +322,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         const task = created.data;
         const replay = created.status === 200;
         const heading = replay
-          ? `Already existed (idempotencyKey "${idempotencyKey}") — returned the existing task unchanged.`
+          ? `Already open as ${task.reference} (idempotencyKey "${idempotencyKey}") — returned the existing task unchanged, no duplicate filed.`
           : `Created ${task.reference}.`;
 
         if (next === undefined) return formatTask(task, heading);
@@ -288,7 +361,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     {
       title: "Edit a task",
       description:
-        "Change a task's fields: title, description, priority, project, assignee, acceptanceCriteria, links (replaces the whole list), parentId. " +
+        "Change a task's fields: title, description, priority, project, assignee, acceptanceCriteria, links (replaces the whole list), labels (replaces the whole set), parentId. " +
         "Send only what changes; null clears an optional field. Status is not editable here — use task_transition or the hand-off tools.",
       inputSchema: updateTaskInputSchema.extend({ taskId: taskIdInput, expectedVersion }),
     },
@@ -296,6 +369,62 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
       run(async () => {
         const { data } = await api.patch<Task>(taskPath(taskId), fields);
         return formatTask(data, "Updated.");
+      }),
+  );
+
+  const importShape = githubImportInputSchema.shape;
+  const bareIssue = /^#?(\d{1,9})$/;
+  server.registerTool(
+    "task_import_github_issue",
+    {
+      title: "Import a GitHub issue",
+      description:
+        "Turn a GitHub issue into a task: its title, its body as the description, and a link back. " +
+        (config.githubRepo === undefined
+          ? 'issue is the issue URL or "owner/repo#123". '
+          : `issue is the issue URL, "owner/repo#123", or "#123" for this repository (${config.githubRepo}). `) +
+        "Idempotent per issue: importing an issue whose task is still open returns that task instead of a duplicate. " +
+        "project defaults to the issue's repository name. Lands in backlog (or needs_refinement); refine it into todo with acceptance criteria before working it. " +
+        "Needs the GitHub integration on the server (INTEGRATION_NOT_CONFIGURED otherwise — then use task_create with the issue URL in links).",
+      inputSchema: {
+        issue: z
+          .string()
+          .trim()
+          .min(1)
+          .describe('Issue URL (https://github.com/owner/repo/issues/123) or "owner/repo#123".'),
+        project: importShape.project.describe(
+          "Project slug. Omitted: the issue's repository name.",
+        ),
+        status: importShape.status,
+        priority: importShape.priority,
+        labels: importShape.labels,
+      },
+    },
+    ({ issue, ...rest }) =>
+      run(async () => {
+        const bare = bareIssue.exec(issue);
+        if (bare !== null) {
+          if (config.githubRepo === undefined) {
+            return text(
+              `"${issue}" names no repository and this checkout's origin is not on GitHub. Pass the issue URL or "owner/repo#${bare[1]}".`,
+              true,
+            );
+          }
+          issue = `${config.githubRepo}#${bare[1]}`;
+        }
+        if (parseGithubUrl(issue, true)?.kind !== "issue") {
+          return text(
+            `"${issue}" is not a GitHub issue. Pass an issue URL (…/issues/123) or "owner/repo#123" — pull requests cannot be imported.`,
+            true,
+          );
+        }
+        const imported = await api.post<Task>("/integrations/github/import", { issue, ...rest });
+        const task = imported.data;
+        const heading =
+          imported.status === 200
+            ? `Already imported as ${task.reference} (still open) — returned it unchanged.`
+            : `Imported ${issue} as ${task.reference}.`;
+        return formatTask(task, heading);
       }),
   );
 
@@ -309,6 +438,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         "Atomically claim the best available task and move it to in_progress for you: the highest-priority todo whose dependencies are all done, " +
         "or an in_progress task whose previous holder's lease expired (continue their work — read its comments first). " +
         `${defaultProjectNote} Pass allProjects: true to take work from any project. ` +
+        'label: only tasks carrying one of these labels — pass your workspace (e.g. ["web"]) when you work in one part of a monorepo. ' +
         "Then: task_get is not needed (the full task is returned) — read the acceptance criteria and comments, work, heartbeat, and finish with one hand-off.",
       inputSchema: nextTaskInputSchema.extend({
         allProjects: z
@@ -420,7 +550,8 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
       title: "Hand off for QA",
       description:
         "Finish a task: move it to needs_qa for a human to verify. This is how agents complete work — agents cannot mark tasks done. " +
-        "Only when the acceptance criteria are met. Releases your claim.",
+        "Only when the acceptance criteria are met. Releases your claim. " +
+        "If the server's GitHub webhook is connected, putting the task reference (e.g. TASK-000042) in the PR title or branch name links the PR to the task automatically; either way, pass the PR in links.",
       inputSchema: {
         taskId: taskIdInput,
         summary: qa.summary.describe(

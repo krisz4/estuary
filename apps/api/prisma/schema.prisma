@@ -14,7 +14,15 @@
 //      validated with the contracts' zod schemas on the way out. The shape is the
 //      contract's, not the database's.
 //   5. `TaskEvent.taskId` is deliberately NOT a foreign key: the feed must still
-//      describe a task after it is deleted.
+//      describe a task after it is deleted. `TaskEvent.project` is the same
+//      idea applied to the project filter: it is denormalised onto the event
+//      (the task's project *at the time the event was recorded*) rather than
+//      joined, so the events feed stays filterable by project after the task
+//      is deleted or moved.
+//   6. `TaskLabel` is a join table, not a JSON column on `Task`, because SQLite
+//      has no array type and `?label=` must be an indexed exact match — a
+//      `LIKE` scan over a JSON-encoded array could not use an index and would
+//      also make "starts with" substrings false-positive match.
 
 generator client {
   provider = "prisma-client-js"
@@ -63,6 +71,7 @@ model Task {
   decisions    Decision[]
   dependencies TaskDependency[] @relation("DependentSide")
   dependents   TaskDependency[] @relation("DependencySide")
+  labels       TaskLabel[]
 
   @@index([createdAt])
   @@index([statusRank])
@@ -101,6 +110,18 @@ model TaskDependency {
   @@index([dependsOnId])
 }
 
+/// A free-form tag on a task (lowercase slug, `?label=` exact match). See note 6
+/// above for why this is a join table instead of a JSON column.
+model TaskLabel {
+  taskId Int
+  label  String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, label])
+  @@index([label])
+}
+
 model Decision {
   id                Int       @id @default(autoincrement())
   taskId            Int
@@ -126,8 +147,10 @@ model TaskEvent {
   taskId    Int // not a relation — see note 5 above
   type      String // TaskEventType (contracts)
   actor     String
+  project   String? // the task's project *when this event was recorded* — see note 5 above
   payload   String   @default("{}") // JSON
   createdAt DateTime @default(now())
 
   @@index([taskId, id])
+  @@index([project, id])
 }

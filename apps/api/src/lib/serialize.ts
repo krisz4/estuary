@@ -101,6 +101,7 @@ export interface TaskRefRow {
   id: number;
   title: string;
   status: string;
+  project: string | null;
 }
 
 /**
@@ -110,11 +111,13 @@ export interface TaskRefRow {
  * wrong count.
  */
 export interface TaskSummaryRelations {
-  _count: { comments: number };
+  _count: { comments: number; children: number };
   /** At least the `open` decision (at most one exists); the detail loads them all. */
   decisions: DecisionRow[];
   /** Every dependency, with just enough of the other task to count the unfinished ones. */
   dependencies: { dependsOn: { status: string } }[];
+  /** Sorted by `label` ascending — the order `TaskSummary.labels` comes back in. */
+  labels: { label: string }[];
 }
 
 export interface TaskDetailRelations extends TaskSummaryRelations {
@@ -130,8 +133,12 @@ export interface TaskEventRow {
   taskId: number;
   type: string;
   actor: string;
+  /** The task's project when the event was recorded — see `recordEvent()`. */
+  project: string | null;
   payload: string;
   createdAt: Date;
+  /** The task's current title, joined in by the caller; `null` if it's been deleted. */
+  taskTitle: string | null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -208,6 +215,7 @@ export const serializeTaskRef = (row: TaskRefRow): TaskRef => ({
   reference: formatReference(row.id),
   title: row.title,
   status: row.status as TaskStatus,
+  project: row.project,
 });
 
 /**
@@ -247,7 +255,10 @@ export const serializeTaskSummary = (row: TaskRow & TaskSummaryRelations): TaskS
     assignee: row.assignee,
     acceptanceCriteria: row.acceptanceCriteria,
     links: parseLinksColumn(row.links),
+    /** Already sorted by the query's `orderBy: { label: "asc" }`. */
+    labels: row.labels.map((label) => label.label),
     parentId: row.parentId,
+    childCount: row._count.children,
     createdBy: row.createdBy,
     claim: serializeClaim(row),
     version: row.version,
@@ -275,6 +286,8 @@ export const serializeTask = (row: TaskRow & TaskDetailRelations): Task => ({
 export const serializeEvent = (row: TaskEventRow): TaskEvent => ({
   id: row.id,
   taskId: row.taskId,
+  taskTitle: row.taskTitle,
+  project: row.project,
   type: row.type as TaskEventType,
   actor: row.actor,
   payload: parseJsonColumn(row.payload, payloadColumn, {}),

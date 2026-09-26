@@ -6,7 +6,7 @@
       "args": ["${CLAUDE_PROJECT_DIR:-.}/apps/mcp/dist/index.js"],
       "env": {
         "TASKS_API_URL": "${TASKS_API_URL:-http://localhost:4000/api/v1}",
-        "TASKS_ACTOR": "${TASKS_ACTOR:-agent:claude-code}",
+        "TASKS_ACTOR": "${TASKS_ACTOR:-}",
         "TASKS_API_TOKEN": "${TASKS_API_TOKEN:-}"
       }
     }

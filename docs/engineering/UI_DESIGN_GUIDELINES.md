@@ -19,15 +19,28 @@ There is **no `tailwind.config.ts`**: Tailwind v4 is configured from CSS, and th
 | `--background` / `--foreground` | Page surface and body text |
 | `--card` / `--card-foreground`, `--popover` / `--popover-foreground` | Panel and overlay surfaces |
 | `--border`, `--input`, `--ring`, `--overlay` | Hairlines, field outlines, focus ring, dialog scrim |
+| `--highlight`, `--shadow` | Elevation — consumed by the `shadow-raised` / `shadow-floating` utilities, not used directly |
 | `--muted` / `--muted-foreground` | Secondary surfaces, metadata text |
 | `--primary` | Primary actions |
 | `--neutral` | Secondary buttons, inert badges |
-| `--destructive` | Delete actions, error states |
+| `--attention` | "Waits on you" — needs-decision/action/QA badges, the needs-you rail, the inbox count. Reserved for that |
+| `--destructive` | Delete actions, error states, blocked |
 | `--success`, `--warning`, `--info` | Status and priority badges |
 
-Every semantic color comes as a **quartet**: `--x` (solid fill), `--x-foreground` (text on it), `--x-subtle` (tinted fill), `--x-subtle-foreground` (text on that). Badges use the subtle pair so status stays scannable across 60 rows without shouting; solid fills are reserved for actions. 36 tokens in total.
+Every semantic color comes as a **quartet**: `--x` (solid fill), `--x-foreground` (text on it), `--x-subtle` (tinted fill), `--x-subtle-foreground` (text on that). Badges use the subtle pair so status stays scannable across 60 rows without shouting; solid fills are reserved for actions.
 
-Neutral base, one accent. Status color is the only strong color on the list screen — that is what makes 60 rows scannable.
+## Color system
+
+The palette follows a few well-established rules for long-session, glanceable tools (Material's dark theme guidance, Radix Colors' step roles, and the isolation/von Restorff effect):
+
+- **Elevation is lightness.** In dark mode drop shadows barely read, so each layer up the stack is lighter: map well (≈0.24 L) → page `--background` (0.255) → `--card` (0.295) → `--muted`/hover (0.325) → `--popover` (0.33). Borders sit clearly above all of them (0.385) so panel edges are visible. Light mode inverts it: an off-white page (0.972) so white cards can sit on it.
+- **Resting panels use `shadow-raised`, floating things use `shadow-floating`.** Both start with a 1px inset top `--highlight` — in dark mode that lit edge, not the drop shadow, is what makes a card look lifted. Don't put a card on a card; inside one, use `bg-muted`.
+- **No pure black, no pure white.** The dark base is a lifted slate (~#262c36) and body text ~94% lightness. Maximum contrast on near-black halates and tires the eye; this still clears 4.5:1 everywhere.
+- **One hue, one job.** Blue (`primary`) = something you can click. Amber (`attention`) = waits on *you*, nothing else — so the eye finds it pre-attentively. Red = blocked/destructive, green = done/working, yellow (`warning`) = high priority. A new use of amber or blue needs to mean the same thing.
+- **Shape before colour where hues get close.** Status pills are filled, priority pills (below `urgent`) are outlined; the three needs-you kinds share amber and differ by icon. In dark mode, tinted fills of nearby hues all converge on brown.
+- **Loudness follows importance.** Only stats that want a human colour their number ("waiting on you", "blocked" when non-zero); the rest keep a coloured edge only. Rarely-wanted actions like Delete are outlined, with the solid red saved for the confirm dialog.
+- **Dark-mode accents are lighter and slightly desaturated** than their light twins, so they don't vibrate against the dark ground.
+- **Map lanes (project colours) avoid amber and red**, because on the map those hues mean "waits on you" and "blocked".
 
 **Color never carries meaning alone.** Every badge renders its text label; every error has text, not just a red border.
 

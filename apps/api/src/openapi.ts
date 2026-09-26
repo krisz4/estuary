@@ -1,6 +1,9 @@
 import { buildOpenApiDocument, type OpenApiDocument } from "./lib/openapi.js";
 import { registerCommentPaths } from "./routes/comments.openapi.js";
 import { registerEventPaths } from "./routes/events.openapi.js";
+import { registerFloorPaths } from "./routes/floor.openapi.js";
+import { registerGithubPaths } from "./routes/github.openapi.js";
+import { registerHistoryPaths } from "./routes/history.openapi.js";
 import { registerSystemPaths } from "./routes/system.openapi.js";
 import { registerTaskPaths } from "./routes/tasks.openapi.js";
 
@@ -30,6 +33,9 @@ const REGISTRARS = [
   registerTaskPaths,
   registerCommentPaths,
   registerEventPaths,
+  registerFloorPaths,
+  registerGithubPaths,
+  registerHistoryPaths,
   registerSystemPaths,
 ] as const;
 

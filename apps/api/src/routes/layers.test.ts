@@ -51,6 +51,12 @@ describe("routes/ contains no Prisma", () => {
       "routes/docs.route.ts",
       "routes/events.openapi.ts",
       "routes/events.route.ts",
+      "routes/floor.openapi.ts",
+      "routes/floor.route.ts",
+      "routes/github.openapi.ts",
+      "routes/github.route.ts",
+      "routes/history.openapi.ts",
+      "routes/history.route.ts",
       "routes/system.openapi.ts",
       "routes/tasks.openapi.ts",
       "routes/tasks.route.ts",
@@ -72,6 +78,9 @@ describe("services/ contains no HTTP", () => {
     // the checked set and a renamed one cannot silently drop out of it.
     expect(serviceFiles.map((file) => file.name).sort()).toEqual([
       "services/comment.service.ts",
+      "services/floor.service.ts",
+      "services/github.service.ts",
+      "services/history.service.ts",
       "services/task-events.ts",
       "services/task-guards.ts",
       "services/task-query.ts",
@@ -155,6 +164,9 @@ describe("stage-8 route rules", () => {
     expect(resourceRouters.map((file) => file.name).sort()).toEqual([
       "routes/comments.route.ts",
       "routes/events.route.ts",
+      "routes/floor.route.ts",
+      "routes/github.route.ts",
+      "routes/history.route.ts",
       "routes/tasks.route.ts",
     ]);
 

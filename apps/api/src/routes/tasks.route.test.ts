@@ -305,7 +305,7 @@ describe("GET /api/v1/tasks/facets", () => {
     const res = await request(app).get(`${BASE}/facets`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ assignees: [], projects: [], creators: [] });
+    expect(res.body).toEqual({ assignees: [], projects: [], labels: [], creators: [] });
   });
 
   it("returns the distinct non-null values actually present, sorted", async () => {
@@ -318,6 +318,7 @@ describe("GET /api/v1/tasks/facets", () => {
     expect(res.body).toEqual({
       assignees: ["Marcus Feld", "Priya Raman"],
       projects: ["web"],
+      labels: [],
       creators: [AGENT, HUMAN],
     });
   });

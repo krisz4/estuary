@@ -18,6 +18,7 @@ import {
   type Task,
   type TaskFacets,
   type TaskStats,
+  type TaskStatsQuery,
   type TransitionInput,
   type UpdateTaskInput,
 } from "@helpdesk/contracts";
@@ -59,18 +60,23 @@ export const toTaskListQuery = (params: TaskListParams): QueryInput => ({
   ...(params.status.length > 0 ? { status: params.status } : {}),
   ...(params.priority.length > 0 ? { priority: params.priority } : {}),
   ...(params.project.length > 0 ? { project: params.project } : {}),
+  ...(params.label.length > 0 ? { label: params.label } : {}),
   ...(params.assignee === undefined ? {} : { assignee: params.assignee }),
   ...(params.assigneeIsNull === undefined ? {} : { assigneeIsNull: params.assigneeIsNull }),
   ...(params.createdBy === undefined ? {} : { createdBy: params.createdBy }),
   ...(params.q === undefined ? {} : { q: params.q }),
   ...(params.createdFrom === undefined ? {} : { createdFrom: params.createdFrom }),
   ...(params.createdTo === undefined ? {} : { createdTo: params.createdTo }),
+  ...(params.parentId === undefined ? {} : { parentId: params.parentId }),
+  ...(params.parentIsNull === undefined ? {} : { parentIsNull: params.parentIsNull }),
+  ...(params.dependsOn === undefined ? {} : { dependsOn: params.dependsOn }),
+  ...(params.dependencyOf === undefined ? {} : { dependencyOf: params.dependencyOf }),
 });
 
 /**
  * The inbox's one request: everything waiting on a human, most urgent first.
  *
- * A fixed query rather than URL state — the inbox has no filters — but it goes
+ * Fixed apart from `project`, its one filter (see `toInboxQuery`) — and it goes
  * through `queryKeys.tasks.list()` like every other list, so a transition
  * anywhere in the app refreshes it through the same `lists()` prefix.
  */
@@ -91,8 +97,8 @@ export const listTasks = (query: QueryInput, signal?: AbortSignal): Promise<Pagi
 export const getTaskFacets = (signal?: AbortSignal): Promise<TaskFacets> =>
   api.get<TaskFacets>("/tasks/facets", { signal });
 
-export const getTaskStats = (signal?: AbortSignal): Promise<TaskStats> =>
-  api.get<TaskStats>("/tasks/stats", { signal });
+export const getTaskStats = (query: TaskStatsQuery, signal?: AbortSignal): Promise<TaskStats> =>
+  api.get<TaskStats>("/tasks/stats", { query, signal });
 
 export const getTask = (taskId: number, signal?: AbortSignal): Promise<Task> =>
   api.get<Task>(`/tasks/${taskId}`, { signal });
@@ -153,13 +159,19 @@ export const useTasksQuery = (params: TaskListParams): UseQueryResult<PaginatedT
   });
 };
 
+/** `INBOX_QUERY`, narrowed to the given projects (all when empty). */
+export const toInboxQuery = (project: readonly string[]): QueryInput =>
+  project.length > 0 ? { ...INBOX_QUERY, project: [...project] } : INBOX_QUERY;
+
 /** Everything in `HUMAN_ATTENTION_STATUSES` — the inbox page. */
-export const useInboxQuery = (): UseQueryResult<PaginatedTasks> =>
-  useQuery({
-    queryKey: queryKeys.tasks.list(INBOX_QUERY),
-    queryFn: ({ signal }) => listTasks(INBOX_QUERY, signal),
+export const useInboxQuery = (project: readonly string[] = []): UseQueryResult<PaginatedTasks> => {
+  const query = toInboxQuery(project);
+  return useQuery({
+    queryKey: queryKeys.tasks.list(query),
+    queryFn: ({ signal }) => listTasks(query, signal),
     refetchInterval: POLL_INTERVAL_MS,
   });
+};
 
 /**
  * The assignee, project and creator option lists.
@@ -179,13 +191,22 @@ export const useTaskFacetsQuery = (): UseQueryResult<TaskFacets> =>
     staleTime: 5 * 60_000,
   });
 
-/** Count per status and the inbox badge. Mounted by the header on every screen. */
-export const useTaskStatsQuery = (): UseQueryResult<TaskStats> =>
-  useQuery({
-    queryKey: queryKeys.tasks.stats(),
-    queryFn: ({ signal }) => getTaskStats(signal),
+/** `project` filter → the stats query. Empty means every project, sent as no key. */
+const toTaskStatsQuery = (project: readonly string[]): TaskStatsQuery =>
+  project.length > 0 ? { project: [...project] } : {};
+
+/**
+ * Count per status and the inbox badge, for the given projects (all when empty).
+ * Mounted by the header on every screen, scoped to the header's project.
+ */
+export const useTaskStatsQuery = (project: readonly string[] = []): UseQueryResult<TaskStats> => {
+  const query = toTaskStatsQuery(project);
+  return useQuery({
+    queryKey: queryKeys.tasks.statsFor(query),
+    queryFn: ({ signal }) => getTaskStats(query, signal),
     refetchInterval: POLL_INTERVAL_MS,
   });
+};
 
 /** One task with its thread and relations — the detail and edit pages' only read. */
 export const useTaskQuery = (taskId: number): UseQueryResult<Task> =>
@@ -213,7 +234,7 @@ export const useTaskQuery = (taskId: number): UseQueryResult<Task> =>
 /**
  * The prefixes a workflow write can change. Returns the promise so a caller
  * that needs the refreshed data on screen before it drops an optimistic state
- * (the board) can await it.
+ * (e.g. a drag surface) can await it.
  */
 export const invalidateAfterWorkflowWrite = (queryClient: QueryClient): Promise<unknown> =>
   Promise.all([
@@ -260,27 +281,28 @@ export const useUpdateTaskMutation = (
 
 /**
  * `POST /tasks/:taskId/transition` — every status change in the app, from the
- * detail page's picker, the board, and the inbox.
+ * detail page's picker, the map, and the inbox.
  *
- * **Not bound to one task id**, because the board and the inbox act on many
+ * **Not bound to one task id**, because the map and the inbox act on many
  * tasks through one hook; hooks cannot be called per card.
  *
  * ## What is optimistic, and what is not
  *
- * **The detail entry is written optimistically**, so a card dragged on the
- * board and clicked straight into shows the new status rather than the cached
+ * **The detail entry is written optimistically**, so a task moved on the map
+ * and clicked straight into shows the new status rather than the cached
  * old one while the request is in flight — and is rolled back if the server
  * refuses. Only `status` is patched: the note, claim and decision a transition
  * produces are the server's to compute, and guessing them would put invented
  * text on screen.
  *
  * **List entries are not.** A move changes which *query* a row belongs to on
- * the board, so the board holds in-flight moves in its own state instead
- * (`useBoardTasks`) and the cache stays the server's story about the world.
+ * the map, so a caller with its own drag surface holds in-flight moves in its
+ * own state instead and the cache stays the server's story about the world.
  *
  * `onSettled` returns the invalidation promise, so `mutateAsync` resolves only
- * once the refetches it triggered have landed. That is what lets the board drop
- * its optimistic entry without a frame in which the card flicks back.
+ * once the refetches it triggered have landed. That is what lets a drag
+ * surface drop its optimistic entry without a frame in which the card flicks
+ * back.
  */
 export type TransitionVariables = { taskId: number; input: TransitionInput };
 
@@ -458,5 +480,39 @@ export const useDeleteTaskMutation = (): UseMutationResult<void, Error, number> 
         refetchType: "none",
       });
     },
+  });
+};
+
+/* ------------------------------------------------------------------ *
+ * Archive (Logbook § Archive)
+ * ------------------------------------------------------------------ */
+
+export type ArchiveQuery = {
+  project: readonly string[];
+  q: string;
+  page: number;
+  pageSize: number;
+};
+
+/**
+ * Done and deferred tasks, sorted by `completedAt` desc — the Logbook's
+ * archive, and where the floor's "+N in the Logbook" crate leads. A plain
+ * `queryKeys.tasks.list()` entry like every other list, so a transition that
+ * moves a task into or out of `done`/`deferred` invalidates it for free.
+ */
+export const useArchiveQuery = (query: ArchiveQuery): UseQueryResult<PaginatedTasks> => {
+  const wire: QueryInput = {
+    page: query.page,
+    pageSize: query.pageSize,
+    sort: "completedAt:desc",
+    status: ["done", "deferred"],
+    ...(query.project.length > 0 ? { project: query.project } : {}),
+    ...(query.q.trim() === "" ? {} : { q: query.q }),
+  };
+
+  return useQuery({
+    queryKey: queryKeys.tasks.list(wire),
+    queryFn: ({ signal }) => listTasks(wire, signal),
+    placeholderData: keepPreviousData,
   });
 };

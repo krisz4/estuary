@@ -99,7 +99,7 @@ test("creates a To do task with a project and criteria, then finds it by project
     not a `page.goto`. A full reload would start from an empty query cache and
     prove nothing about invalidation.
   */
-  await page.getByRole("banner").getByRole("link", { name: "Tasks", exact: true }).click();
+  await page.getByRole("banner").getByRole("link", { name: "Estuary", exact: true }).click();
   await expect(page).toHaveURL(/\/tasks$/);
 
   const firstRow = tableRows(page).first();

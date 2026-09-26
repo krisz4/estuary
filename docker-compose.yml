@@ -61,9 +61,15 @@ services:
       #   API_TOKEN            optional bearer gate on /api/v1 (min 16 chars)
       #   AGENTS_MAY_COMPLETE  let agent: actors move tasks to done (default false)
       #   CLAIM_LEASE_MINUTES  claim lease length (default 30)
+      #   GITHUB_TOKEN / GITHUB_WEBHOOK_SECRET / GITHUB_API_URL
+      #                        the optional GitHub integration; off while both of
+      #                        the first two are blank (docs/features/GitHub_Integration.md)
       API_TOKEN: ${API_TOKEN:-}
       AGENTS_MAY_COMPLETE: ${AGENTS_MAY_COMPLETE:-}
       CLAIM_LEASE_MINUTES: ${CLAIM_LEASE_MINUTES:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-}
     volumes:
       # Named, so the database survives `docker compose down`. `down -v` is the
       # documented way to start over.

@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { safeStorage } from "@/stores/safeStorage";
 
 /**
- * Which of the two task screens the user last looked at — list or board.
+ * Which of the two task screens the user last looked at — list or map.
  *
  * ## Why this is a store and not URL state
  *
@@ -16,9 +16,9 @@ import { safeStorage } from "@/stores/safeStorage";
  * screens that need it — detail, create, edit — have no URL of their own to
  * keep it in.
  *
- * The evidence is the bug this fixes: `/tasks/board` → open a task → **Back
- * to tasks** landed on `/tasks`. The board's path was known only to the
- * board's own URL, and the moment the user navigated away from it that fact was
+ * The evidence is the bug this fixes: `/tasks/map` → open a task → **Back
+ * to tasks** landed on `/tasks`. The map's path was known only to the map's
+ * own URL, and the moment the user navigated away from it that fact was
  * gone. `location.state.from` carries the *search string* across that hop but
  * not the pathname, and widening it would not help: `state` is dropped on a
  * pasted link and on a reload into a fresh entry, which is exactly when a
@@ -26,7 +26,7 @@ import { safeStorage } from "@/stores/safeStorage";
  *
  * ## Why it persists
  *
- * A user who works out of the board expects to still be in the board tomorrow.
+ * A user who works out of the map expects to still be there tomorrow.
  * `localStorage`, keyed like the theme preference (`lib/theme.ts`), which is the
  * other setting of this shape.
  *
@@ -37,9 +37,16 @@ import { safeStorage } from "@/stores/safeStorage";
  * (pasted URL, back button, bookmark), and recording arrival rather than intent
  * means every one of them agrees. The store follows the URL; it never drives
  * it.
+ *
+ * ## `"board"` migration
+ *
+ * The Kanban board was retired in favor of the Estuary map view. A value of
+ * `"board"` already sitting in a returning user's `localStorage` is not an
+ * invalid value to fall back from — it is the direct predecessor of `"map"`
+ * — so it is migrated to `"map"`, not to the default `"list"`.
  */
 
-export const TASK_VIEWS = ["list", "board"] as const;
+export const TASK_VIEWS = ["list", "map"] as const;
 export type TaskView = (typeof TASK_VIEWS)[number];
 
 export const TASK_VIEW_STORAGE_KEY = "helpdesk.taskView";
@@ -48,12 +55,14 @@ const isTaskView = (value: unknown): value is TaskView =>
   typeof value === "string" && (TASK_VIEWS as readonly string[]).includes(value);
 
 /** The route each view lives at. The one place the two paths are spelled. */
-export const taskViewPath = (view: TaskView): string =>
-  view === "board" ? "/tasks/board" : "/tasks";
+export const taskViewPath = (view: TaskView): string => {
+  if (view === "map") return "/tasks/map";
+  return "/tasks";
+};
 
-/** The view a pathname *is*, or `undefined` for every other screen. */
+/** The view a pathname *is*, or `undefined` for every other screen. `/tasks/floor` and `/tasks/board` redirect to `/tasks/map` at the router, so they are never pathnames this sees. */
 export const taskViewFromPathname = (pathname: string): TaskView | undefined => {
-  if (pathname === "/tasks/board") return "board";
+  if (pathname === "/tasks/map") return "map";
   if (pathname === "/tasks") return "list";
   return undefined;
 };
@@ -85,7 +94,10 @@ export const useTaskViewStore = create<TaskViewState>()(
         pointing at a route that does not exist.
       */
       merge: (persisted, current) => {
-        const view = (persisted as Partial<TaskViewState> | undefined)?.view;
+        const stored: unknown = (persisted as { view?: unknown } | undefined)?.view;
+        // A pre-migration "board" value is the direct predecessor of "map",
+        // not an invalid value to fall back from — send it to "map", not "list".
+        const view: unknown = stored === "board" ? "map" : stored;
         return { ...current, view: isTaskView(view) ? view : current.view };
       },
     },
@@ -96,7 +108,7 @@ export const useTaskViewStore = create<TaskViewState>()(
 export const useTaskView = (): TaskView => useTaskViewStore((state) => state.view);
 
 /**
- * Records that this screen is the current view. Called by the list and board
+ * Records that this screen is the current view. Called by the list and map
  * pages; see the note above on why it is mount-driven rather than click-driven.
  */
 export const useRememberTaskView = (view: TaskView): void => {

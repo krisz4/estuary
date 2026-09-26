@@ -23,11 +23,11 @@ Base path `/api/v1`. Errors use the standard envelope ([../engineering/API_ERROR
 
 | Method | Path | Body | Success | Notes |
 | ------ | ---- | ---- | ------- | ----- |
-| GET | `/tasks` | query: `taskListQuerySchema` | 200 `PaginatedTasks` | Filters: `status`, `priority`, `project` (repeatable), `assignee` / `assigneeIsNull`, `createdBy`, `parentId`, `q`, `createdFrom/To`. |
-| GET | `/tasks/facets` | — | 200 `TaskFacets` | Distinct `assignees`, `projects`, `creators`. |
+| GET | `/tasks` | query: `taskListQuerySchema` | 200 `PaginatedTasks` | Filters: `status`, `priority`, `project`, `label` (repeatable), `assignee` / `assigneeIsNull`, `createdBy`, `claimedBy`, `parentId` / `parentIsNull`, `dependsOn`, `dependencyOf`, `q`, `createdFrom/To`. Full reference: [Task_Query_Filter_Sort_Page.md](./Task_Query_Filter_Sort_Page.md). |
+| GET | `/tasks/facets` | — | 200 `TaskFacets` | Distinct `assignees`, `projects`, `labels`, `creators`. |
 | GET | `/tasks/stats` | query: `project` (repeatable, optional) | 200 `TaskStats` | Count per status (all ten keys present) + `needsAttention`. |
-| POST | `/tasks` | `CreateTaskInput` | 201 `Task`; **200** on idempotent replay | `status` ∈ backlog / needs_refinement / todo. Replay = same `idempotencyKey`. |
-| POST | `/tasks/next` | `NextTaskInput` | 200 `{ task: Task \| null }` | Atomically claims the best available task → `in_progress`. |
+| POST | `/tasks` | `CreateTaskInput` | 201 `Task`; **200** on idempotent replay | `status` ∈ backlog / needs_refinement / todo. Replay = same `idempotencyKey` on a still-open task — see [Idempotent create](#idempotent-create). |
+| POST | `/tasks/next` | `NextTaskInput` | 200 `{ task: Task \| null }` | Atomically claims the best available task → `in_progress`. `project` / `label` (repeatable) / `minPriority` narrow the candidates. |
 | GET | `/tasks/:taskId` | — | 200 `Task` | Includes comments, parent, children, dependencies, dependents, open decision. |
 | PATCH | `/tasks/:taskId` | `UpdateTaskInput` | 200 `Task` | **No `status`** — use `/transition`. `{}` → `AT_LEAST_ONE_FIELD`. |
 | DELETE | `/tasks/:taskId` | — | 204 | Dependents it was blocking are re-checked for auto-unblock. |
@@ -40,7 +40,9 @@ Base path `/api/v1`. Errors use the standard envelope ([../engineering/API_ERROR
 | DELETE | `/tasks/:taskId/dependencies/:dependsOnId` | — | 200 `Task` | Removing the last open blocker of a `blocked` task auto-unblocks it. |
 | POST | `/tasks/:taskId/comments` | `CreateCommentInput` | 201 `Comment` | `author` = `X-Actor`. |
 | DELETE | `/tasks/:taskId/comments/:commentId` | — | 204 | |
-| GET | `/events` | query: `eventsQuerySchema` | 200 `EventsResponse` | Cursor feed, oldest first. Poll with `after=<meta.nextAfter>`. |
+| GET | `/events` | query: `eventsQuerySchema` | 200 `EventsResponse` | Cursor feed, oldest first by default. Poll with `after=<meta.nextAfter>`; page newest-first with `order=desc` and `before=<meta.nextBefore>`; narrow to an instant range with `from`/`to`. |
+| GET | `/floor` | query: `floorQuerySchema` | 200 `FloorSnapshot` | The floor view's snapshot — see [Floor_Snapshot.md](./Floor_Snapshot.md). |
+| GET | `/stats/history` | query: `historyQuerySchema` | 200 `HistoryResponse` | The Logbook's charts — see [History_Stats.md](./History_Stats.md). |
 
 ## Rules that cut across endpoints
 
@@ -82,7 +84,9 @@ Filtered by `project` and `minPriority` when given. The claim is taken with a co
 
 ### Idempotent create
 
-A `POST /tasks` with an `idempotencyKey` that already exists returns that task with **200** and changes nothing — even if the rest of the body differs. Agents should derive the key from what the task is about (e.g. `claude-code:<repo>:<slug>`) so a retried or repeated run cannot file duplicates.
+A `POST /tasks` with an `idempotencyKey` that already exists **on an open task** returns that task with **200** and changes nothing — even if the rest of the body differs. Agents should derive the key from what the task is about (e.g. `claude-code:<repo>:<slug>`) so a retried or repeated run cannot file duplicates.
+
+**A key only dedupes against an open task.** Once the task holding a key is `done` or `deferred`, the key no longer identifies live intent — a follow-up filed months later under a recycled title must not come back as the closed original. The key is retired from the closed task (set to `null`, no version bump, no event — bookkeeping, not a content change) and the new `POST /tasks` creates a fresh task under the same key (**201**), atomically in the same write so a crash between the two never leaves the key on two rows or on none.
 
 ## Events
 
@@ -99,11 +103,26 @@ Every write appends a `TaskEvent`. Types and payloads:
 | `comment.created` / `comment.deleted` | `{ commentId, kind }` |
 | `decision.requested` / `decision.answered` / `decision.withdrawn` | `{ decisionId, … }` (`requested` adds `question`; `answered` adds `choice`, `note`) |
 | `dependency.added` / `dependency.removed` | `{ dependsOnId }` |
+| `github.pull_request` | `{ action, repo, number, url, title, merged, deliveryId }` — written by `system:github` when a PR referencing the task is opened/reopened/closed/etc.; see [GitHub_Integration.md](./GitHub_Integration.md) |
 
-Events are never deleted, and `taskId` is not a foreign key, so the feed still describes deleted tasks.
+Events are never deleted, and `taskId` is not a foreign key, so the feed still describes deleted tasks. Each event also carries `project` — the task's project **at the moment the event was recorded**, not joined live — so `GET /events?project=` still returns history for a task that was later deleted or moved to another project.
+
+Each event also carries `taskTitle` — unlike `project` this is **joined at read time** from the task's current row, in one query per page (not per event), so it always reflects the latest title rather than the title at the time of the event. It is `null` once the task has been deleted.
+
+`GET /events` also filters by `actor` and repeatable `type`, on top of `taskId` and `project` (`eventsQuerySchema`).
+
+### Paging the feed backwards, and by date (the Logbook's event log)
+
+`order` defaults to `asc` — the poller's order, oldest first, paged with `after=<meta.nextAfter>`. `order=desc` pages newest first instead, for the Logbook's event log: page with `before=<meta.nextBefore>`, which is the smallest id on the current page (`null` once the page comes back empty — there is nothing older). `meta.nextAfter` is still present on a `desc` page (the largest id seen), for a caller that wants to switch to live polling from where it is looking.
+
+`from` (inclusive) and `to` (exclusive) narrow to an instant range, independent of `order`.
+
+`order=asc` with none of `before`/`order`/`from`/`to` sent is byte-identical to the feed's original behaviour — nothing about the poller path changed.
 
 ## Related
 
 - [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) — statuses and what each transition requires
 - [Actors.md](./Actors.md) — the `X-Actor` model
 - [Agent_Integration.md](./Agent_Integration.md) — the MCP server and Claude Code setup
+- [Labels.md](./Labels.md) — `label` filter and `task_next` narrowing
+- [GitHub_Integration.md](./GitHub_Integration.md) — the `github.pull_request` event and the optional webhook

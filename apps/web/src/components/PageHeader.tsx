@@ -23,7 +23,7 @@ import { taskViewFromPathname, taskViewPath, useTaskView, type TaskView } from "
  * ## Why the *pathname* comes from a store instead
  *
  * `state.from` carries the search string across the hop, and only that — so
- * "back to tasks" from a task opened on the board used to land on the list,
+ * "back to tasks" from a task opened on the map used to land on the list,
  * with the filters intact and the view silently swapped out from under the
  * user. The two screens are two routes, and which one the user is working in is
  * a per-user preference rather than a property of the task, so it lives in
@@ -50,7 +50,7 @@ const returnSearch = (state: unknown): string => {
  * `backToListPath` bound to the current location and the remembered view.
  *
  * A hook rather than an argument every caller assembles, because forgetting the
- * view is invisible: the link still works, it just quietly returns board users
+ * view is invisible: the link still works, it just quietly returns map users
  * to the list — which is the bug this replaced.
  */
 export const useBackToListPath = (): string => {
@@ -69,7 +69,7 @@ export const useBackToListPath = (): string => {
  * Without it, `backToListPath` on the create page has nothing to read and
  * cancelling out of a new task drops every filter the user set.
  *
- * On either view screen the current `search` *is* the state — the board is
+ * On either view screen the current `search` *is* the state — the map is
  * included, because it renders the same filter bar and the same "New task"
  * header. Anywhere else the page is already carrying a validated `from` (it
  * arrived from a view), and forwarding it keeps the chain intact — detail → new

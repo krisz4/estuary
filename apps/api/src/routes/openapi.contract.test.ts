@@ -6,6 +6,8 @@ import {
   ACTOR_HEADER,
   API_ERROR_CODES,
   eventsQuerySchema,
+  floorQuerySchema,
+  historyQuerySchema,
   taskListQuerySchema,
   taskStatsQuerySchema,
 } from "@helpdesk/contracts";
@@ -17,6 +19,8 @@ import { ROUTER_MOUNTS, createApp } from "../app.js";
 import { BEARER_AUTH, unwrapPreprocessedObject } from "../lib/openapi.js";
 import { getOpenApiDocument } from "../openapi.js";
 import { EVENTS_QUERY_DESCRIPTIONS } from "./events.openapi.js";
+import { FLOOR_QUERY_DESCRIPTIONS } from "./floor.openapi.js";
+import { HISTORY_QUERY_DESCRIPTIONS } from "./history.openapi.js";
 import { healthResponseSchema } from "./system.openapi.js";
 import {
   QUERY_DESCRIPTIONS,
@@ -271,11 +275,15 @@ describe("the list query is documented from the real schema", () => {
     status: "todo",
     priority: "high",
     project: "helpdesk",
+    label: "web",
     assignee: "Priya Nair",
     assigneeIsNull: undefined, // exclusive with `assignee`; probed on its own below
     createdBy: "agent:claude-code",
     claimedBy: "agent:claude-code",
     parentId: "42",
+    parentIsNull: undefined, // exclusive with `parentId`; probed on its own below
+    dependsOn: "7",
+    dependencyOf: "7",
     q: "printer",
     createdFrom: "2026-01-01",
     createdTo: "2026-12-31",
@@ -286,7 +294,10 @@ describe("the list query is documented from the real schema", () => {
 
   it("names only parameters taskListQuerySchema actually accepts", () => {
     for (const [name, sample] of Object.entries(EXPECTED_QUERY_PARAMS)) {
-      const input = name === "assigneeIsNull" ? { assigneeIsNull: "true" } : { [name]: sample };
+      const input =
+        name === "assigneeIsNull" || name === "parentIsNull"
+          ? { [name]: "true" }
+          : { [name]: sample };
       const parsed = taskListQuerySchema.safeParse(input);
       expect(
         parsed.success,
@@ -348,7 +359,42 @@ describe("the other query surfaces are documented from their schemas", () => {
 
   it.each([
     ["/api/v1/tasks/stats", taskStatsQuerySchema, STATS_QUERY_DESCRIPTIONS, ["project"]],
-    ["/api/v1/events", eventsQuerySchema, EVENTS_QUERY_DESCRIPTIONS, ["after", "limit", "taskId"]],
+    [
+      "/api/v1/events",
+      eventsQuerySchema,
+      EVENTS_QUERY_DESCRIPTIONS,
+      ["actor", "after", "before", "from", "limit", "order", "project", "taskId", "to", "type"],
+    ],
+    [
+      "/api/v1/floor",
+      floorQuerySchema,
+      FLOOR_QUERY_DESCRIPTIONS,
+      [
+        "assignee",
+        "assigneeIsNull",
+        "at",
+        "claimedBy",
+        "createdBy",
+        "createdFrom",
+        "createdTo",
+        "dependencyOf",
+        "dependsOn",
+        "label",
+        "parentId",
+        "parentIsNull",
+        "priority",
+        "project",
+        "q",
+        "shipped",
+        "status",
+      ],
+    ],
+    [
+      "/api/v1/stats/history",
+      historyQuerySchema,
+      HISTORY_QUERY_DESCRIPTIONS,
+      ["bucket", "from", "project", "to"],
+    ],
   ] as const)(
     "%s documents exactly its schema's parameters, each described",
     (path, schema, descriptions, expected) => {
@@ -363,6 +409,15 @@ describe("the other query surfaces are documented from their schemas", () => {
  * What every /api/v1 operation shares
  * ------------------------------------------------------------------ */
 
+/**
+ * The one `/api/v1` operation GitHub calls directly rather than a client of
+ * this API (`docs/features/GitHub_Integration.md`). It carries neither
+ * `X-Actor` nor a bearer token — `app.ts` mounts it before both of those
+ * middlewares, because GitHub can send neither — so it is the documented
+ * exception to "every /api/v1 operation carries X-Actor and bearer security".
+ */
+const WEBHOOK_PATH = "/api/v1/integrations/github/webhook";
+
 describe("cross-cutting request metadata", () => {
   const operations = Object.entries(document.paths ?? {}).flatMap(([path, item]) =>
     HTTP_METHODS.filter((method) => method in (item as Record<string, unknown>)).map((method) => ({
@@ -372,7 +427,10 @@ describe("cross-cutting request metadata", () => {
     })),
   );
   const v1 = operations.filter(
-    (entry) => entry.path.startsWith("/api/v1/") && !SYNTHETIC_PATHS.has(entry.path),
+    (entry) =>
+      entry.path.startsWith("/api/v1/") &&
+      !SYNTHETIC_PATHS.has(entry.path) &&
+      entry.path !== WEBHOOK_PATH,
   );
 
   it("finds /api/v1 operations to check", () => {
@@ -408,6 +466,27 @@ describe("cross-cutting request metadata", () => {
     expect(health?.parameters).toBeUndefined();
     expect(health?.security).toBeUndefined();
     expect(Object.keys(health?.responses ?? {})).not.toContain("401");
+  });
+
+  it("keeps X-Actor and the bearer gate off the GitHub webhook — GitHub can send neither", () => {
+    const webhook = document.paths?.[WEBHOOK_PATH]?.post;
+
+    expect(
+      ((webhook?.parameters ?? []) as { name: string; in: string }[])
+        .filter((parameter) => parameter.in === "header")
+        .map((parameter) => parameter.name),
+    ).not.toContain(ACTOR_HEADER);
+    expect(webhook?.security).toBeUndefined();
+
+    // It does have its own 401 — INVALID_WEBHOOK_SIGNATURE, not the bearer gate's
+    // UNAUTHORIZED — so the check is on the *code*, not on the status being absent.
+    const responses = webhook?.responses as Record<string, unknown> | undefined;
+    const unauthorized = responses?.["401"] as
+      | { content?: { "application/json"?: { schema?: { properties?: Record<string, unknown> } } } }
+      | undefined;
+    const codeSchema = unauthorized?.content?.["application/json"]?.schema?.properties?.error as
+      { properties?: { code?: { enum?: string[] } } } | undefined;
+    expect(codeSchema?.properties?.code?.enum).toEqual(["INVALID_WEBHOOK_SIGNATURE"]);
   });
 
   it("no longer documents the retired INVALID_STATUS_TRANSITION anywhere", () => {

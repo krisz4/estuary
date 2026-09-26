@@ -11,6 +11,8 @@ import {
   commentSchema,
   decisionSchema,
   eventsResponseSchema,
+  floorSnapshotSchema,
+  historyResponseSchema,
   nextTaskResponseSchema,
   paginatedTasksSchema,
   taskEventSchema,
@@ -95,7 +97,7 @@ export const PaginatedTasksComponent = paginatedTasksSchema.meta({
 export const TaskFacetsComponent = taskFacetsSchema.meta({
   id: "TaskFacets",
   description:
-    "Distinct non-null values actually present in the table. The assignee, project, and createdBy filters send values from here, which is what makes case-sensitive exact matching safe.",
+    "Distinct non-null values actually present in the table. The assignee, project, label, and createdBy filters send values from here, which is what makes case-sensitive exact matching safe.",
 });
 
 export const TaskStatsComponent = taskStatsSchema.meta({
@@ -120,6 +122,18 @@ export const EventsResponseComponent = eventsResponseSchema.meta({
   id: "EventsResponse",
   description:
     "A cursor page of the feed, oldest first. Poll with after=meta.nextAfter; nextAfter equals the incoming cursor when nothing new happened.",
+});
+
+export const FloorSnapshotComponent = floorSnapshotSchema.meta({
+  id: "FloorSnapshot",
+  description:
+    "The floor view's snapshot: compact task rows, the dependency edges touching them, cross-scope refs, and meta (status counts, the shipped window, the replay instant, and the events cursor to start polling from).",
+});
+
+export const HistoryResponseComponent = historyResponseSchema.meta({
+  id: "HistoryResponse",
+  description:
+    "The Logbook's charts: per-bucket created/completed/deferred/sent-back counts and a CFD status snapshot, human-wait and cycle-time percentiles, the longest waits, recent cycle times, and per-agent activity — all computed from TaskEvent.",
 });
 
 export const ErrorResponseComponent = apiErrorResponseSchema.meta({
@@ -426,6 +440,13 @@ export function buildOpenApiDocument(): OpenApiDocument {
         },
         { name: "Comments", description: "Append-only comment threads on a task" },
         { name: "Events", description: "The append-only change feed, cursor-paged" },
+        { name: "Floor", description: "The compact, graph-aware snapshot behind /tasks/floor" },
+        { name: "Logbook", description: "History and charts computed from the events feed" },
+        {
+          name: "GitHub",
+          description:
+            "The optional GitHub integration: link status, issue import, and the inbound webhook. Off unless GITHUB_TOKEN and/or GITHUB_WEBHOOK_SECRET is set.",
+        },
         { name: "System", description: "Liveness, and what happens to an unmatched request" },
       ],
     },

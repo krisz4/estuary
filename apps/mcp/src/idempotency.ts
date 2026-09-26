@@ -12,8 +12,11 @@ import { TASK_IDEMPOTENCY_KEY_MAX } from "@helpdesk/contracts";
  * first call created instead of filing a duplicate. A random key would only
  * cover the first of the three.
  *
- * The cost is that re-filing a genuinely new task under an old title returns
- * the old one; the tool description tells agents to pass their own key then.
+ * The API only deduplicates against a task that is still open: once the task
+ * holding a key is `done` or `deferred`, the key is retired and the same call
+ * creates a fresh task. So the remaining cost is that filing a second *open*
+ * task under the title of one still open returns the first; the tool
+ * description tells agents to pass their own key then.
  *
  * Title normalisation is deliberately loose (case, punctuation, whitespace), so
  * "Fix flaky login test" and "fix flaky login test." collide — they are the

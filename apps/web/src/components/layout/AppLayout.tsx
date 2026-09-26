@@ -47,7 +47,7 @@ export const AppLayout = () => {
 
       <footer className="border-t border-border py-6">
         <Container className="text-xs text-muted-foreground">
-          Tasks — one board for the work humans and AI agents share.
+          Estuary — one flow for the work humans and AI agents share.
         </Container>
       </footer>
 

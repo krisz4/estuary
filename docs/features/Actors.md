@@ -20,7 +20,7 @@ It is **attribution, not identity.** There are still no accounts and no logins �
 | `system:taskmanager` | Reserved for writes the server makes itself (auto-unblock). Rejected when sent by a client. |
 | *(no header)* | `human:anonymous` |
 
-The web app sends `human:<slug of the name you set under "You">`. The MCP server sends `TASKS_ACTOR` (default `agent:claude-code`). A malformed header is a `VALIDATION_ERROR` with `details["X-Actor"]`, on reads as well as writes — silently falling back to anonymous would hide an agent's misconfiguration.
+The web app sends `human:<slug of the name you set under "You">`. The MCP server sends `TASKS_ACTOR`, or when it is unset a per-checkout default — `agent:claude-code@<project>`, or `agent:claude-code@<project>/<worktree>` in a git worktree — so parallel agent sessions in different worktrees are different actors ([Agent_Integration.md](Agent_Integration.md)). A malformed header is a `VALIDATION_ERROR` with `details["X-Actor"]`, on reads as well as writes — silently falling back to anonymous would hide an agent's misconfiguration.
 
 ## Rules keyed on the actor kind
 

@@ -10,6 +10,8 @@ import {
   MIN_PAGE_SIZE,
   SORT_DIRECTIONS,
   TASK_ASSIGNEE_MAX,
+  TASK_ID_MAX_DIGITS,
+  TASK_LABEL_MAX,
   TASK_PRIORITIES,
   TASK_PROJECT_MAX,
   TASK_Q_MAX,
@@ -55,12 +57,17 @@ export const TASK_LIST_PARAM_KEYS = [
   "status",
   "priority",
   "project",
+  "label",
   "assignee",
   "assigneeIsNull",
   "createdBy",
   "q",
   "createdFrom",
   "createdTo",
+  "parentId",
+  "parentIsNull",
+  "dependsOn",
+  "dependencyOf",
 ] as const;
 
 export type TaskListParamKey = (typeof TASK_LIST_PARAM_KEYS)[number];
@@ -73,6 +80,8 @@ export type TaskListParams = {
   priority: TaskPriority[];
   /** Project slugs, OR-ed together. Values come from `GET /tasks/facets`. */
   project: string[];
+  /** Label slugs, OR-ed together. Values come from `GET /tasks/facets`. */
+  label: string[];
   assignee: string | undefined;
   assigneeIsNull: boolean | undefined;
   /** One exact actor, e.g. `agent:claude-code`. Values come from facets `creators`. */
@@ -80,6 +89,14 @@ export type TaskListParams = {
   q: string | undefined;
   createdFrom: string | undefined;
   createdTo: string | undefined;
+  /** Subtasks of this one task. Mutually exclusive with `parentIsNull`. */
+  parentId: number | undefined;
+  /** `true` = top-level tasks only. Mutually exclusive with `parentId`. */
+  parentIsNull: boolean | undefined;
+  /** Tasks that depend on this task id — its dependents. */
+  dependsOn: number | undefined;
+  /** Tasks this task id depends on — its dependencies. */
+  dependencyOf: number | undefined;
 };
 
 /** The filter subset — everything a change to which resets `page`. */
@@ -97,12 +114,17 @@ export const DEFAULT_TASK_LIST_PARAMS: TaskListParams = {
   status: [],
   priority: [],
   project: [],
+  label: [],
   assignee: undefined,
   assigneeIsNull: undefined,
   createdBy: undefined,
   q: undefined,
   createdFrom: undefined,
   createdTo: undefined,
+  parentId: undefined,
+  parentIsNull: undefined,
+  dependsOn: undefined,
+  dependencyOf: undefined,
 };
 
 /* ------------------------------------------------------------------ *
@@ -191,13 +213,36 @@ const parseDate = (raw: string | null): string | undefined => {
  */
 const PROJECT_PATTERN = new RegExp(`^[a-z0-9][a-z0-9._-]{0,${TASK_PROJECT_MAX - 1}}$`);
 
-const parseProjects = (raw: string[]): string[] => {
+export const parseProjects = (raw: string[]): string[] => {
   const seen = new Set<string>();
   for (const entry of raw) {
     const value = entry.trim().toLowerCase();
     if (PROJECT_PATTERN.test(value)) seen.add(value);
   }
   return [...seen];
+};
+
+/** The contract's label slug rule — a `/` is allowed, unlike a project slug. */
+const LABEL_PATTERN = new RegExp(`^[a-z0-9][a-z0-9._/-]{0,${TASK_LABEL_MAX - 1}}$`);
+
+const parseLabels = (raw: string[]): string[] => {
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    const value = entry.trim().toLowerCase();
+    if (LABEL_PATTERN.test(value)) seen.add(value);
+  }
+  return [...seen];
+};
+
+/** A task id in a query param: decimal digits only, like `:taskId` itself. */
+const TASK_ID_QUERY_PATTERN = new RegExp(`^\\d{1,${TASK_ID_MAX_DIGITS}}$`);
+
+const parseTaskId = (raw: string | null): number | undefined => {
+  if (raw === null) return undefined;
+  const trimmed = raw.trim();
+  if (!TASK_ID_QUERY_PATTERN.test(trimmed)) return undefined;
+  const value = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
 };
 
 /**
@@ -236,6 +281,9 @@ export const parseTaskListParams = (searchParams: URLSearchParams): TaskListPara
   const rangeIsValid =
     createdFrom === undefined || createdTo === undefined || createdFrom <= createdTo;
 
+  const parentId = parseTaskId(searchParams.get("parentId"));
+  const parentIsNull = parseBoolean(searchParams.get("parentIsNull"));
+
   return {
     page: parseBoundedInt(searchParams.get("page"), 1, MAX_PAGE) ?? DEFAULT_PAGE,
     pageSize:
@@ -245,6 +293,7 @@ export const parseTaskListParams = (searchParams: URLSearchParams): TaskListPara
     status: parseEnumList(TASK_STATUSES, searchParams.getAll("status")),
     priority: parseEnumList(TASK_PRIORITIES, searchParams.getAll("priority")),
     project: parseProjects(searchParams.getAll("project")),
+    label: parseLabels(searchParams.getAll("label")),
     assignee,
     // Mutually exclusive on the wire. `assignee` wins because it is the more
     // specific of the two; the UI models both as one control, so this only ever
@@ -254,31 +303,50 @@ export const parseTaskListParams = (searchParams: URLSearchParams): TaskListPara
     q: parseBoundedString(searchParams.get("q"), TASK_Q_MAX),
     createdFrom,
     createdTo: rangeIsValid ? createdTo : undefined,
+    parentId,
+    // Mutually exclusive on the wire, same reasoning as assignee/assigneeIsNull.
+    parentIsNull: parentId === undefined ? parentIsNull : undefined,
+    dependsOn: parseTaskId(searchParams.get("dependsOn")),
+    dependencyOf: parseTaskId(searchParams.get("dependencyOf")),
   };
 };
 
-/** True when any filter (not paging, not sorting) is set. */
+/**
+ * True when any filter (not paging, not sorting, not `project`) is set.
+ *
+ * `project` is the header's scope (`ProjectSwitcher`), not one of the filter
+ * bar's filters, so it is neither counted here nor cleared by "Clear all": a
+ * user looking at one repository's list who clears the status filter is
+ * still looking at that repository.
+ */
 export const hasActiveFilters = (params: TaskListParams): boolean =>
   params.status.length > 0 ||
   params.priority.length > 0 ||
-  params.project.length > 0 ||
+  params.label.length > 0 ||
   params.assignee !== undefined ||
   params.assigneeIsNull !== undefined ||
   params.createdBy !== undefined ||
   params.q !== undefined ||
   params.createdFrom !== undefined ||
-  params.createdTo !== undefined;
+  params.createdTo !== undefined ||
+  params.parentId !== undefined ||
+  params.parentIsNull !== undefined ||
+  params.dependsOn !== undefined ||
+  params.dependencyOf !== undefined;
 
 /** How many filter *controls* are active — the count on the mobile Filters button. */
 export const activeFilterCount = (params: TaskListParams): number =>
   (params.status.length > 0 ? 1 : 0) +
   (params.priority.length > 0 ? 1 : 0) +
-  (params.project.length > 0 ? 1 : 0) +
+  (params.label.length > 0 ? 1 : 0) +
   (params.assignee !== undefined || params.assigneeIsNull !== undefined ? 1 : 0) +
   (params.createdBy !== undefined ? 1 : 0) +
   (params.q !== undefined ? 1 : 0) +
   (params.createdFrom !== undefined ? 1 : 0) +
-  (params.createdTo !== undefined ? 1 : 0);
+  (params.createdTo !== undefined ? 1 : 0) +
+  (params.parentId !== undefined || params.parentIsNull !== undefined ? 1 : 0) +
+  (params.dependsOn !== undefined ? 1 : 0) +
+  (params.dependencyOf !== undefined ? 1 : 0);
 
 /* ------------------------------------------------------------------ *
  * Write
@@ -309,6 +377,7 @@ export const serializeTaskListParams = (
   for (const value of params.status) next.append("status", value);
   for (const value of params.priority) next.append("priority", value);
   for (const value of params.project) next.append("project", value);
+  for (const value of params.label) next.append("label", value);
 
   if (params.assignee !== undefined) next.set("assignee", params.assignee);
   else if (params.assigneeIsNull !== undefined) {
@@ -319,6 +388,13 @@ export const serializeTaskListParams = (
   if (params.q !== undefined) next.set("q", params.q);
   if (params.createdFrom !== undefined) next.set("createdFrom", params.createdFrom);
   if (params.createdTo !== undefined) next.set("createdTo", params.createdTo);
+
+  if (params.parentId !== undefined) next.set("parentId", String(params.parentId));
+  else if (params.parentIsNull !== undefined) {
+    next.set("parentIsNull", String(params.parentIsNull));
+  }
+  if (params.dependsOn !== undefined) next.set("dependsOn", String(params.dependsOn));
+  if (params.dependencyOf !== undefined) next.set("dependencyOf", String(params.dependencyOf));
 
   // Anything we do not own rides along untouched — a campaign tag on a shared
   // link survives the recipient clicking "next page".
@@ -465,6 +541,10 @@ export const useTaskListParams = (): TaskListParamsApi => {
         if (resolved.assignee !== undefined) return { ...merged, assigneeIsNull: undefined };
         if (resolved.assigneeIsNull !== undefined) return { ...merged, assignee: undefined };
 
+        // Same invariant for the other mutually-exclusive pair.
+        if (resolved.parentId !== undefined) return { ...merged, parentIsNull: undefined };
+        if (resolved.parentIsNull !== undefined) return { ...merged, parentId: undefined };
+
         /*
           Keep the date range ordered by *moving* the other bound rather than
           letting the parse drop it.
@@ -502,6 +582,8 @@ export const useTaskListParams = (): TaskListParamsApi => {
         // priority did not ask for that to be undone by "clear filters".
         pageSize: current.pageSize,
         sort: current.sort,
+        // The header's scope, not a filter — see `hasActiveFilters`.
+        project: current.project,
       })),
     [update],
   );

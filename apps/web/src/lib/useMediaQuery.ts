@@ -45,3 +45,19 @@ export const SM_BREAKPOINT_QUERY = "(min-width: 640px)";
  * reading CSS. Rendering exactly one keeps the DOM the honest answer.
  */
 export const MD_BREAKPOINT_QUERY = "(min-width: 768px)";
+
+/**
+ * The Map's (`/tasks/map`) own two breakpoints, matching the Estuary
+ * prototype's CSS exactly rather than a Tailwind default — the design comes
+ * with its own numbers (`.main{grid-template-columns:1fr}` at 1100px,
+ * `.tabs{display:flex}` at 700px), and re-deriving them from `sm`/`md`/`lg`
+ * would just be two ways to spell the same breakpoint that can drift apart.
+ */
+export const MAP_WIDE_QUERY = "(min-width: 1100px)";
+export const MAP_TABS_QUERY = "(max-width: 699px)";
+
+/** The Map hero's right rail ("Needs you" cards beside the map card) — the spec's own `>=1280px` cutoff. */
+export const MAP_RAIL_QUERY = "(min-width: 1280px)";
+
+/** Matches `computeGeometry`'s own `horiz` threshold — the river runs left-to-right at this width and up, top-to-bottom below it. */
+export const MAP_HORIZ_QUERY = "(min-width: 600px)";

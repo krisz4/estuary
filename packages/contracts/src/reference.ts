@@ -52,3 +52,26 @@ export const parseReference = (input: string): number | null => {
   const id = Number.parseInt(digits, 10);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
+
+/**
+ * Every task referenced in free text, in order of first appearance, deduplicated:
+ * `TASK-42`, `task-000042`, and branch names like `task-42-fix-login` or
+ * `feat/TASK-42`. Used by the GitHub integration to tie a pull request to its
+ * tasks from its title, body, and head branch.
+ *
+ * Deliberately **not** `#42`: on GitHub that is a PR or issue number, and
+ * reading it as a task id would attach PRs to unrelated tasks.
+ */
+const REFERENCE_IN_TEXT = new RegExp(
+  `(?<![a-z0-9])task-(\\d{1,${TASK_ID_MAX_DIGITS}})(?!\\d)`,
+  "gi",
+);
+
+export const findReferences = (text: string): number[] => {
+  const ids: number[] = [];
+  for (const match of text.matchAll(REFERENCE_IN_TEXT)) {
+    const id = Number.parseInt(match[1] ?? "", 10);
+    if (Number.isSafeInteger(id) && id > 0 && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+};

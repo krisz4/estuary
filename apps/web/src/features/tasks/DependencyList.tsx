@@ -15,10 +15,17 @@ import { StatusBadge } from "@/features/tasks/StatusBadge";
  */
 export const TaskRefList = ({
   refs,
+  currentProject,
   onRemove,
   removingId,
 }: {
   refs: readonly TaskRef[];
+  /**
+   * The task this list is shown on. A ref's own `project` is only rendered
+   * when it differs — dependencies cross repositories, and a ref sharing the
+   * viewer's project would just repeat what is already on screen.
+   */
+  currentProject?: string | null;
   /** When given, each row gets a remove button. */
   onRemove?: (ref: TaskRef) => void;
   removingId?: number | null;
@@ -34,6 +41,14 @@ export const TaskRefList = ({
           <span className="mr-1.5 font-mono text-xs text-primary">{ref.reference}</span>
           {ref.title}
         </Link>
+        {ref.project === null || ref.project === currentProject ? null : (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+            title={`Project: ${ref.project}`}
+          >
+            {ref.project}
+          </span>
+        )}
         <StatusBadge status={ref.status} className="shrink-0" />
         {onRemove === undefined ? null : (
           <Button
@@ -66,9 +81,11 @@ export const TaskRefList = ({
 export const DependencyEditor = ({
   taskId,
   dependencies,
+  currentProject,
 }: {
   taskId: number;
   dependencies: readonly TaskRef[];
+  currentProject?: string | null;
 }) => {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
@@ -110,6 +127,7 @@ export const DependencyEditor = ({
       ) : (
         <TaskRefList
           refs={dependencies}
+          currentProject={currentProject}
           removingId={removeMutation.isPending ? removeMutation.variables : null}
           onRemove={(ref) =>
             removeMutation.mutate(ref.id, {

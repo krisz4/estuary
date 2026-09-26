@@ -24,7 +24,7 @@ describe("GET /api/v1/events", () => {
     const res = await request(app).get(FEED);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ data: [], meta: { nextAfter: 0, hasMore: false } });
+    expect(res.body).toEqual({ data: [], meta: { nextAfter: 0, nextBefore: null, hasMore: false } });
   });
 
   it("records real writes, oldest first, attributed to their X-Actor", async () => {
@@ -49,9 +49,14 @@ describe("GET /api/v1/events", () => {
       "human:anonymous",
     ]);
     expect(res.body.data[1].payload).toEqual({ fields: ["priority"] });
+    expect(res.body.data.map((event: { taskTitle: string | null }) => event.taskTitle)).toEqual([
+      "Add retries to the sender",
+      "Add retries to the sender",
+      "Add retries to the sender",
+    ]);
   });
 
-  it("still describes a task after it is deleted", async () => {
+  it("still describes a task after it is deleted, with taskTitle null", async () => {
     const created = await request(app)
       .post(TASKS)
       .send({ title: "Short-lived task", description: "Created only to be deleted." });
@@ -64,6 +69,10 @@ describe("GET /api/v1/events", () => {
 
     expect(types(res.body)).toEqual(["task.created", "task.deleted"]);
     expect(res.body.data[1].payload).toEqual({ title: "Short-lived task" });
+    expect(res.body.data.map((event: { taskTitle: string | null }) => event.taskTitle)).toEqual([
+      null,
+      null,
+    ]);
     expect((await request(app).get(`${TASKS}/${id}`)).status).toBe(404);
   });
 
@@ -76,7 +85,7 @@ describe("GET /api/v1/events", () => {
     const res = await request(app).get(FEED).query({ after: "1", taskId: "1" });
 
     expect(res.body.data.map((event: { id: number }) => event.id)).toEqual([3, 4]);
-    expect(res.body.meta).toEqual({ nextAfter: 4, hasMore: false });
+    expect(res.body.meta).toEqual({ nextAfter: 4, nextBefore: null, hasMore: false });
   });
 
   it("pages with limit and reports hasMore", async () => {
@@ -87,9 +96,9 @@ describe("GET /api/v1/events", () => {
       .get(FEED)
       .query({ limit: "2", after: String(first.body.meta.nextAfter) });
 
-    expect(first.body.meta).toEqual({ nextAfter: 2, hasMore: true });
+    expect(first.body.meta).toEqual({ nextAfter: 2, nextBefore: null, hasMore: true });
     expect(second.body.data.map((event: { id: number }) => event.id)).toEqual([3]);
-    expect(second.body.meta).toEqual({ nextAfter: 3, hasMore: false });
+    expect(second.body.meta).toEqual({ nextAfter: 3, nextBefore: null, hasMore: false });
   });
 
   it("echoes the cursor back as nextAfter when a poll finds nothing new", async () => {
@@ -97,7 +106,7 @@ describe("GET /api/v1/events", () => {
 
     const res = await request(app).get(FEED).query({ after: "1" });
 
-    expect(res.body).toEqual({ data: [], meta: { nextAfter: 1, hasMore: false } });
+    expect(res.body).toEqual({ data: [], meta: { nextAfter: 1, nextBefore: null, hasMore: false } });
   });
 
   it("treats empty values as absent", async () => {
@@ -137,5 +146,30 @@ describe("GET /api/v1/events", () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe("NOT_FOUND");
+  });
+
+  it("pages newest-first with order=desc and before, over real writes", async () => {
+    for (let i = 0; i < 3; i += 1) {
+      await request(app)
+        .post(TASKS)
+        .send({ title: `Task number ${i}`, description: "Long enough description for the schema." });
+    }
+
+    const first = await request(app).get(FEED).query({ order: "desc", limit: "2" });
+    expect(eventsResponseSchema.safeParse(first.body).success).toBe(true);
+    expect(first.body.data.map((e: { id: number }) => e.id)).toEqual([3, 2]);
+
+    const second = await request(app)
+      .get(FEED)
+      .query({ order: "desc", limit: "2", before: String(first.body.meta.nextBefore) });
+    expect(second.body.data.map((e: { id: number }) => e.id)).toEqual([1]);
+    expect(second.body.meta.nextBefore).toBe(1);
+  });
+
+  it("rejects order values other than asc/desc", async () => {
+    const res = await request(app).get(FEED).query({ order: "sideways" });
+
+    expect(res.status).toBe(422);
+    expect(Object.keys(res.body.error.details)).toContain("order");
   });
 });

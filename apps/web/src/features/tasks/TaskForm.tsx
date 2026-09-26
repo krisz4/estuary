@@ -28,6 +28,7 @@ import { Button, Field, Input, Select, Textarea } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { TASK_STATUS_DESCRIPTIONS, TASK_STATUS_LABELS, priorityOptions } from "@/lib/formatting";
 import { applyServerValidationErrors } from "@/lib/serverErrors";
+import { LabelInput } from "@/features/tasks/LabelInput";
 
 /**
  * The task form — **one component, two modes**, shared by
@@ -98,6 +99,8 @@ export type TaskFormValues = {
   assignee: string;
   acceptanceCriteria: string;
   links: { label: string; url: string }[];
+  /** Sorted, lowercase, deduplicated — same shape the contract's schema produces. */
+  labels: string[];
   /** A task number in any spelling `parseReference` accepts, or `""`. */
   parentId: string;
 };
@@ -122,6 +125,7 @@ export const TASK_FORM_FIELDS = [
   "assignee",
   "acceptanceCriteria",
   "links",
+  "labels",
   "parentId",
 ] as const satisfies readonly (keyof TaskFormValues)[];
 
@@ -143,6 +147,7 @@ export const emptyTaskFormValues = (): TaskFormValues => ({
   assignee: "",
   acceptanceCriteria: "",
   links: [],
+  labels: [],
   parentId: "",
 });
 
@@ -172,6 +177,8 @@ export type TaskFormProps = {
   onDirtyChange?: (isDirty: boolean) => void;
   /** Projects already in use (`facets.projects`), offered as suggestions. */
   projectSuggestions?: readonly string[];
+  /** Labels already in use (`facets.labels`), offered as suggestions. */
+  labelSuggestions?: readonly string[];
   /** Rendered above the fields — the edit page's version-conflict notice. */
   notice?: ReactNode;
 };
@@ -278,6 +285,7 @@ export const TaskForm = ({
   onCancel,
   onDirtyChange,
   projectSuggestions = [],
+  labelSuggestions = [],
   notice,
 }: TaskFormProps) => {
   const [formErrors, setFormErrors] = useState<string[]>([]);
@@ -358,9 +366,9 @@ export const TaskForm = ({
     value, which the compiler can reason about. Same behaviour, and the form
     stays compiled.
   */
-  const [status, priority, title] = useWatch({
+  const [status, priority, title, labels] = useWatch({
     control,
-    name: ["status", "priority", "title"],
+    name: ["status", "priority", "title", "labels"],
   });
 
   const criteriaRequired = mode === "create" && status === "todo";
@@ -586,6 +594,29 @@ export const TaskForm = ({
           Add link
         </Button>
       </fieldset>
+
+      <Field
+        label="Labels"
+        error={
+          Array.isArray(errors.labels)
+            ? errors.labels.find((entry) => entry?.message !== undefined)?.message
+            : errors.labels?.message
+        }
+        help="Optional. Narrows work inside a project — a workspace (“web”) or a kind (“bug”). Press Enter or comma to add."
+      >
+        {(field) => (
+          <LabelInput
+            id={field.id}
+            value={labels ?? []}
+            onChange={(next) =>
+              setValue("labels", next, { shouldDirty: true, shouldValidate: true })
+            }
+            suggestions={labelSuggestions}
+            aria-describedby={field["aria-describedby"]}
+            aria-invalid={field["aria-invalid"]}
+          />
+        )}
+      </Field>
 
       <Field
         label="Parent task"

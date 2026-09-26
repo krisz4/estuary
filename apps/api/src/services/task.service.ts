@@ -1,6 +1,7 @@
 import {
   HUMAN_ATTENTION_STATUSES,
   TASK_STATUSES,
+  TERMINAL_TASK_STATUSES,
   type CreateTaskInput,
   type Task,
   type TaskFacets,
@@ -57,7 +58,7 @@ export async function getTask(id: number): Promise<Task> {
  * `GROUP BY` that SQLite satisfies from the column's index.
  */
 export async function getTaskFacets(): Promise<TaskFacets> {
-  const [assigneeRows, projectRows, creatorRows] = await Promise.all([
+  const [assigneeRows, projectRows, labelRows, creatorRows] = await Promise.all([
     prisma.task.groupBy({
       by: ["assignee"],
       where: { assignee: { not: null } },
@@ -68,6 +69,7 @@ export async function getTaskFacets(): Promise<TaskFacets> {
       where: { project: { not: null } },
       orderBy: { project: "asc" },
     }),
+    prisma.taskLabel.groupBy({ by: ["label"], orderBy: { label: "asc" } }),
     prisma.task.groupBy({ by: ["createdBy"], orderBy: { createdBy: "asc" } }),
   ]);
 
@@ -78,6 +80,7 @@ export async function getTaskFacets(): Promise<TaskFacets> {
   return {
     assignees: assigneeRows.map((row) => row.assignee).filter(present),
     projects: projectRows.map((row) => row.project).filter(present),
+    labels: labelRows.map((row) => row.label),
     creators: creatorRows.map((row) => row.createdBy),
   };
 }
@@ -155,12 +158,20 @@ export interface CreateTaskResult {
 /**
  * Create, or replay.
  *
- * With an `idempotencyKey` that already exists, the stored task is returned
- * unchanged and `created` is false — even if the rest of the body differs. The
- * key identifies the *intent*, and an agent retrying after a timeout must not
- * file the same work twice. The unique index is the real guard: two concurrent
- * creates with one key both miss the pre-read, one insert wins, and the loser's
- * `P2002` is turned back into a replay here.
+ * With an `idempotencyKey` that already exists **on an open task**, the stored
+ * task is returned unchanged and `created` is false — even if the rest of the
+ * body differs. The key identifies the *intent*, and an agent retrying after a
+ * timeout must not file the same work twice. The unique index is the real
+ * guard: two concurrent creates with one key both miss the pre-read, one
+ * insert wins, and the loser's `P2002` is turned back into a replay here.
+ *
+ * When the task holding the key is `done` or `deferred`, the key no longer
+ * identifies live intent — a follow-up filed months later under a recycled
+ * title must not come back as the closed original. The key is retired from
+ * that task (set to `null`, no version bump, no event: it is bookkeeping, not
+ * a content change worth recording in either task's history) and a new task is
+ * created under the same key, atomically in the same write transaction so a
+ * crash between the two never leaves the key on two rows or on none.
  */
 export async function createTask(input: CreateTaskInput, actor: string): Promise<CreateTaskResult> {
   const key = input.idempotencyKey;
@@ -168,14 +179,27 @@ export async function createTask(input: CreateTaskInput, actor: string): Promise
   if (key !== undefined) {
     const existing = await prisma.task.findUnique({
       where: { idempotencyKey: key },
-      select: { id: true },
+      select: { id: true, status: true },
     });
-    if (existing !== null) return { task: await loadTask(prisma, existing.id), created: false };
+    if (existing !== null && !isTerminal(existing.status)) {
+      return { task: await loadTask(prisma, existing.id), created: false };
+    }
   }
 
   try {
     const task = await writeTransaction(async (tx) => {
       if (input.parentId != null) await assertParentAllowed(tx, null, input.parentId);
+
+      if (key !== undefined) {
+        // Retire the key from whichever closed task still holds it — see the
+        // doc comment above. No-op (0 rows) when nothing holds it, or when the
+        // holder is still open (the pre-read above would have returned it, but
+        // a concurrent transition to done/deferred could have landed since).
+        await tx.task.updateMany({
+          where: { idempotencyKey: key, status: { in: [...TERMINAL_TASK_STATUSES] } },
+          data: { idempotencyKey: null },
+        });
+      }
 
       const row = await tx.task.create({
         data: applyTaskRanks({
@@ -187,6 +211,7 @@ export async function createTask(input: CreateTaskInput, actor: string): Promise
           assignee: input.assignee ?? null,
           acceptanceCriteria: input.acceptanceCriteria ?? null,
           links: JSON.stringify(input.links ?? []),
+          labels: { create: (input.labels ?? []).map((label) => ({ label })) },
           parentId: input.parentId ?? null,
           idempotencyKey: key ?? null,
           createdBy: actor,
@@ -215,6 +240,9 @@ export async function createTask(input: CreateTaskInput, actor: string): Promise
     throw err;
   }
 }
+
+const isTerminal = (status: string): boolean =>
+  (TERMINAL_TASK_STATUSES as readonly string[]).includes(status);
 
 const isUniqueViolation = (err: unknown): boolean =>
   typeof err === "object" && err !== null && (err as { code?: unknown }).code === "P2002";
@@ -254,6 +282,7 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
         acceptanceCriteria: true,
         links: true,
         parentId: true,
+        labels: { select: { label: true }, orderBy: { label: "asc" } },
       },
     });
     if (existing === null) throw taskNotFound(id);
@@ -273,7 +302,18 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
       if (value !== undefined && value !== existing[field]) data[field] = value;
     }
 
-    if (Object.keys(data).length === 0) return loadTask(tx, id);
+    // `labels` replaces the whole set (same rule as `links`), and is not a
+    // column on `Task` — it lives in the `TaskLabel` join table, so it cannot
+    // go through the PATCHABLE loop above. Both sides are already sorted
+    // (`labelsInputSchema`'s transform; the `orderBy` on the select), so a
+    // plain array comparison is exact.
+    const currentLabels = existing.labels.map((row) => row.label);
+    const labelsChanged =
+      input.labels !== undefined &&
+      (input.labels.length !== currentLabels.length ||
+        input.labels.some((label, index) => label !== currentLabels[index]));
+
+    if (Object.keys(data).length === 0 && !labelsChanged) return loadTask(tx, id);
 
     if (typeof data.parentId === "number") await assertParentAllowed(tx, id, data.parentId);
 
@@ -281,11 +321,21 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
       ...applyTaskRanks(data as { priority?: UpdateTaskInput["priority"] }),
       ...renewedLease(existing, actor, now),
     });
+
+    if (labelsChanged) {
+      await tx.taskLabel.deleteMany({ where: { taskId: id } });
+      if (input.labels!.length > 0) {
+        await tx.taskLabel.createMany({
+          data: input.labels!.map((label) => ({ taskId: id, label })),
+        });
+      }
+    }
+
     await recordEvent(tx, {
       taskId: id,
       type: "task.updated",
       actor,
-      payload: { fields: Object.keys(data) },
+      payload: { fields: labelsChanged ? [...Object.keys(data), "labels"] : Object.keys(data) },
     });
 
     return loadTask(tx, id);
@@ -304,7 +354,12 @@ export async function deleteTask(id: number, actor: string): Promise<void> {
   await writeTransaction(async (tx) => {
     const existing = await tx.task.findUnique({
       where: { id },
-      select: { ...guardedSelect, title: true, dependents: { select: { taskId: true } } },
+      select: {
+        ...guardedSelect,
+        title: true,
+        project: true,
+        dependents: { select: { taskId: true } },
+      },
     });
     if (existing === null) throw taskNotFound(id);
 
@@ -315,6 +370,9 @@ export async function deleteTask(id: number, actor: string): Promise<void> {
       taskId: id,
       type: "task.deleted",
       actor,
+      // Explicit: by now the row is gone, so `recordEvent`'s own lookup would
+      // stamp `null` instead of the project the task actually belonged to.
+      project: existing.project,
       payload: { title: existing.title },
     });
 

@@ -1,17 +1,12 @@
-import {
-  COMMENT_KINDS,
-  TASK_PRIORITIES,
-  TASK_STATUS_LANES,
-  TASK_STATUSES,
-} from "@helpdesk/contracts";
+import { COMMENT_KINDS, TASK_PRIORITIES, TASK_STATUSES } from "@helpdesk/contracts";
 import { describe, expect, it } from "vitest";
 import {
   actorDisplayName,
   COMMENT_KIND_LABELS,
   formatAbsolute,
+  formatCompactAge,
   formatCount,
   formatRelative,
-  TASK_LANE_LABELS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_DESCRIPTIONS,
   TASK_STATUS_LABELS,
@@ -28,7 +23,6 @@ describe("enum labels", () => {
     ["priority", TASK_PRIORITIES, TASK_PRIORITY_LABELS],
     ["status description", TASK_STATUSES, TASK_STATUS_DESCRIPTIONS],
     ["comment kind", COMMENT_KINDS, COMMENT_KIND_LABELS],
-    ["lane", Object.keys(TASK_STATUS_LANES), TASK_LANE_LABELS],
   ] as const)("covers every %s value", (_name, values, labels) => {
     expect(Object.keys(labels).sort()).toEqual([...values].sort());
     for (const value of values) {
@@ -64,6 +58,31 @@ describe("formatRelative", () => {
   it("returns an em dash rather than 'Invalid Date' for unparseable input", () => {
     expect(formatRelative("not-a-date", now)).toBe("—");
     expect(formatAbsolute("not-a-date")).toBe("—");
+  });
+});
+
+describe("formatCompactAge", () => {
+  const now = new Date("2026-08-11T12:00:00.000Z");
+
+  it.each([
+    ["2026-08-11T11:59:50.000Z", "10s"],
+    ["2026-08-11T11:55:00.000Z", "5m"],
+    ["2026-08-11T11:00:00.000Z", "1h"],
+    ["2026-08-10T12:00:00.000Z", "1d"],
+    ["2026-08-04T12:00:00.000Z", "1w"],
+    ["2026-07-28T12:00:00.000Z", "2w"],
+    ["2026-06-11T12:00:00.000Z", "2mo"],
+    ["2024-08-11T12:00:00.000Z", "1y"],
+  ])("renders %s (relative to now) as %s", (iso, expected) => {
+    expect(formatCompactAge(iso, now)).toBe(expected);
+  });
+
+  it("is symmetric for a future timestamp — a compact column doesn't need a sign", () => {
+    expect(formatCompactAge("2026-08-11T12:00:30.000Z", now)).toBe("30s");
+  });
+
+  it("returns an em dash for unparseable input", () => {
+    expect(formatCompactAge("not-a-date", now)).toBe("—");
   });
 });
 

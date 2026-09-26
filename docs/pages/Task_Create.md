@@ -20,7 +20,7 @@ status: canonical
 
 | Component | Role |
 | --------- | ---- |
-| `TaskForm` (`src/features/tasks/TaskForm.tsx`) | **Shared with [Task_Edit.md](./Task_Edit.md)** — same fields, layout, and server-error mapping, driven by a `mode` prop. Create passes `emptyTaskFormValues()`; edit passes the loaded task and omits the status field |
+| `TaskForm` (`src/features/tasks/TaskForm.tsx`) | **Shared with [Task_Edit.md](./Task_Edit.md)** — same fields, layout, and server-error mapping, driven by a `mode` prop. Create passes `emptyTaskFormValues()` with `project` prefilled from the header's project scope (`useProjectScope`, see [App_Shell.md](./App_Shell.md)) unless the URL carries its own prefill (see § Route params below); edit passes the loaded task and omits the status field |
 | `PageHeader` | Back link + "New task" title |
 | `Field`, `Input`, `Textarea`, `Select` | Primitives from `src/components/ui/` |
 | `FormErrorSummary` | Assertive live region above the fields, and the home for any server message with no field |
@@ -52,12 +52,16 @@ Form: react-hook-form + `zodResolver(createTaskInputSchema)` from `packages/cont
 
 Every optional field the form clears sends `null`, not `""` — the schema transforms it, but an empty string stored anywhere would vanish from every filter that matches on it exactly.
 
+## Route params
+
+`?status=<CREATABLE_TASK_STATUSES value>&project=<slug>` — both optional, parsed by `parseCreatePrefill` (unit-tested). This is the Map's quick-add entry point ([Tasks_Map.md](./Tasks_Map.md) § Quick add): hovering a planning station's plate shows a "+" that navigates here with the station's status and, when the map is grouped by project, the cluster's own dominant project. An invalid or non-creatable `status` (e.g. `done`) is silently ignored rather than producing a form the create schema would reject; a blank `project` is dropped. `project` falls back to the header's project scope when absent — the same default the page always had.
+
 ## Behavior / UI flow
 
 1. Title field is focused on mount.
 2. Validation runs on blur, then on change once a field has errored (`mode: "onTouched"`).
 3. Submit disables the button, shows a spinner, and blocks double submission. Every create also carries a fresh `idempotencyKey` (minted once per visit to this page), so retrying a timed-out submit returns the original task rather than filing a duplicate.
-4. **Success** — invalidate `queryKeys.tasks.all` and the events feed, toast "Task TASK-000042 created", and `navigate(/tasks/:id, { replace: true })` to the new task's detail page, carrying `location.state` along so the filtered list/board the user came from is still one "Back" away.
+4. **Success** — invalidate `queryKeys.tasks.all` and the events feed, toast "Task TASK-000042 created", and `navigate(/tasks/:id, { replace: true })` to the new task's detail page, carrying `location.state` along so the filtered list/map the user came from is still one "Back" away.
 5. **Cancel** — if the form is untouched, navigate back immediately; if dirty, confirm discard first. Either way the destination is `useBackToListPath()` — the remembered view (`stores/taskView`) for the path, `location.state.from` for the query. Every entry point into this page (list rows, the empty-state CTA, both header "New task" buttons via `listReturnState(location)`) attaches that state.
 6. A dirty form also guards browser navigation via a `beforeunload` handler **and** react-router's `useBlocker` (`lib/useUnsavedChangesGuard.ts`), both reading refs rather than props so a successful submit's own navigation is never mistaken for an unguarded exit.
 
@@ -91,3 +95,4 @@ Every optional field the form clears sends `null`, not `""` — the schema trans
 - [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) — what "starting status" allows and why
 - [../features/Validation_And_Contracts.md](../features/Validation_And_Contracts.md)
 - [Task_Edit.md](./Task_Edit.md) — shares `TaskForm`
+- [Tasks_Map.md](./Tasks_Map.md) — the quick-add entry point that drives § Route params

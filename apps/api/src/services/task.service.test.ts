@@ -218,6 +218,48 @@ describe("createTask", () => {
       expect(results.filter((result) => result.created)).toHaveLength(1);
       expect(await prisma.task.count()).toBe(1);
     });
+
+    describe("against a closed task", () => {
+      it("creates a new task (201) rather than replaying a done task, and retires the key from it", async () => {
+        const original = await makeTask({ status: "done", idempotencyKey: "recycled-key" });
+
+        const result = await createTask(createInput({ idempotencyKey: "recycled-key" }), AGENT);
+
+        expect(result.created).toBe(true);
+        expect(result.task.id).not.toBe(original.id);
+        expect(await prisma.task.count()).toBe(2);
+
+        const retired = await prisma.task.findUniqueOrThrow({ where: { id: original.id } });
+        expect(retired.idempotencyKey).toBeNull();
+        // Retiring the key is bookkeeping, not a content change: no version
+        // bump, and no event recorded for it (the factory wrote `original`
+        // directly, so its event trail starts empty and stays that way).
+        expect(retired.version).toBe(1);
+        expect(await eventsFor(original.id)).toEqual([]);
+
+        const newRow = await prisma.task.findUniqueOrThrow({ where: { id: result.task.id } });
+        expect(newRow.idempotencyKey).toBe("recycled-key");
+      });
+
+      it("creates a new task rather than replaying a deferred task", async () => {
+        const original = await makeTask({ status: "deferred", idempotencyKey: "deferred-key" });
+
+        const result = await createTask(createInput({ idempotencyKey: "deferred-key" }), AGENT);
+
+        expect(result.created).toBe(true);
+        expect(result.task.id).not.toBe(original.id);
+      });
+
+      it("still replays (200) against an open task holding the key, even one it later shares nothing else with", async () => {
+        const original = await makeTask({ status: "todo", idempotencyKey: "open-key" });
+
+        const replay = await createTask(createInput({ idempotencyKey: "open-key" }), AGENT);
+
+        expect(replay.created).toBe(false);
+        expect(replay.task.id).toBe(original.id);
+        expect(await prisma.task.count()).toBe(1);
+      });
+    });
   });
 
   describe("parentId", () => {
@@ -299,6 +341,7 @@ describe("getTask", () => {
       reference: "TASK-000001",
       title: "Parent epic here",
       status: "backlog",
+      project: null,
     });
     expect(loaded.children.map((ref) => ref.id)).toEqual([child.id]);
     expect(loaded.dependencies).toEqual([
@@ -635,21 +678,37 @@ describe("deleteTask", () => {
  * ------------------------------------------------------------------ */
 
 describe("getTaskFacets", () => {
-  it("returns distinct non-null assignees, projects, and creators, sorted", async () => {
-    await makeTask({ assignee: "Priya Raman", project: "web", createdBy: "human:krisz" });
-    await makeTask({ assignee: "Marcus Feld", project: "api", createdBy: "agent:claude-code" });
+  it("returns distinct non-null assignees, projects, labels, and creators, sorted", async () => {
+    const web = await makeTask({
+      assignee: "Priya Raman",
+      project: "web",
+      createdBy: "human:krisz",
+    });
+    await prisma.taskLabel.create({ data: { taskId: web.id, label: "bug" } });
+    const api = await makeTask({
+      assignee: "Marcus Feld",
+      project: "api",
+      createdBy: "agent:claude-code",
+    });
+    await prisma.taskLabel.create({ data: { taskId: api.id, label: "perf" } });
     await makeTask({ assignee: "Marcus Feld", project: "web", createdBy: "human:krisz" });
     await makeTask({ assignee: null, project: null, createdBy: "agent:codex" });
 
     expect(await getTaskFacets()).toEqual({
       assignees: ["Marcus Feld", "Priya Raman"],
       projects: ["api", "web"],
+      labels: ["bug", "perf"],
       creators: ["agent:claude-code", "agent:codex", "human:krisz"],
     });
   });
 
   it("returns empty lists when there are no tasks", async () => {
-    expect(await getTaskFacets()).toEqual({ assignees: [], projects: [], creators: [] });
+    expect(await getTaskFacets()).toEqual({
+      assignees: [],
+      projects: [],
+      labels: [],
+      creators: [],
+    });
   });
 
   it("reflects a value cleared by a patch", async () => {

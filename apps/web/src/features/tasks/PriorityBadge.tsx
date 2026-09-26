@@ -6,13 +6,15 @@ import { TASK_PRIORITY_LABELS } from "@/lib/formatting";
 
 /**
  * Priority pill, per `docs/features/Task_Priority.md` § UI mapping:
- * `low` outline/muted, `medium` outline/neutral, `high` amber + `ArrowUp`,
- * `urgent` red + `AlertTriangle`.
+ * `low` outline/muted, `medium` outline/neutral, `high` yellow outline +
+ * `ArrowUp`, `urgent` red fill + `AlertTriangle`.
  *
- * The two low ends are outlines rather than fills on purpose. Filling all four
- * makes a list of mostly-medium tasks look like an alert board, and the design
- * guidelines allow exactly one strong colour on this screen — which status has
- * already spent.
+ * Everything below `urgent` is an **outline**, and status pills are fills:
+ * the shape tells the two columns apart before the colour does. That matters
+ * in dark mode, where a filled "High" (yellow) and a filled "Needs QA" (amber)
+ * both darken to the same brown. Filling all four would also make a list of
+ * mostly-medium tasks look like an alert board. `urgent` alone stays filled —
+ * it is rare and is meant to shout.
  *
  * Icons are `aria-hidden`; the label carries the meaning.
  */
@@ -27,6 +29,7 @@ const TONES: Record<TaskPriority, BadgeTone> = {
 const OVERRIDES: Partial<Record<TaskPriority, string>> = {
   low: "bg-transparent border border-border text-muted-foreground",
   medium: "bg-transparent border border-border text-foreground",
+  high: "bg-transparent border border-warning/60 text-warning",
 };
 
 const ICONS: Partial<Record<TaskPriority, LucideIcon>> = {

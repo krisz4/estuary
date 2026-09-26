@@ -8,7 +8,6 @@ import {
   type CommentKind,
   type TaskPriority,
   type TaskStatus,
-  type TaskStatusLane,
 } from "@helpdesk/contracts";
 
 /**
@@ -16,7 +15,7 @@ import {
  *
  * Enum labels are written out per value rather than derived by de-underscoring
  * and title-casing. A derivation would render `needs_user_decision` as "Needs
- * User Decision" — accurate and unreadable on a 9rem board column — and, more to
+ * User Decision" — accurate and unreadable in a narrow chip — and, more to
  * the point, it would silently produce a plausible-looking label for a value
  * that is not in the enum at all, which is the case worth surfacing.
  */
@@ -35,7 +34,7 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 /**
- * One line on what each status *means* — the column hint on the board and the
+ * One line on what each status *means* — a status hint on the map and the
  * option description in the transition dialog. The lifecycle is new enough to
  * everyone (human and agent) that "Needs refinement" vs "Backlog" deserves a
  * sentence rather than a guess.
@@ -51,14 +50,6 @@ export const TASK_STATUS_DESCRIPTIONS: Record<TaskStatus, string> = {
   needs_qa: "The work is done. Someone needs to verify it.",
   done: "Finished and verified.",
   deferred: "Parked on purpose. The reason is recorded.",
-};
-
-/** The four groups the board arranges its columns into (`TASK_STATUS_LANES`). */
-export const TASK_LANE_LABELS: Record<TaskStatusLane, string> = {
-  plan: "Plan",
-  doing: "Doing",
-  waiting: "Waiting",
-  closed: "Closed",
 };
 
 export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
@@ -163,6 +154,31 @@ export const formatRelative = (iso: string, now: Date = new Date()): string => {
 export const formatAbsolute = (iso: string): string => {
   const date = parse(iso);
   return date === null ? "—" : ABSOLUTE_FORMAT.format(date);
+};
+
+/**
+ * `"2 weeks ago"` → `"2w"` — for a column too narrow to wrap ("2 weeks /
+ * ago" is worse than either "2w" or a full-length age; a fixed, tight token
+ * fits every case). Always pair with `title={formatAbsolute(iso)}` for the
+ * full date on hover — the whole point of shortening it is that the detail
+ * isn't lost, just not always shown.
+ */
+export const formatCompactAge = (iso: string, now: Date = new Date()): string => {
+  const date = parse(iso);
+  if (date === null) return "—";
+  const seconds = Math.abs((now.getTime() - date.getTime()) / 1000);
+  const units: { limit: number; divisor: number; suffix: string }[] = [
+    { limit: 60, divisor: 1, suffix: "s" },
+    { limit: 3600, divisor: 60, suffix: "m" },
+    { limit: 86_400, divisor: 3600, suffix: "h" },
+    { limit: 604_800, divisor: 86_400, suffix: "d" },
+    { limit: 2_629_800, divisor: 604_800, suffix: "w" },
+    { limit: 31_557_600, divisor: 2_629_800, suffix: "mo" },
+    { limit: Number.POSITIVE_INFINITY, divisor: 31_557_600, suffix: "y" },
+  ];
+  const unit = units.find((entry) => seconds < entry.limit) ?? units[units.length - 1]!;
+  const value = Math.max(1, Math.floor(seconds / unit.divisor));
+  return `${value}${unit.suffix}`;
 };
 
 /**

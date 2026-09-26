@@ -141,6 +141,14 @@ export interface SeedTaskTemplate {
   /** `in_progress` only. `expired` = the agent crashed and its lease lapsed. Default `live`. */
   claim?: "live" | "expired";
   comments?: SeedCommentTemplate[];
+  /**
+   * Free-form tags, lowercase slugs (`labelSchema`). Not every task needs one —
+   * this seed reaches for a workspace label (`web`, `api`, `contracts`, `mcp`,
+   * `db`, `docs`) on `helpdesk`-project tasks, since that project mirrors this
+   * very monorepo, and a kind label (`bug`, `flaky-test`, `perf`) wherever the
+   * title says so, on any project.
+   */
+  labels?: string[];
 }
 
 /* ------------------------------------------------------------------ *
@@ -174,6 +182,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
         at: "start",
       },
     ],
+    labels: ["mcp"],
   },
   {
     key: "mcp-claim-tools",
@@ -192,6 +201,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "Added the four tools plus an integration test that boots the API on a random port. `tasks_next` with nothing available returns a normal empty result.",
     statusNote:
       "Tried it from a real Claude Code session; claims and releases show up in the events feed.",
+    labels: ["mcp"],
   },
   {
     key: "mcp-decision-tools",
@@ -215,6 +225,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
         body: "Will review tomorrow morning — I want to try it against the inbox page at the same time.",
       },
     ],
+    labels: ["mcp"],
   },
   {
     key: "mcp-docs",
@@ -230,6 +241,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     dependsOn: ["mcp-decision-tools"],
     acceptanceCriteria:
       "- Copy-pasteable `.mcp.json` snippet\n- Explains why agents stop at needs_qa\n- Linked from docs/features/README.md",
+    labels: ["mcp", "docs"],
   },
   {
     key: "stats-project-filter",
@@ -251,6 +263,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
         body: "Taking this one myself — it's a where clause and a test. Web side after.",
       },
     ],
+    labels: ["api"],
   },
   {
     key: "board-dnd-slow-network",
@@ -272,6 +285,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
         body: "The rollback fires from onSettled instead of onError. Fix is on the branch; still writing the throttled Playwright test.",
       },
     ],
+    labels: ["web", "bug"],
   },
   {
     key: "events-cursor-same-ms",
@@ -309,6 +323,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     },
     qaSummary:
       "The feed now pages strictly by id. Added the two-events-one-transaction regression test; it fails on main.",
+    labels: ["api", "db", "bug"],
   },
   {
     key: "inbox-badge-needs-qa",
@@ -326,6 +341,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     qaSummary:
       "The badge now reads `needsAttention`, which already included needs_qa. The inbox query uses HUMAN_ATTENTION_STATUSES instead of its own list.",
     statusNote: "Checked on staging: badge shows 5, inbox lists 5.",
+    labels: ["web", "api"],
   },
   {
     key: "actor-header-validation",
@@ -341,6 +357,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       '- Header is trimmed and lowercased before validation\n- Invalid values return 422 with details["X-Actor"]\n- `system:` is rejected from clients',
     qaSummary:
       "Actor parsing moved into middleware using `actorSchema` from contracts. Route tests cover the three bad shapes from the description plus `system:taskmanager`.",
+    labels: ["api"],
   },
   {
     key: "api-token-gate",
@@ -357,6 +374,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     statusNote:
       "The code is merged. The last step needs someone with access to the VPS: generate a token with `openssl rand -hex 32`, add `API_TOKEN=<value>` to /etc/helpdesk/api.env, restart with `systemctl restart helpdesk-api`, and put the same value in the MCP server's env. I have no access to that host from this sandbox.",
     links: [{ label: "PR #189", url: `${GITHUB_ORG_URL}/helpdesk/pull/189` }],
+    labels: ["api"],
   },
   {
     key: "verify-task-migration",
@@ -372,6 +390,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- Row counts match before and after for Task and Comment\n- No task ends up with a status outside TASK_STATUSES\n- Every migrated task has a task.created event",
     statusNote:
       "Please restore last night's backup to a scratch file, run `DATABASE_URL=file:/tmp/prod-copy.db pnpm --filter @helpdesk/api db:deploy`, then paste the output of `sqlite3 /tmp/prod-copy.db \"SELECT status, count(*) FROM Task GROUP BY status\"` here. I can't read production backups.",
+    labels: ["db"],
   },
   {
     key: "withdrawn-decisions-timeline",
@@ -383,6 +402,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     priority: "low",
     createdBy: HUMANS.dana,
     daysAgo: 15,
+    labels: ["web"],
   },
   {
     key: "board-dark-mode",
@@ -415,6 +435,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       choice: "Reuse the semantic tokens",
       answeredBy: HUMANS.marco,
     },
+    labels: ["web"],
   },
   {
     key: "agents-may-complete-ci",
@@ -448,6 +469,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       context:
         "There are 11 bump tasks in needs_qa right now, all green in CI. The actor is self-declared, so this is a convenience rule, not a security boundary.",
     },
+    labels: ["api", "mcp"],
   },
   {
     key: "openapi-examples",
@@ -459,6 +481,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     priority: "low",
     createdBy: AGENTS.claudeCode,
     daysAgo: 28,
+    labels: ["api", "docs"],
   },
   {
     key: "events-retention",
@@ -472,6 +495,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     daysAgo: 48,
     statusNote:
       "About 40k rows after two months and the feed query is still an index range scan. Revisit when the table passes a million rows or a feed request takes over 50 ms.",
+    labels: ["db"],
   },
   {
     key: "search-acceptance-criteria",
@@ -485,6 +509,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     daysAgo: 8,
     statusNote:
       "Unclear what should happen to ordering: `q` has no relevance ranking today, results follow the chosen sort. Should criteria-only matches sit in the same list, or be flagged as weaker? And should statusNote be searched too?",
+    labels: ["api", "db"],
   },
   {
     key: "e2e-board-flake",
@@ -501,6 +526,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     acceptanceCriteria: "- 50 consecutive CI runs green\n- No retries added to hide it",
     statusNote:
       "Same root cause as the slow-network drag-and-drop bug (optimistic rollback in onSettled). Fixing the test before the app would paper over it.",
+    labels: ["web", "flaky-test"],
   },
   {
     key: "release-claims-on-exit",
@@ -512,6 +538,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     priority: "medium",
     createdBy: AGENTS.claudeCode,
     daysAgo: 4,
+    labels: ["mcp"],
   },
   {
     key: "heartbeat-guidance",
@@ -527,6 +554,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- Recommends a third of CLAIM_LEASE_MINUTES\n- Explains that losing the claim means stop and re-read, not retry",
     qaSummary:
       "Added a Claims section to Agent_Integration.md with the interval rule and the NOT_CLAIM_HOLDER recovery steps.",
+    labels: ["mcp", "docs"],
   },
   {
     key: "task-templates",
@@ -538,6 +566,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     priority: "low",
     createdBy: HUMANS.marco,
     daysAgo: 24,
+    labels: ["api", "web"],
   },
   {
     key: "comment-kind-filter",
@@ -551,6 +580,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     daysAgo: 16,
     acceptanceCriteria:
       "- A toggle on the detail page hides progress comments\n- The choice persists per browser, not in the URL\n- qa_feedback is always shown",
+    labels: ["web", "api"],
   },
 
   /* ------------------------- billing-service ------------------------ */
@@ -575,6 +605,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
         body: "Looks good on staging. Holding off on done until the August backfill has run — that's the first real load on the worker.",
       },
     ],
+    labels: ["perf"],
   },
   {
     key: "pdf-render-jobs",
@@ -591,6 +622,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- Two workers never render the same invoice\n- A crashed worker's job is picked up after locked_until\n- The migration ships with the change",
     qaSummary:
       "Added render_jobs with a partial index on pending rows and a worker using FOR UPDATE SKIP LOCKED. The test starts two workers against one job and asserts a single render.",
+    labels: ["perf"],
   },
   {
     key: "pdf-render-retry",
@@ -660,6 +692,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       note: "Add the cleanup to the existing nightly job rather than a new one.",
       answeredBy: HUMANS.dana,
     },
+    labels: ["bug"],
   },
   {
     key: "billing-prisma-upgrade",
@@ -733,6 +766,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       context:
         "Our code counts the upgrade day on both plans, which is the off-by-one. Any option fixes it; they differ in what the customer sees. Stripe's preview puts the whole day on the new plan.",
     },
+    labels: ["bug"],
   },
   {
     key: "jpy-rounding",
@@ -768,6 +802,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       context:
         "Per-currency minor units is the right long-term model but a multi-week migration. Rounding per line fixes all 23 invoices and can ship this week.",
     },
+    labels: ["bug"],
   },
   {
     key: "dunning-emails",
@@ -857,6 +892,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     qaSummary:
       "Redemption is now an UPDATE … WHERE redeemed_at IS NULL with a row-count check. The test fires two applies in parallel and exactly one wins. Three affected invoices are listed in the PR.",
     statusNote: "Finance has the three invoices and is handling them.",
+    labels: ["bug"],
   },
   {
     key: "gap-free-invoice-numbers",
@@ -870,6 +906,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     daysAgo: 10,
     statusNote:
       "Gap-free per entity per calendar year, or per entity forever? German and French rules differ, and the description doesn't say which entities we invoice from. Also: do voided invoices keep their number?",
+    labels: ["bug"],
   },
   {
     key: "usage-metering",
@@ -897,6 +934,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- p95 under 200 ms for the 10k-invoice fixture account\n- Pagination meta unchanged",
     qaSummary:
       "Added a composite index on (account_id, issued_at) and the count now uses it. Fixture account: 4.1 s → 38 ms at p95.",
+    labels: ["perf"],
   },
   {
     key: "remove-paypal-express",
@@ -939,6 +977,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- The test uses a fake clock\n- No other test in the file reads the real clock",
     qaSummary:
       "Switched the file to vi.useFakeTimers with a pinned date. Ran it 200 times under a shifted TZ; all green.",
+    labels: ["flaky-test"],
   },
   {
     key: "receipt-currency",
@@ -1055,6 +1094,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     qaSummary:
       "Wrapped the keychain read so errSecItemNotFound maps to null. Verified on a clean iOS 17.0 simulator and a 17.5 device.",
     statusNote: "Hotfix 2.3.1 is live; the crash rate is back to baseline.",
+    labels: ["bug"],
   },
   {
     key: "android-back-gesture",
@@ -1074,6 +1114,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "Works from a push, but a deep link opened from the browser still exits the app — that path goes through a different handler. Both entry points are in the criteria.",
     qaResubmit:
       "Moved the stack reset into the shared linking config, so browser links and pushes take the same path. Tested both on a Pixel 7 and the emulator.",
+    labels: ["bug"],
   },
   {
     key: "voiceover-status-badges",
@@ -1089,6 +1130,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- The badge announces its status and 'double tap to change status'\n- Read-only badges are not buttons\n- Checked with VoiceOver and TalkBack",
     statusNote:
       "Interactive badges now have a label and a hint; read-only badges are plain text. Checked with VoiceOver on iOS 18 and TalkBack on Android 15. To verify: turn on VoiceOver and swipe through the inbox.",
+    labels: ["bug"],
   },
   {
     key: "deep-link-task-ref",
@@ -1102,6 +1144,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     daysAgo: 9,
     acceptanceCriteria:
       "- Both /tasks/123 and /tasks/TASK-000123 open the task\n- Unknown references show a not-found screen, not the inbox\n- Uses parseReference from contracts",
+    labels: ["bug"],
   },
   {
     key: "app-store-screenshots",
@@ -1217,6 +1260,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- Each avatar URL is fetched once per session\n- List scroll stays at 60 fps on a mid-range Android device",
     qaSummary:
       "Switched to expo-image with memory-disk caching. Requests while scrolling 200 rows went from 1,400 to 18.",
+    labels: ["perf"],
   },
   {
     key: "sentry-sourcemaps",

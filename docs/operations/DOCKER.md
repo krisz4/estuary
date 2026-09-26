@@ -163,6 +163,8 @@ Agents (via `apps/mcp`, see [../features/Agent_Integration.md](../features/Agent
 - **Put it behind HTTPS.** The bearer token travels in a plain `Authorization` header on every request; do not expose `api` (or the proxied port on `web`) to a network you do not control without TLS in front of it (a reverse proxy, a tunnel, or a platform load balancer). This compose file has no TLS termination of its own — see "Not included" below.
 - Each agent/machine then gets `TASKS_API_URL=https://<host>/api/v1`, `TASKS_API_TOKEN=<the same API_TOKEN>`, and its own `TASKS_ACTOR` — see [../features/Agent_Integration.md § Self-hosted server](../features/Agent_Integration.md#self-hosted-server).
 
+**The optional GitHub integration** ([../features/GitHub_Integration.md](../features/GitHub_Integration.md)) is passed through the same way: set `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, and/or `GITHUB_API_URL` in the shell or `.env` next to `docker-compose.yml`, exactly like `API_TOKEN` above; left blank, the integration stays off. The webhook additionally needs the API reachable from GitHub's servers, which behind this compose file means TLS and a public hostname or a tunnel, not `localhost`.
+
 ## Not included
 
 No production orchestration, no reverse proxy with TLS, no multi-replica setup. SQLite on a single volume is a single-writer, single-node design — appropriate for this project's scale, and the first thing to replace if it needed to serve people who should not trust each other.

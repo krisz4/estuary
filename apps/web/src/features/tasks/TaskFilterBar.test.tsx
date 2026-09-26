@@ -47,6 +47,7 @@ const renderBar = (props: Partial<TaskFilterBarProps> = {}) => {
       facets={{
         assignees: ["Alice Chen", "Marcus Feld"],
         projects: ["helpdesk", "mcp-server"],
+        labels: ["bug", "web"],
         creators: ["agent:claude-code", "human:krisz"],
       }}
       onFiltersChange={onFiltersChange}
@@ -144,25 +145,47 @@ describe("TaskFilterBar chip groups", () => {
     expect(patchAgainst(params({ priority: ["urgent", "high"] }))).toEqual({ priority: ["high"] });
   });
 
-  it("offers the projects the facets report", () => {
+  it("has no project control — the header's project switcher owns it", () => {
+    renderBar({ params: params({ project: ["helpdesk"] }) });
+    expect(screen.queryByRole("group", { name: "Project" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "helpdesk" })).not.toBeInTheDocument();
+  });
+
+  it("offers the labels the facets report", () => {
     renderBar();
 
-    const group = screen.getByRole("group", { name: "Project" });
-    expect(within(group).getByRole("checkbox", { name: "helpdesk" })).toBeInTheDocument();
-    expect(within(group).getByRole("checkbox", { name: "mcp-server" })).toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Label" });
+    expect(within(group).getByRole("checkbox", { name: "bug" })).toBeInTheDocument();
+    expect(within(group).getByRole("checkbox", { name: "web" })).toBeInTheDocument();
   });
 
-  it("keeps a project from the URL removable before the facets land", () => {
-    // A shared link's filter must stay visible and uncheckable even while —
-    // or if — the facets request has not answered.
-    renderBar({ facets: undefined, params: params({ project: ["helpdesk"] }) });
+  it("toggles a label filter", async () => {
+    const user = userEvent.setup();
+    const { patchAgainst } = renderBar({ params: params({ label: ["bug"] }) });
 
-    expect(screen.getByRole("checkbox", { name: "helpdesk" })).toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "web" }));
+
+    expect(patchAgainst(params({ label: ["bug"] }))).toEqual({ label: ["bug", "web"] });
   });
 
-  it("renders no project group when there are no projects at all", () => {
-    renderBar({ facets: { assignees: [], projects: [], creators: [] } });
-    expect(screen.queryByRole("group", { name: "Project" })).not.toBeInTheDocument();
+  it("keeps a label from the URL removable before the facets land", () => {
+    renderBar({ facets: undefined, params: params({ label: ["web"] }) });
+    expect(screen.getByRole("checkbox", { name: "web" })).toBeChecked();
+  });
+});
+
+describe("TaskFilterBar top-level toggle", () => {
+  it("sets parentIsNull when checked, and clears it when unchecked", async () => {
+    const user = userEvent.setup();
+    const { patchAgainst } = renderBar();
+
+    await user.click(screen.getByRole("checkbox", { name: /top-level only/i }));
+    expect(patchAgainst(params())).toEqual({ parentIsNull: true });
+  });
+
+  it("is checked when parentIsNull is already true", () => {
+    renderBar({ params: params({ parentIsNull: true }) });
+    expect(screen.getByRole("checkbox", { name: /top-level only/i })).toBeChecked();
   });
 });
 
@@ -279,7 +302,7 @@ describe("TaskFilterBar assignee control", () => {
   it("distinguishes a person named 'unassigned' from the sentinel", async () => {
     const user = userEvent.setup();
     const { patchAgainst } = renderBar({
-      facets: { assignees: ["unassigned"], projects: [], creators: [] },
+      facets: { assignees: ["unassigned"], projects: [], labels: [], creators: [] },
     });
 
     await openAssignee(user);
@@ -317,7 +340,7 @@ describe("activeFilterChips", () => {
     expect(activeFilterChips(params())).toEqual([]);
   });
 
-  it("emits one chip per selected value, in a stable order", () => {
+  it("emits one chip per selected value, in a stable order — none for the project scope", () => {
     const chips = activeFilterChips(
       params({
         q: "printer",
@@ -333,7 +356,6 @@ describe("activeFilterChips", () => {
       "status:todo",
       "status:done",
       "priority:urgent",
-      "project:helpdesk",
       "createdBy",
     ]);
     expect(chips.map((chip) => chip.label)).toEqual([
@@ -341,7 +363,6 @@ describe("activeFilterChips", () => {
       "Status: To do",
       "Status: Done",
       "Priority: Urgent",
-      "Project: helpdesk",
       "Created by: claude-code (agent)",
     ]);
   });
@@ -356,6 +377,33 @@ describe("activeFilterChips", () => {
     expect(done.clear(params({ status: ["todo", "done", "blocked", "in_progress"] }))).toEqual({
       status: ["todo", "blocked", "in_progress"],
     });
+  });
+
+  it("emits a chip for a label filter, removable independently of others", () => {
+    const chips = activeFilterChips(params({ label: ["web", "bug"] }));
+    expect(chips.map((chip) => chip.label)).toEqual(["Label: web", "Label: bug"]);
+
+    const web = chips.find((chip) => chip.key === "label:web")!;
+    expect(web.clear(params({ label: ["web", "bug"] }))).toEqual({ label: ["bug"] });
+  });
+
+  it("emits removable chips for the relational filters", () => {
+    const chips = activeFilterChips(params({ parentId: 12, dependsOn: 7, dependencyOf: 9 }));
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "Subtasks of TASK-000012",
+      "Depends on TASK-000007",
+      "Blocks TASK-000009",
+    ]);
+
+    const parentChip = chips.find((chip) => chip.key === "parentId")!;
+    expect(parentChip.clear(params())).toEqual({ parentId: undefined });
+  });
+
+  it("emits a chip for the top-level-only toggle", () => {
+    const chips = activeFilterChips(params({ parentIsNull: true }));
+    expect(chips).toEqual([
+      { key: "parentIsNull", label: "Top-level only", clear: expect.any(Function) },
+    ]);
   });
 
   it("labels a date bound with the UTC-pinned formatter", () => {

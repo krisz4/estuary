@@ -26,6 +26,10 @@ const DEFAULT_MESSAGE: Record<ApiErrorCode, string> = {
   NOT_CLAIM_HOLDER: "You do not hold the claim on this task",
   DEPENDENCY_CYCLE: "That dependency would create a cycle",
   NO_OPEN_DECISION: "This task has no open decision",
+  INTEGRATION_NOT_CONFIGURED: "The GitHub integration is not configured on this server",
+  INVALID_WEBHOOK_SIGNATURE: "Missing or invalid webhook signature",
+  GITHUB_NOT_FOUND: "GitHub has no such issue",
+  GITHUB_UNAVAILABLE: "GitHub did not answer",
   MALFORMED_JSON: "Request body is not valid JSON",
   PAYLOAD_TOO_LARGE: "Request body is too large",
   NOT_FOUND: "Resource not found",
@@ -97,6 +101,18 @@ export const dependencyCycle = (path: number[]) =>
   new ApiError("DEPENDENCY_CYCLE", undefined, { path });
 
 export const noOpenDecision = () => new ApiError("NO_OPEN_DECISION");
+
+/** The GitHub integration route is disabled — neither GITHUB_TOKEN nor GITHUB_WEBHOOK_SECRET is set. */
+export const integrationNotConfigured = () => new ApiError("INTEGRATION_NOT_CONFIGURED");
+
+/** `POST /integrations/github/webhook` — missing or wrong `X-Hub-Signature-256`. */
+export const invalidWebhookSignature = () => new ApiError("INVALID_WEBHOOK_SIGNATURE");
+
+/** Issue import: GitHub has no such issue, or it is private and the token cannot see it. */
+export const githubNotFound = (message?: string) => new ApiError("GITHUB_NOT_FOUND", message);
+
+/** Issue import: GitHub did not answer, answered with an error, or rate-limited the request. */
+export const githubUnavailable = (message?: string) => new ApiError("GITHUB_UNAVAILABLE", message);
 
 /** `details` shape is pinned by `validationErrorDetailsSchema` in contracts. */
 export const validationError = (details: Record<string, string[]>, message?: string) =>

@@ -9,17 +9,24 @@ Each doc has YAML frontmatter (`type: Page`, `title`, `description`, `tags`, opt
 | Route | Doc | Description |
 | ----- | --- | ----------- |
 | *(all)* | [App_Shell.md](./App_Shell.md) | Layout, header, session ("You"), toaster, error boundary |
-| `/` → `/tasks` | [Tasks_List.md](./Tasks_List.md) | Task list with filtering, sorting, paging |
+| `/` → `/tasks/map` | [Tasks_Map.md](./Tasks_Map.md) | The landing page — a long-scrolling page with progressive disclosure over the Estuary river map (hero), needs-you queue, in-flight work, the full filterable list, and recent activity. (`/tasks/floor` and the retired `/tasks/board` also redirect here.) |
+| `/tasks` | [Tasks_List.md](./Tasks_List.md) | Task list with filtering, sorting, paging |
 | `/tasks/new` | [Task_Create.md](./Task_Create.md) | Create a task |
-| `/tasks/board` | [Tasks_Board.md](./Tasks_Board.md) | Kanban board — ten status columns in four lanes, drag and drop to change status |
 | `/tasks/:taskId` | [Task_Detail.md](./Task_Detail.md) | Detail view — status/claim/decision controls, dependencies, comments, activity, delete |
 | `/tasks/:taskId/edit` | [Task_Edit.md](./Task_Edit.md) | Edit an existing task, with version-conflict handling |
 | `/inbox` | [Inbox.md](./Inbox.md) | Everything waiting on a human — decisions, actions, QA |
+| `/logbook` | [Logbook.md](./Logbook.md) | History — since-you-left, cumulative flow, throughput, human wait, cycle time, agents, event log, archive |
 | `*` | [Not_Found.md](./Not_Found.md) | Unmatched routes |
 
-Route order matters: `/tasks/new` and `/tasks/board` are declared **before** `/tasks/:taskId` so neither is parsed as an id.
+## Plans (not runtime SoT — confirm in code)
 
-`/tasks` and `/tasks/board` are two readings of the **same URL state** — both parse it with `useTaskListParams`, and `ViewSwitch` carries the search string between them.
+| Route | Doc | Description |
+| ----- | --- | ----------- |
+| `/tasks/map` (remaining) | [Floor_And_Logbook_Plan.md](./Floor_And_Logbook_Plan.md) | Redesign plan: phase 4 (live bead travel, drag-to-transition, quick add) has landed — see [Tasks_Map.md](./Tasks_Map.md) § Known gaps for the small remainder (boat fade-in/out) |
+
+Route order matters: `/tasks/new`, `/tasks/board`, and `/tasks/map` are declared **before** `/tasks/:taskId` so none is parsed as an id. (`/tasks/board` is a redirect to `/tasks/map`, kept for old links — the Kanban board itself was retired.)
+
+`/tasks` and `/tasks/map` are two readings of the **same URL state** — both parse it with `useTaskListParams` (the map layers its own `group`/`links`/`match`/`shipped`/`fold`/`task`/`at` on top via `useFloorParams`), and `ViewSwitch` carries the search string between them. `ViewSwitch` itself now renders inside `/tasks/map`'s "All tasks" section header, not that page's top-level header.
 
 ## Conventions across all pages
 

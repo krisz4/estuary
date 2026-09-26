@@ -11,13 +11,16 @@ import { TASK_STATUS_LABELS } from "@/lib/formatting";
  *
  * | Tone | Statuses | Reads as |
  * | ---- | -------- | -------- |
- * | `primary` | needs decision / action / QA | "needs you" — the inbox |
+ * | `attention` | needs decision / action / QA | "needs you" — the inbox; amber, the same as the map's pools |
  * | `destructive` | blocked | stuck |
  * | `warning` | needs refinement | not ready |
  * | `info` | in progress | moving |
  * | `success` | done | finished |
  * | `neutral` | to do | ready, waiting its turn |
  * | muted | backlog, deferred | recedes, so live work reads first |
+ *
+ * Not `primary`: blue is the colour of things you can click, and a status
+ * pill in the same blue as the buttons beside it reads as one more button.
  *
  * The two muted statuses share a treatment and are told apart by their label,
  * which is always rendered — colour never carries meaning alone.
@@ -29,9 +32,9 @@ const TONES: Record<TaskStatus, BadgeTone> = {
   todo: "neutral",
   in_progress: "info",
   blocked: "destructive",
-  needs_user_decision: "primary",
-  needs_user_action: "primary",
-  needs_qa: "primary",
+  needs_user_decision: "attention",
+  needs_user_action: "attention",
+  needs_qa: "attention",
   done: "success",
   deferred: "neutral",
 };

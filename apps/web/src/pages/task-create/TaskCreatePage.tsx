@@ -1,15 +1,16 @@
-import { type CreateTaskInput } from "@helpdesk/contracts";
+import { CREATABLE_TASK_STATUSES, type CreateTaskInput } from "@helpdesk/contracts";
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { isApiClientError } from "@/api/http";
 import { useCreateTaskMutation, useTaskFacetsQuery } from "@/api/tasks";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PageHeader, useBackToListPath } from "@/components/PageHeader";
-import { emptyTaskFormValues, TaskForm } from "@/features/tasks/TaskForm";
+import { emptyTaskFormValues, TaskForm, type CreatableStatus } from "@/features/tasks/TaskForm";
 import { errorCopy } from "@/lib/errorMessages";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
+import { useProjectScope } from "@/stores/projectScope";
 
 /**
  * `/tasks/new` — spec: `docs/pages/Task_Create.md`. Task 4.3 of the brief.
@@ -38,6 +39,26 @@ const newIdempotencyKey = (): string =>
   typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? `web:${crypto.randomUUID()}`
     : `web:${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+/**
+ * `/tasks/new?status=todo&project=helpdesk` — the Map's "+" quick-add on a
+ * planning station's plate. Pure and exported for a unit test: only a
+ * `CREATABLE_TASK_STATUSES` value is honoured (`done` or anything invalid in
+ * the URL is silently ignored rather than producing a form the create schema
+ * would reject), and `project` is trimmed and dropped if empty — the caller
+ * still falls back to the header's project scope either way.
+ */
+export type CreatePrefill = { status: CreatableStatus | undefined; project: string | undefined };
+
+export const parseCreatePrefill = (searchParams: URLSearchParams): CreatePrefill => {
+  const rawStatus = searchParams.get("status");
+  const status = (CREATABLE_TASK_STATUSES as readonly string[]).includes(rawStatus ?? "")
+    ? (rawStatus as CreatableStatus)
+    : undefined;
+  const rawProject = searchParams.get("project")?.trim();
+  return { status, project: rawProject === "" ? undefined : rawProject };
+};
+
 export const TaskCreatePage = () => {
   useDocumentTitle("New task");
 
@@ -52,6 +73,9 @@ export const TaskCreatePage = () => {
   const mutation = useCreateTaskMutation();
   const facetsQuery = useTaskFacetsQuery();
   const [idempotencyKey] = useState(newIdempotencyKey);
+  const { project: scope } = useProjectScope();
+  const [searchParams] = useSearchParams();
+  const prefill = parseCreatePrefill(searchParams);
 
   /**
    * `replace`, for the same reason the success path uses it (see above). The
@@ -74,11 +98,19 @@ export const TaskCreatePage = () => {
 
       <TaskForm
         mode="create"
-        defaultValues={emptyTaskFormValues()}
+        // Filed into the project the user is scoped to — the one whose list or map they came from —
+        // unless the Map's quick-add carried its own `?status=&project=` (a station's status, and
+        // either the project scope or the cluster's own group when grouped by project).
+        defaultValues={{
+          ...emptyTaskFormValues(),
+          project: prefill.project ?? scope ?? "",
+          ...(prefill.status === undefined ? {} : { status: prefill.status }),
+        }}
         isSubmitting={mutation.isPending}
         submitLabel="Create task"
         onDirtyChange={setDirty}
         projectSuggestions={facetsQuery.data?.projects}
+        labelSuggestions={facetsQuery.data?.labels}
         onCancel={() => {
           if (isDirty) {
             setDiscardOpen(true);

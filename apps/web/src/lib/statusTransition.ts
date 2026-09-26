@@ -2,7 +2,7 @@ import { taskStatusSchema, type TaskStatus } from "@helpdesk/contracts";
 import { errorDescription } from "@/lib/errorMessages";
 
 /**
- * Status-change helpers shared by the detail page's picker, the board, and the
+ * Status-change helpers shared by the detail page's picker, the map, and the
  * inbox.
  *
  * ## There is no transition table, on either side

@@ -91,6 +91,8 @@ export const TASK_LINKS_MAX = 20;
 export const TASK_LINK_LABEL_MAX = 80;
 export const TASK_LINK_URL_MAX = 2000;
 export const TASK_IDEMPOTENCY_KEY_MAX = 128;
+export const TASK_LABELS_MAX = 10;
+export const TASK_LABEL_MAX = 32;
 
 /**
  * Wraps an optional string-ish field so that an empty (or whitespace-only)
@@ -137,6 +139,35 @@ export const projectSchema = z
     "Project must be a slug: letters, digits, . _ -",
   );
 export const projectInputSchema = emptyStringToNull(projectSchema.nullable());
+
+/**
+ * A label: a free-form tag that narrows work **inside** a project — typically
+ * the workspace of a monorepo (`web`, `api`, `contracts`) or a kind of work
+ * (`bug`, `flaky-test`). `project` answers "which repository", labels answer
+ * "which part of it".
+ *
+ * A lowercase slug canonicalised in the schema for the same reason `project`
+ * is: `?label=` is an exact-match filter and `Web` vs `web` must not be two
+ * labels. `/` is allowed so a label can name a path-like area (`apps/web`).
+ */
+export const labelSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    new RegExp(`^[a-z0-9][a-z0-9._/-]{0,${TASK_LABEL_MAX - 1}}$`),
+    "Label must be a slug: letters, digits, . _ / -",
+  );
+
+/**
+ * The whole label set of a task. Replaces, never merges — the same rule as
+ * `links`. Duplicates collapse and the set comes back sorted, so the stored
+ * order never depends on how the caller typed it.
+ */
+export const labelsInputSchema = z
+  .array(labelSchema)
+  .transform((labels) => [...new Set(labels)].sort())
+  .pipe(z.array(z.string()).max(TASK_LABELS_MAX, `At most ${TASK_LABELS_MAX} labels`));
 
 export const acceptanceCriteriaInputSchema = emptyStringToNull(
   z
@@ -222,7 +253,11 @@ export const expectedVersionSchema = z.number().int().positive().optional();
  *
  * `idempotencyKey` makes a retried create safe: a second `POST` with the same key
  * returns the task the first one made (200 instead of 201) instead of a
- * duplicate. Agents should always send one.
+ * duplicate. Agents should always send one. **A key only deduplicates against
+ * a task that is still open**: when the task holding the key is `done` or
+ * `deferred`, the key is retired from it and a new task is created (201) — a
+ * follow-up filed months later under a recycled title must not come back as
+ * the closed original.
  */
 export const createTaskInputSchema = z
   .object({
@@ -234,6 +269,7 @@ export const createTaskInputSchema = z
     assignee: assigneeInputSchema.optional(),
     acceptanceCriteria: acceptanceCriteriaInputSchema.optional(),
     links: taskLinksInputSchema.optional(),
+    labels: labelsInputSchema.optional(),
     parentId: taskIdSchema.nullable().optional(),
     idempotencyKey: z.string().trim().min(1).max(TASK_IDEMPOTENCY_KEY_MAX).optional(),
   })
@@ -272,6 +308,7 @@ export const updateTaskInputSchema = z
     assignee: assigneeInputSchema.optional(),
     acceptanceCriteria: acceptanceCriteriaInputSchema.optional(),
     links: taskLinksInputSchema.optional(),
+    labels: labelsInputSchema.optional(),
     parentId: taskIdSchema.nullable().optional(),
     expectedVersion: expectedVersionSchema,
   })
@@ -299,13 +336,18 @@ export const taskClaimSchema = z
   .strict();
 export type TaskClaim = z.infer<typeof taskClaimSchema>;
 
-/** A compact pointer to another task (parent, child, dependency). */
+/**
+ * A compact pointer to another task (parent, child, dependency). `project` is
+ * on it because dependencies cross repositories: an agent in `mobile-app`
+ * waiting on a `helpdesk` task must be able to tell from the pointer alone.
+ */
 export const taskRefSchema = z
   .object({
     id: z.number().int().positive(),
     reference: z.string(),
     title: z.string(),
     status: taskStatusSchema,
+    project: z.string().nullable(),
   })
   .strict();
 export type TaskRef = z.infer<typeof taskRefSchema>;
@@ -333,7 +375,11 @@ export const taskSummarySchema = z
     assignee: z.string().nullable(),
     acceptanceCriteria: z.string().nullable(),
     links: z.array(taskLinkSchema),
+    /** Sorted. */
+    labels: z.array(z.string()),
     parentId: z.number().int().positive().nullable(),
+    /** Number of subtasks — non-zero marks a task as an epic in a list. */
+    childCount: z.number().int().nonnegative(),
     createdBy: storedActorSchema,
     claim: taskClaimSchema.nullable(),
     version: z.number().int().positive(),
@@ -369,14 +415,15 @@ export type Task = z.infer<typeof taskSchema>;
 
 /**
  * `GET /tasks/facets` — distinct non-null values actually present in the
- * table, sorted. The only source of options for the assignee and project
- * filters; sending an exact stored value is what makes case-sensitive equality
+ * table, sorted. The only source of options for the assignee, project, and
+ * label filters; sending an exact stored value is what makes case-sensitive equality
  * safe.
  */
 export const taskFacetsSchema = z
   .object({
     assignees: z.array(z.string()),
     projects: z.array(z.string()),
+    labels: z.array(z.string()),
     creators: z.array(z.string()),
   })
   .strict();

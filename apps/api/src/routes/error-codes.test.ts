@@ -44,11 +44,45 @@ const gatedApp = (): Express => {
   }
 };
 
+/**
+ * Mutates `env.GITHUB_TOKEN` / `env.GITHUB_WEBHOOK_SECRET` for the duration of
+ * `fn`, then restores them — unlike `gatedApp()`, the GitHub integration reads
+ * `env` fresh on every request (`services/github.service.ts`), so the override
+ * has to still be in place while the request runs, not just while `createApp()`
+ * builds the middleware chain.
+ */
+const withGithubEnv = async <T>(
+  overrides: { token?: string; secret?: string },
+  fn: () => Promise<T>,
+): Promise<T> => {
+  const originalToken = env.GITHUB_TOKEN;
+  const originalSecret = env.GITHUB_WEBHOOK_SECRET;
+  if (overrides.token !== undefined) env.GITHUB_TOKEN = overrides.token;
+  if (overrides.secret !== undefined) env.GITHUB_WEBHOOK_SECRET = overrides.secret;
+  try {
+    return await fn();
+  } finally {
+    env.GITHUB_TOKEN = originalToken;
+    env.GITHUB_WEBHOOK_SECRET = originalSecret;
+  }
+};
+
+/** Stubs the global `fetch` GitHub client calls go through, for the duration of `fn`. */
+const withStubbedFetch = async <T>(stub: typeof fetch, fn: () => Promise<T>): Promise<T> => {
+  const original = globalThis.fetch;
+  globalThis.fetch = stub;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = original;
+  }
+};
+
 /** How each code is provoked. `arrange` returns the id a request needs, if any. */
 interface Producer {
   what: string;
   arrange?: () => Promise<number>;
-  send: (app: Express, id: number) => request.Test;
+  send: (app: Express, id: number) => request.Test | Promise<request.Response>;
 }
 
 const PRODUCERS: Record<(typeof API_ERROR_CODES)[number], Producer> = {
@@ -112,6 +146,45 @@ const PRODUCERS: Record<(typeof API_ERROR_CODES)[number], Producer> = {
     arrange: async () => (await makeTask({ status: "todo" })).id,
     send: (app, id) =>
       request(app).post(`/api/v1/tasks/${id}/decision/answer`).send({ note: "Yes" }),
+  },
+  INTEGRATION_NOT_CONFIGURED: {
+    what: "GET /tasks/:id/github with neither GITHUB_TOKEN nor GITHUB_WEBHOOK_SECRET set",
+    arrange: async () => (await makeTask()).id,
+    send: (app, id) => request(app).get(`/api/v1/tasks/${id}/github`),
+  },
+  INVALID_WEBHOOK_SIGNATURE: {
+    what: "POST the GitHub webhook with no X-Hub-Signature-256, on a server with the secret set",
+    send: () =>
+      withGithubEnv({ secret: "error-codes-webhook-secret-0123456789" }, () =>
+        request(createApp())
+          .post("/api/v1/integrations/github/webhook")
+          .set("Content-Type", "application/json")
+          .set("X-GitHub-Event", "ping")
+          .set("X-GitHub-Delivery", "error-codes-delivery-1")
+          .send(JSON.stringify({ zen: "Anything not underscored is mutable." })),
+      ),
+  },
+  GITHUB_NOT_FOUND: {
+    what: "POST /integrations/github/import for an issue GitHub answers 404 for",
+    send: () =>
+      withGithubEnv({ token: "error-codes-github-token" }, () =>
+        withStubbedFetch((async () => new Response(null, { status: 404 })) as typeof fetch, () =>
+          request(createApp())
+            .post("/api/v1/integrations/github/import")
+            .send({ issue: "https://github.com/acme/widgets/issues/999" }),
+        ),
+      ),
+  },
+  GITHUB_UNAVAILABLE: {
+    what: "POST /integrations/github/import while GitHub answers with a server error",
+    send: () =>
+      withGithubEnv({ token: "error-codes-github-token" }, () =>
+        withStubbedFetch((async () => new Response("boom", { status: 500 })) as typeof fetch, () =>
+          request(createApp())
+            .post("/api/v1/integrations/github/import")
+            .send({ issue: "https://github.com/acme/widgets/issues/1" }),
+        ),
+      ),
   },
   TASK_NOT_FOUND: {
     what: "GET /tasks/999999",

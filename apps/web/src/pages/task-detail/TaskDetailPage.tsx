@@ -27,6 +27,7 @@ import { ActorBadge } from "@/features/tasks/ActorBadge";
 import { ClaimIndicator } from "@/features/tasks/ClaimIndicator";
 import { DecisionAnswer } from "@/features/tasks/DecisionAnswer";
 import { DependencyEditor, TaskRefList } from "@/features/tasks/DependencyList";
+import { LabelChips } from "@/features/tasks/LabelChips";
 import { PastDecisions } from "@/features/tasks/PastDecisions";
 import { PriorityBadge } from "@/features/tasks/PriorityBadge";
 import { StatusNotePanel } from "@/features/tasks/StatusNotePanel";
@@ -227,7 +228,16 @@ const TaskDetailView = ({ taskId }: { taskId: number }) => {
                 Edit
               </Link>
             </Button>
-            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+            {/*
+              Outlined, not a solid red fill: a filled Delete was the loudest
+              thing on the page, pulling the eye to the one action you almost
+              never want. The confirm dialog's own button is the solid one.
+            */}
+            <Button
+              variant="outline"
+              className="border-destructive/40 text-destructive hover:bg-destructive-subtle hover:text-destructive-subtle-foreground"
+              onClick={() => setDeleteOpen(true)}
+            >
               <Trash2 aria-hidden="true" />
               Delete
             </Button>
@@ -294,23 +304,51 @@ const TaskDetailView = ({ taskId }: { taskId: number }) => {
 
           {task.links.length === 0 ? null : (
             <Section id="links-heading" title="Links">
-              <TaskLinks links={task.links} />
+              <TaskLinks links={task.links} taskId={task.id} />
             </Section>
           )}
 
           {task.children.length === 0 ? null : (
             <Section id="subtasks-heading" title={`Subtasks (${task.children.length})`}>
-              <TaskRefList refs={task.children} />
+              <TaskRefList refs={task.children} currentProject={task.project} />
             </Section>
           )}
 
-          <Section id="dependencies-heading" title="Waits on">
-            <DependencyEditor taskId={task.id} dependencies={task.dependencies} />
+          <Section
+            id="dependencies-heading"
+            title="Waits on"
+            action={
+              task.dependencies.length === 0 ? null : (
+                <Link
+                  to={`/tasks?dependencyOf=${task.id}`}
+                  className="text-xs text-primary hover:underline"
+                >
+                  View all in list
+                </Link>
+              )
+            }
+          >
+            <DependencyEditor
+              taskId={task.id}
+              dependencies={task.dependencies}
+              currentProject={task.project}
+            />
           </Section>
 
           {task.dependents.length === 0 ? null : (
-            <Section id="dependents-heading" title="Needed by">
-              <TaskRefList refs={task.dependents} />
+            <Section
+              id="dependents-heading"
+              title="Needed by"
+              action={
+                <Link
+                  to={`/tasks?dependsOn=${task.id}`}
+                  className="text-xs text-primary hover:underline"
+                >
+                  View all in list
+                </Link>
+              }
+            >
+              <TaskRefList refs={task.dependents} currentProject={task.project} />
             </Section>
           )}
 
@@ -325,7 +363,7 @@ const TaskDetailView = ({ taskId }: { taskId: number }) => {
           <ActivityTimeline taskId={task.id} />
         </div>
 
-        <aside className="order-1 flex w-full flex-col gap-5 md:order-2 md:w-72 md:shrink-0">
+        <aside className="order-1 flex w-full flex-col gap-5 rounded-xl border border-border bg-card p-4 shadow-raised md:order-2 md:w-72 md:shrink-0">
           <StatusSelect
             value={task.status}
             onChange={changeStatus}
@@ -366,6 +404,14 @@ const TaskDetailView = ({ taskId }: { taskId: number }) => {
                 task.assignee
               )}
             </DetailField>
+            {task.labels.length === 0 ? null : (
+              <DetailField label="Labels">
+                <LabelChips
+                  labels={task.labels}
+                  linkTo={(label) => `/tasks?label=${encodeURIComponent(label)}`}
+                />
+              </DetailField>
+            )}
             <DetailField label="Created by">
               <ActorBadge actor={task.createdBy} />
             </DetailField>
@@ -375,6 +421,11 @@ const TaskDetailView = ({ taskId }: { taskId: number }) => {
                   <span className="font-mono text-xs">{task.parent.reference}</span>{" "}
                   {task.parent.title}
                 </Link>
+                {task.parent.project === null || task.parent.project === task.project ? null : (
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    ({task.parent.project})
+                  </span>
+                )}
               </DetailField>
             )}
             <DetailField label="Created">
@@ -435,11 +486,24 @@ const TaskDetailView = ({ taskId }: { taskId: number }) => {
   );
 };
 
-const Section = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => (
+const Section = ({
+  id,
+  title,
+  action,
+  children,
+}: {
+  id: string;
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) => (
   <section aria-labelledby={id} className="flex flex-col gap-2">
-    <h2 id={id} className="text-base font-semibold text-foreground">
-      {title}
-    </h2>
+    <div className="flex items-baseline justify-between gap-2">
+      <h2 id={id} className="text-base font-semibold text-foreground">
+        {title}
+      </h2>
+      {action}
+    </div>
     {children}
   </section>
 );
@@ -463,7 +527,7 @@ const ClaimPanel = ({
 }) => {
   if (task.claim !== null) {
     return (
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted p-3">
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Being worked on
         </p>

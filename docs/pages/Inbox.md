@@ -3,7 +3,7 @@ type: Page
 title: Inbox
 description: Everything waiting on a human at /inbox — decisions, manual actions, and QA — clearable without opening the task.
 resource: apps/web/src/pages/inbox/
-tags: [tasks, inbox, decisions, qa, human-attention]
+tags: [tasks, inbox, decisions, qa, human-attention, projects]
 status: canonical
 ---
 # Page Review: Inbox
@@ -23,7 +23,7 @@ The queue for the three ways an agent stops and hands work to a person (`HUMAN_A
 
 | Component | Role on this page |
 | --------- | ----------------- |
-| `InboxItem` (`src/pages/inbox/InboxItem.tsx`) | One task, switched on its status into `DecisionAnswer`, an "Actions" layout, or a "QA" layout — see [Behavior](#behavior--ui-flow) |
+| `InboxItem` (`src/pages/inbox/InboxItem.tsx`) | One task, switched on its status into `DecisionAnswer`, an "Actions" layout, or a "QA" layout — see [Behavior](#behavior--ui-flow). **Has a second consumer:** `/tasks/map`'s hero rail and its `#needs-you` section ([Tasks_Map.md](./Tasks_Map.md)) render this same component against their own `useInboxQuery` calls, rather than a lookalike copy of the decision/QA/hand-back controls — a change here (a new field, a new action, a copy edit) shows up in both places automatically. |
 | `DecisionAnswer` (`src/features/tasks/`) | The question, context, options (with the recommended one starred), and a free-text answer — shared verbatim with [Task_Detail.md](./Task_Detail.md) |
 | `StatusNotePanel` | Renders the task's `statusNote` (instructions, or the QA summary) when present; a fallback line links to the task when it is not |
 | `TaskLinks`, `PriorityBadge`, `ActorBadge` | Per-item metadata |
@@ -35,7 +35,8 @@ The queue for the three ways an agent stops and hands work to a person (`HUMAN_A
 
 | Hook | Role |
 | ---- | ---- |
-| `useInboxQuery()` | `GET /api/v1/tasks` with `status` set to all three `HUMAN_ATTENTION_STATUSES`, `pageSize: MAX_PAGE_SIZE`, `sort: "priority:desc"` — one request, grouped client-side by status in lifecycle order. Polls every 15s |
+| `useInboxQuery(projects)` | `GET /api/v1/tasks` with `status` set to all three `HUMAN_ATTENTION_STATUSES`, `pageSize: MAX_PAGE_SIZE`, `sort: "priority:desc"`, plus `project` when the URL names any (`toInboxQuery`) — one request, grouped client-side by status in lifecycle order. Polls every 15s |
+| `useRememberProjectScope(projects)` | Records the URL's project as the header's scope — see [App_Shell.md](./App_Shell.md) |
 | `useTransitionTaskMutation()` | Answering an action or approving/rejecting QA is a transition |
 | `useAnswerDecisionMutation()` | Via `DecisionAnswer` |
 | `useSendBackMutation()` | The QA "Send back" action — see below |
@@ -44,12 +45,18 @@ The queue for the three ways an agent stops and hands work to a person (`HUMAN_A
 
 | Call | Method | Endpoint |
 | ---- | ------ | -------- |
-| `listTasks(INBOX_QUERY)` | `GET` | `/api/v1/tasks?status=needs_user_decision&status=needs_user_action&status=needs_qa&pageSize=100&sort=priority:desc` |
+| `listTasks(toInboxQuery(projects))` | `GET` | `/api/v1/tasks?status=needs_user_decision&status=needs_user_action&status=needs_qa&pageSize=100&sort=priority:desc[&project=…]` |
 | `transitionTask(id, input)` | `POST` | `/api/v1/tasks/:taskId/transition` |
 | `answerDecision(id, input)` | `POST` | `/api/v1/tasks/:taskId/decision/answer` |
 | `createComment(id, input)` | `POST` | `/api/v1/tasks/:taskId/comments` — the `qa_feedback` comment a send-back also writes |
 
-`INBOX_QUERY` is a fixed request (no URL state — the inbox has no filters), but it goes through `queryKeys.tasks.list()` like every other list, so a transition made anywhere in the app refreshes it through the same `lists()` invalidation prefix.
+`INBOX_QUERY` is fixed apart from `project` — the inbox's one URL param, `?project=<slug>` (repeatable, validated like the list's) — and it goes through `queryKeys.tasks.list()` like every other list, so a transition made anywhere in the app refreshes it through the same `lists()` invalidation prefix.
+
+## Route params
+
+| Param | Effect |
+| ----- | ------ |
+| `project` | Repeatable. Narrows the inbox to those projects. Set by the header's project switcher ([App_Shell.md](./App_Shell.md)) or a breakdown link; invalid slugs are dropped |
 
 ## Behavior / UI flow
 
@@ -59,13 +66,14 @@ The queue for the three ways an agent stops and hands work to a person (`HUMAN_A
 4. **Ready for QA** (`needs_qa`) show the summary (`statusNote`), any links, and acceptance criteria behind a `<details>` disclosure. Two buttons: **Approve** (→ `done`) and **Send back**, which opens a dialog asking "What needs fixing?" and, on submit, performs **two writes in order** via `useSendBackMutation`: a transition to `todo` with the typed text as the transition's `reason` (what the next agent reads first), then a `qa_feedback` comment with the same text (which survives the next transition, unlike `statusNote`). If the transition fails, nothing was written and the dialog shows the error. If the transition succeeds but the comment fails, the send-back is reported as done with a toast noting the feedback comment failed separately — the status change already happened and is not rolled back for a second write's failure.
 5. Every clearing action removes the item from the inbox via the same `invalidateAfterWorkflowWrite` prefix every other workflow write uses — the item disappears once the poll or immediate invalidation refetches.
 6. There is no per-item navigation requirement: the reference and title are links to the full task, for anyone who wants more context than the inbox card gives, but every action here can be completed without following them.
+7. **Projects.** Unscoped, when the loaded items span two or more projects, a line under the heading reads "From billing-service (5), helpdesk (4), mobile-app (3)" — most items first — each linking to `/inbox?project=<slug>`. Counts are of the loaded items (so under the 100-item cap they describe what is shown). Scoped, the line reads "Showing helpdesk only. Show all projects" instead; it is omitted when the scoped inbox is empty, since the empty state says the same with the same link.
 
 ## States
 
 | State | Behavior |
 | ----- | -------- |
 | Loading | Skeleton mirroring two card-shaped groups |
-| Empty | "Nothing needs you" + "Go to the board" CTA (→ `/tasks/board`) — distinct from "no tasks exist"; the inbox being empty is a normal, good state |
+| Empty | "Nothing needs you" + "Go to the map" CTA (→ `/tasks/map`) — distinct from "no tasks exist"; the inbox being empty is a normal, good state. Scoped: "Nothing in helpdesk needs you" + "Show all projects" (→ `/inbox`) |
 | Error | `ErrorPanel` + Retry. A failed background poll keeps the existing items on screen and shows the panel above them rather than blanking the page |
 | Item action pending | That item's button shows a spinner; the rest of the page stays interactive |
 | Capped result | "Showing the N most urgent of total" line beneath the groups |
@@ -86,4 +94,4 @@ Single column at every width — the inbox is a list of self-contained cards, no
 - [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) — the ten statuses, `HUMAN_ATTENTION_STATUSES`, and what each transition requires
 - [../features/Comments.md](../features/Comments.md) — the `qa_feedback` comment kind a send-back writes
 - [Task_Detail.md](./Task_Detail.md) — the same `DecisionAnswer` control, and the full record once an item is cleared
-- [Tasks_Board.md](./Tasks_Board.md) — the "Needs you" status preset selects the same three columns
+- [Tasks_Map.md](./Tasks_Map.md) — the "Needs you" status preset selects the same three statuses

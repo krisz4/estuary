@@ -16,8 +16,8 @@
     "actor": {
       "type": "string",
       "title": "Actor",
-      "description": "Who you act as, sent as X-Actor on every request: agent:<name>, lowercase.",
-      "default": "agent:claude-code"
+      "description": "Who you act as, sent as X-Actor on every request: agent:<name>, lowercase. Leave empty to derive one per checkout: agent:claude-code@<project>, or agent:claude-code@<project>/<worktree> inside a git worktree, so parallel sessions in different worktrees hold their claims separately. Two sessions in the same checkout share the derived actor; set this (or TASKS_ACTOR) per session if you run that way.",
+      "default": ""
     },
     "api_token": {
       "type": "string",

@@ -203,12 +203,14 @@ export const buildQueryString = (query: QueryInput | undefined): string => {
   return serialized === "" ? "" : `?${serialized}`;
 };
 
-const request = async <TResponse>(
+export type ResponseWithStatus<TResponse> = { data: TResponse; status: number };
+
+const requestWithStatus = async <TResponse>(
   method: string,
   path: string,
   body: unknown,
   options: RequestOptions = {},
-): Promise<TResponse> => {
+): Promise<ResponseWithStatus<TResponse>> => {
   const url = `${API_BASE_URL}${path}${buildQueryString(options.query)}`;
 
   const init: RequestInit = {
@@ -255,11 +257,11 @@ const request = async <TResponse>(
 
   // 204 on a successful DELETE, with no body. Parsing it as JSON throws.
   if (response.status === 204 || response.headers.get("content-length") === "0") {
-    return undefined as TResponse;
+    return { data: undefined as TResponse, status: response.status };
   }
 
   try {
-    return (await response.json()) as TResponse;
+    return { data: (await response.json()) as TResponse, status: response.status };
   } catch (cause) {
     throw new ApiClientError({
       code: "MALFORMED_RESPONSE",
@@ -271,6 +273,13 @@ const request = async <TResponse>(
   }
 };
 
+const request = async <TResponse>(
+  method: string,
+  path: string,
+  body: unknown,
+  options: RequestOptions = {},
+): Promise<TResponse> => (await requestWithStatus<TResponse>(method, path, body, options)).data;
+
 export const api = {
   get: <TResponse>(path: string, options?: RequestOptions) =>
     request<TResponse>("GET", path, undefined, options),
@@ -280,4 +289,12 @@ export const api = {
     request<TResponse>("PATCH", path, body, options),
   delete: <TResponse = void>(path: string, options?: RequestOptions) =>
     request<TResponse>("DELETE", path, undefined, options),
+  /**
+   * Like `post`, but also hands back the HTTP status — for the one endpoint
+   * where 200 vs 201 is meaningful to the UI: `POST
+   * /integrations/github/import` returns 200 for an issue already imported
+   * and 201 for a new task, and the import dialog's toast says which.
+   */
+  postWithStatus: <TResponse>(path: string, body?: unknown, options?: RequestOptions) =>
+    requestWithStatus<TResponse>("POST", path, body, options),
 };

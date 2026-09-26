@@ -137,7 +137,7 @@ const CommentItem = ({
       // on the comment it just created. `-1` keeps it out of the tab order —
       // a thread of 20 comments must not cost 20 tab stops.
       tabIndex={-1}
-      className="group flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-2.5"
+      className="group flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-2.5 shadow-raised"
     >
       <div className="flex items-baseline justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">

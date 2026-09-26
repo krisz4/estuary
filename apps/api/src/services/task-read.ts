@@ -13,19 +13,27 @@ import { serializeTask, serializeTaskSummary } from "../lib/serialize.js";
 
 type Db = Prisma.TransactionClient;
 
-/** A related task, reduced to what `TaskRef` shows. */
-const refSelect = { id: true, title: true, status: true } satisfies Prisma.TaskSelect;
+/** A related task, reduced to what `TaskRef` shows. `project` lets a dependency
+ * pointer cross repositories without a second lookup. */
+const refSelect = {
+  id: true,
+  title: true,
+  status: true,
+  project: true,
+} satisfies Prisma.TaskSelect;
 
 /**
- * What a list row needs beyond its own columns: the comment count, the open
- * decision (the inbox renders it inline), and each dependency's status (to
- * count the unfinished ones). One query per relation, not per row — Prisma
- * batches an `include` across the page.
+ * What a list row needs beyond its own columns: the comment count, the child
+ * count (an epic in a list), the open decision (the inbox renders it inline),
+ * each dependency's status (to count the unfinished ones), and the label set.
+ * One query per relation, not per row — Prisma batches an `include` across the
+ * page.
  */
 export const summaryInclude = {
-  _count: { select: { comments: true } },
+  _count: { select: { comments: true, children: true } },
   decisions: { where: { status: "open" } },
   dependencies: { select: { dependsOn: { select: { status: true } } } },
+  labels: { select: { label: true }, orderBy: { label: "asc" } },
 } satisfies Prisma.TaskInclude;
 
 /**

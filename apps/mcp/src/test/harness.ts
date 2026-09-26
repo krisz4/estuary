@@ -1,4 +1,4 @@
-import { taskSchema, type Task } from "@helpdesk/contracts";
+import { taskSchema, taskSummarySchema, type Task, type TaskSummary } from "@helpdesk/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
@@ -100,7 +100,9 @@ export const makeTask = (overrides: Partial<Task> = {}): Task =>
     assignee: null,
     acceptanceCriteria: null,
     links: [],
+    labels: [],
     parentId: null,
+    childCount: 0,
     createdBy: "agent:test-bot",
     claim: null,
     version: 1,
@@ -119,6 +121,31 @@ export const makeTask = (overrides: Partial<Task> = {}): Task =>
     dependents: [],
     ...overrides,
   });
+
+/** A list row: the task's summary fields only, as `GET /tasks` sends them. */
+export const makeSummary = (overrides: Partial<TaskSummary> = {}): TaskSummary => {
+  const task = makeTask();
+  const fields = Object.fromEntries(
+    Object.entries(task).filter(([key]) => key in taskSummarySchema.shape),
+  );
+  return taskSummarySchema.parse({ ...fields, ...overrides });
+};
+
+/** A one-page `GET /tasks` response. */
+export const page = (data: TaskSummary[]): FakeResponse => ({
+  status: 200,
+  body: {
+    data,
+    meta: {
+      page: 1,
+      pageSize: 20,
+      total: data.length,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPrevPage: false,
+    },
+  },
+});
 
 export const apiError = (
   status: number,

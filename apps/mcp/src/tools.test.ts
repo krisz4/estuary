@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   apiError,
   connect,
+  makeSummary,
   makeTask,
+  page,
   type RecordedRequest,
   type Responder,
 } from "./test/harness.js";
@@ -45,6 +47,7 @@ describe("tool listing", () => {
         "task_events",
         "task_get",
         "task_heartbeat",
+        "task_import_github_issue",
         "task_list",
         "task_next",
         "task_release",
@@ -153,24 +156,65 @@ describe("reads", () => {
     expect(result.text).toContain("No tasks match.");
   });
 
-  it("task_list truncates long descriptions in the list JSON", async () => {
-    const { call } = await setup(() => ({
-      status: 200,
-      body: {
-        data: [makeTask({ description: "x".repeat(2000) })],
-        meta: {
-          page: 1,
-          pageSize: 20,
-          total: 1,
-          totalPages: 1,
-          hasNextPage: false,
-          hasPrevPage: false,
-        },
-      },
-    }));
-    const result = await call("task_list", {});
+  it("task_list truncates long descriptions in the verbose JSON", async () => {
+    const { call, requests } = await setup(() =>
+      page([makeTask({ description: "x".repeat(2000) })]),
+    );
+    const result = await call("task_list", { verbose: true });
+    expect(requests[0]!.query.has("verbose")).toBe(false);
     expect(result.text).not.toContain("x".repeat(400));
     expect(result.text).toContain("truncated; task_get for full text");
+    expect(result.text).toContain('"meta":');
+  });
+
+  it("task_list is compact by default: one line per task plus a single-lined snippet, no JSON", async () => {
+    const { call } = await setup(() =>
+      page([
+        makeSummary({
+          id: 7,
+          reference: "TASK-000007",
+          title: "Split the board into lanes",
+          status: "in_progress",
+          priority: "high",
+          project: "helpdesk",
+          labels: ["api", "web"],
+          parentId: 3,
+          childCount: 2,
+          openDependencyCount: 1,
+          claim: { actor: "agent:claude-code@helpdesk", expiresAt: "2026-09-25T10:30:00.000Z" },
+          version: 4,
+          updatedAt: "2026-09-24T08:00:00.000Z",
+          description: `First line\n\nsecond   line ${"y".repeat(300)}`,
+        }),
+        makeSummary({ status: "blocked", statusNote: "Waiting on the upstream release" }),
+      ]),
+    );
+    const result = await call("task_list", {});
+    const lines = result.text.split("\n");
+    expect(lines[1]).toBe(
+      "- TASK-000007 [in_progress] Split the board into lanes · high · project helpdesk · labels api,web · parent #3 · 2 subtasks · 1 open dependency · claimed by agent:claude-code@helpdesk · v4 · updated 2026-09-24",
+    );
+    expect(lines[2]).toMatch(/^ {2}First line second line y+…$/);
+    expect(lines[2]!.length).toBeLessThanOrEqual(2 + 160 + 1);
+    expect(result.text).toContain("  note: Waiting on the upstream release");
+    expect(result.text).not.toContain("{");
+  });
+
+  it("task_list forwards the discovery filters and accepts references for task ids", async () => {
+    const { call, requests } = await setup(() => page([]));
+    await call("task_list", {
+      label: ["web"],
+      parentIsNull: true,
+      dependsOn: "TASK-000042",
+      dependencyOf: 7,
+      q: '"login redirect" safari',
+    });
+    const { query } = only(requests);
+    expect(query.getAll("label")).toEqual(["web"]);
+    expect(query.get("parentIsNull")).toBe("true");
+    expect(query.get("dependsOn")).toBe("42");
+    expect(query.get("dependencyOf")).toBe("7");
+    expect(query.get("q")).toBe('"login redirect" safari');
   });
 
   it("task_get accepts a reference and resolves it to the id", async () => {
@@ -232,6 +276,43 @@ describe("reads", () => {
     expect(result.text).toContain("after=17");
   });
 
+  it("task_events filters by project, actor, and type — and applies no default project", async () => {
+    const { call, requests } = await setup(
+      () => ({
+        status: 200,
+        body: {
+          data: [
+            {
+              id: 5,
+              taskId: 42,
+              taskTitle: "Accept a project filter",
+              project: "helpdesk",
+              type: "task.status_changed",
+              actor: "human:dana",
+              payload: {},
+              createdAt: "2026-09-25T10:00:00.000Z",
+            },
+          ],
+          meta: { nextAfter: 5, hasMore: false },
+        },
+      }),
+      { defaultProject: "helpdesk" },
+    );
+    await call("task_events", {});
+    const result = await call("task_events", {
+      project: ["helpdesk"],
+      actor: "human:dana",
+      type: ["task.status_changed", "decision.answered"],
+    });
+    expect(requests[0]!.query.has("project")).toBe(false);
+    expect(requests[1]!.query.getAll("project")).toEqual(["helpdesk"]);
+    expect(requests[1]!.query.get("actor")).toBe("human:dana");
+    expect(requests[1]!.query.getAll("type")).toEqual(["task.status_changed", "decision.answered"]);
+    expect(result.text).toContain(
+      'task 42 "Accept a project filter" (helpdesk) task.status_changed by human:dana',
+    );
+  });
+
   it("task_stats passes the project filter", async () => {
     const byStatus = Object.fromEntries(
       [
@@ -283,6 +364,12 @@ describe("task_create", () => {
     expect(result.text).toContain("Created TASK-000042.");
   });
 
+  it("passes labels through, canonicalised by the contract", async () => {
+    const { call, requests } = await setup(() => ({ status: 201, body: makeTask() }));
+    await call("task_create", { ...createBody, labels: ["Web", "api", "web"] });
+    expect(only(requests).body).toMatchObject({ labels: ["api", "web"] });
+  });
+
   it("keeps a caller's own key and an explicit null project", async () => {
     const { call, requests } = await setup(() => ({ status: 201, body: makeTask() }), {
       defaultProject: "helpdesk",
@@ -295,7 +382,7 @@ describe("task_create", () => {
     const { call } = await setup(() => ({ status: 200, body: makeTask() }));
     const result = await call("task_create", createBody);
     expect(result.isError).toBe(false);
-    expect(result.text).toContain("Already existed");
+    expect(result.text).toContain("Already open as TASK-000042");
   });
 
   it("enforces the contract's todo rule before calling the API", async () => {
@@ -459,10 +546,12 @@ describe("writes", () => {
     const claimed = await call("task_next", { minPriority: "high" });
     await call("task_next", { allProjects: true });
     await call("task_next", { project: ["web"] });
+    await call("task_next", { label: ["Web"] });
     expect(requests.map((request) => request.body)).toEqual([
       { minPriority: "high", project: ["helpdesk"] },
       {},
       { project: ["web"] },
+      { label: ["web"], project: ["helpdesk"] },
     ]);
     expect(requests[0]!.path).toBe("/tasks/next");
     expect(claimed.text).toContain("Claimed TASK-000042");
@@ -580,5 +669,203 @@ describe("errors", () => {
     expect(result.isError).toBe(true);
     expect(result.text).toContain("HTTP 502");
     expect(result.text).toContain("TASKS_API_URL");
+  });
+});
+
+describe("task_get detail", () => {
+  const comments = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: index + 1,
+      taskId: 42,
+      author: "agent:test-bot",
+      kind: "progress" as const,
+      body: `comment ${index + 1}`,
+      createdAt: "2026-09-25T10:00:00.000Z",
+    }));
+
+  it("keeps the 10 most recent comments by default and says how to get the rest", async () => {
+    const { call } = await setup(echoTask({ comments: comments(25), commentCount: 25 }));
+    const result = await call("task_get", { taskId: 42 });
+    expect(result.text).toContain(
+      "comments: showing the 10 most recent of 25; 15 older omitted — task_get with commentLimit: 25",
+    );
+    const json = JSON.parse(result.text.split("\n").at(-1)!) as { comments: { id: number }[] };
+    expect(json.comments.map((comment) => comment.id)).toEqual([
+      16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    ]);
+  });
+
+  it("commentLimit 0 drops them all; a limit above the count keeps them all silently", async () => {
+    const { call } = await setup(echoTask({ comments: comments(3), commentCount: 3 }));
+    const none = await call("task_get", { taskId: 42, commentLimit: 0 });
+    expect(none.text).toContain("comments: 3 not shown (commentLimit 0)");
+    expect(none.text).toContain('"comments":[]');
+    const all = await call("task_get", { taskId: 42, commentLimit: 50 });
+    expect(all.text).not.toContain("comments:");
+    expect(all.text).toContain('"body":"comment 1"');
+  });
+
+  it("rejects a commentLimit above the maximum", async () => {
+    const { call, requests } = await setup(echoTask());
+    const result = await call("task_get", { taskId: 42, commentLimit: 5000 });
+    expect(result.isError).toBe(true);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("lists relations, naming the project only when it differs", async () => {
+    const ref = (id: number, project: string | null) => ({
+      id,
+      reference: `TASK-00000${id}`,
+      title: `Task ${id}`,
+      status: "todo" as const,
+      project,
+    });
+    const { call } = await setup(
+      echoTask({
+        parentId: 1,
+        parent: ref(1, "helpdesk"),
+        children: [ref(2, "helpdesk")],
+        dependencies: [ref(3, "mobile-app")],
+        dependents: [ref(4, null)],
+      }),
+    );
+    const result = await call("task_get", { taskId: 42 });
+    expect(result.text).toContain("parent: TASK-000001 [todo] Task 1\n");
+    expect(result.text).toContain("subtasks:\n  - TASK-000002 [todo] Task 2\n");
+    expect(result.text).toContain(
+      "depends on:\n  - TASK-000003 [todo] Task 3 (project mobile-app)",
+    );
+    expect(result.text).toContain("  - TASK-000004 [todo] Task 4 (project none)");
+  });
+});
+
+describe("GitHub", () => {
+  const githubLinks = [
+    { label: "PR", url: "https://github.com/acme/web/pull/12" },
+    { label: "Issue", url: "https://github.com/acme/web/issues/7" },
+  ];
+  const status = (overrides: Record<string, unknown>) => ({
+    url: "https://github.com/acme/web/pull/12",
+    kind: "pull",
+    repo: "acme/web",
+    number: 12,
+    title: "Fix login",
+    state: "merged",
+    checks: "success",
+    error: null,
+    fetchedAt: "2026-09-25T10:00:00.000Z",
+    ...overrides,
+  });
+
+  it("task_get prints one line per GitHub link", async () => {
+    const { call, requests } = await setup((request) =>
+      request.path === "/tasks/42/github"
+        ? {
+            status: 200,
+            body: {
+              data: [
+                status({}),
+                status({ kind: "issue", number: 7, state: "open", checks: null }),
+                status({ number: 9, state: null, checks: null, error: "Not found" }),
+              ],
+            },
+          }
+        : { status: 200, body: makeTask({ links: githubLinks }) },
+    );
+    const result = await call("task_get", { taskId: 42 });
+    expect(requests.map((request) => request.path)).toEqual(["/tasks/42", "/tasks/42/github"]);
+    expect(result.text).toContain("github: PR acme/web#12 merged · checks success");
+    expect(result.text).toContain("github: issue acme/web#7 open\n");
+    expect(result.text).toContain("github: PR acme/web#9 — unavailable: Not found");
+  });
+
+  it("skips the lookup for a task without GitHub links", async () => {
+    const { call, requests } = await setup(
+      echoTask({ links: [{ label: "Doc", url: "https://example.com/spec" }] }),
+    );
+    await call("task_get", { taskId: 42 });
+    expect(requests).toHaveLength(1);
+  });
+
+  it("remembers a disabled integration and never fails task_get over it", async () => {
+    const { call, requests } = await setup((request) =>
+      request.path === "/tasks/42/github"
+        ? apiError(404, "INTEGRATION_NOT_CONFIGURED", "GitHub integration is off")
+        : { status: 200, body: makeTask({ links: githubLinks }) },
+    );
+    const first = await call("task_get", { taskId: 42 });
+    const second = await call("task_get", { taskId: 42 });
+    expect(first.isError).toBe(false);
+    expect(first.text).not.toContain("github:");
+    expect(second.isError).toBe(false);
+    expect(requests.map((request) => request.path)).toEqual([
+      "/tasks/42",
+      "/tasks/42/github",
+      "/tasks/42",
+    ]);
+  });
+
+  it("does not remember a transient failure", async () => {
+    const { call, requests } = await setup((request) =>
+      request.path === "/tasks/42/github"
+        ? apiError(502, "GITHUB_UNAVAILABLE", "GitHub is down")
+        : { status: 200, body: makeTask({ links: githubLinks }) },
+    );
+    await call("task_get", { taskId: 42 });
+    const again = await call("task_get", { taskId: 42 });
+    expect(again.isError).toBe(false);
+    expect(requests.filter((request) => request.path === "/tasks/42/github")).toHaveLength(2);
+  });
+
+  it("task_import_github_issue posts the issue and reports create vs replay", async () => {
+    let status = 201;
+    const { call, requests } = await setup(() => ({ status, body: makeTask() }));
+    const created = await call("task_import_github_issue", {
+      issue: "https://github.com/acme/web/issues/7",
+      labels: ["web"],
+    });
+    status = 200;
+    const replay = await call("task_import_github_issue", { issue: "acme/web#7" });
+    expect(requests.map((request) => [request.method, request.path, request.body])).toEqual([
+      [
+        "POST",
+        "/integrations/github/import",
+        { issue: "https://github.com/acme/web/issues/7", status: "backlog", labels: ["web"] },
+      ],
+      ["POST", "/integrations/github/import", { issue: "acme/web#7", status: "backlog" }],
+    ]);
+    expect(created.text).toContain("Imported https://github.com/acme/web/issues/7 as TASK-000042");
+    expect(replay.text).toContain("Already imported as TASK-000042");
+  });
+
+  it("expands a bare #123 with the origin's repository, and refuses it without one", async () => {
+    const withRepo = await setup(() => ({ status: 201, body: makeTask() }), {
+      githubRepo: "acme/web",
+    });
+    await withRepo.call("task_import_github_issue", { issue: "#123" });
+    expect(only(withRepo.requests).body).toMatchObject({ issue: "acme/web#123" });
+    await withRepo.close();
+    close = undefined;
+
+    const { call, requests } = await setup(() => ({ status: 201, body: makeTask() }));
+    const result = await call("task_import_github_issue", { issue: "123" });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("names no repository");
+    const pull = await call("task_import_github_issue", {
+      issue: "https://github.com/acme/web/pull/12",
+    });
+    expect(pull.isError).toBe(true);
+    expect(requests).toHaveLength(0);
+  });
+
+  it.each([
+    ["INTEGRATION_NOT_CONFIGURED", 404, "task_create"],
+    ["GITHUB_NOT_FOUND", 404, "GITHUB_TOKEN"],
+    ["GITHUB_UNAVAILABLE", 502, "Try again later"],
+  ])("%s gets its hint", async (code, httpStatus, hint) => {
+    const { call } = await setup(() => apiError(httpStatus, code, "nope"));
+    const result = await call("task_import_github_issue", { issue: "acme/web#7" });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain(hint);
   });
 });
