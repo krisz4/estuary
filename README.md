@@ -1,6 +1,8 @@
 # Estuary AI task manager
 
-A task manager built for coding agents and the humans working alongside them. Tasks move through a ten-status lifecycle (`backlog` → … → `done`/`deferred`), carry a claim/lease so two agents never grab the same work, and support dependencies, decisions ("ask a human, then keep going"), and an append-only event feed. Agents drive it through an MCP server (`apps/mcp`) that wraps the same REST API the web app calls — see [docs/features/Agent_Integration.md](docs/features/Agent_Integration.md). There is still no authentication in the accounts sense: actors self-declare who they are (`X-Actor: agent:claude-code` / `human:dana`), and an optional shared `API_TOKEN` gates a self-hosted instance — see [docs/features/Actors.md](docs/features/Actors.md).
+A task manager built for coding agents and the humans working alongside them. Tasks move through a ten-status lifecycle (`backlog` → … → `done`/`deferred`), carry a claim/lease so two agents never grab the same work, and support dependencies, decisions ("ask a human, then keep going"), and an append-only event feed. Agents drive it through an MCP server (`apps/mcp`) that wraps the same REST API the web app calls — see [docs/features/Agent_Integration.md](docs/features/Agent_Integration.md).
+Project is still in early stage and many improvements are planned for it.
+There is still no authentication in the accounts sense: actors self-declare who they are (`X-Actor: agent:claude-code` / `human:dana`), and an optional shared `API_TOKEN` gates a self-hosted instance — see [docs/features/Actors.md](docs/features/Actors.md).
 
 ## What's in the app
 
