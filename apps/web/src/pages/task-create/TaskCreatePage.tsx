@@ -1,4 +1,4 @@
-import { CREATABLE_TASK_STATUSES, type CreateTaskInput } from "@helpdesk/contracts";
+import { CREATABLE_TASK_STATUSES, type CreateTaskInput } from "@estuary/contracts";
 import { useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -41,8 +41,9 @@ const newIdempotencyKey = (): string =>
     : `web:${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 /**
- * `/tasks/new?status=todo&project=helpdesk` — the Map's "+" quick-add on a
- * planning station's plate. Pure and exported for a unit test: only a
+ * `/tasks/new?status=todo&project=estuary` — a prefilled create link. The
+ * Map's hover "+" that used to produce it is gone, but a pasted link still
+ * works. Pure and exported for a unit test: only a
  * `CREATABLE_TASK_STATUSES` value is honoured (`done` or anything invalid in
  * the URL is silently ignored rather than producing a form the create schema
  * would reject), and `project` is trimmed and dropped if empty — the caller
@@ -99,8 +100,7 @@ export const TaskCreatePage = () => {
       <TaskForm
         mode="create"
         // Filed into the project the user is scoped to — the one whose list or map they came from —
-        // unless the Map's quick-add carried its own `?status=&project=` (a station's status, and
-        // either the project scope or the cluster's own group when grouped by project).
+        // unless the link carried its own `?status=&project=` prefill.
         defaultValues={{
           ...emptyTaskFormValues(),
           project: prefill.project ?? scope ?? "",

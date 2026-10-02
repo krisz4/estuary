@@ -1,4 +1,4 @@
-import { type TaskPriority } from "@helpdesk/contracts";
+import { type TaskPriority } from "@estuary/contracts";
 import { AlertTriangle, ArrowUp, type LucideIcon } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/ui";
 import { cn } from "@/lib/cn";

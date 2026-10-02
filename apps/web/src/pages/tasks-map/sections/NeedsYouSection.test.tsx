@@ -1,8 +1,15 @@
-import { formatReference, type TaskSummary } from "@helpdesk/contracts";
+import { formatReference, type TaskSummary } from "@estuary/contracts";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makePage, makeSummary, makeTask, mockApi, renderInProviders, type MockRequest } from "@/test/harness";
+import {
+  makePage,
+  makeSummary,
+  makeTask,
+  mockApi,
+  renderInProviders,
+  type MockRequest,
+} from "@/test/harness";
 import { NeedsYouSection } from "@/pages/tasks-map/sections/NeedsYouSection";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));

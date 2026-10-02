@@ -47,6 +47,13 @@ export const SM_BREAKPOINT_QUERY = "(min-width: 640px)";
 export const MD_BREAKPOINT_QUERY = "(min-width: 768px)";
 
 /**
+ * Tailwind's `lg`. `TaskWorkspaceDialog` flips table ⇄ cards here rather than at
+ * `md`: its list shares the width with a filter rail, so at 768px the table
+ * would get ~450px — too narrow for its columns.
+ */
+export const LG_BREAKPOINT_QUERY = "(min-width: 1024px)";
+
+/**
  * The Map's (`/tasks/map`) own two breakpoints, matching the Estuary
  * prototype's CSS exactly rather than a Tailwind default — the design comes
  * with its own numbers (`.main{grid-template-columns:1fr}` at 1100px,

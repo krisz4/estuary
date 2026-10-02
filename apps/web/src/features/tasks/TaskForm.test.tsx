@@ -1,4 +1,4 @@
-import { TASK_TITLE_MIN, type CreateTaskInput, type UpdateTaskInput } from "@helpdesk/contracts";
+import { TASK_TITLE_MIN, type CreateTaskInput, type UpdateTaskInput } from "@estuary/contracts";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,7 @@ const filled = (overrides: Partial<TaskFormValues> = {}): TaskFormValues => ({
   ...emptyTaskFormValues(),
   title: "Add rate limiting to exports",
   description: "Exports time out under load; throttle per client.",
-  project: "HelpDesk",
+  project: "Estuary",
   ...overrides,
 });
 
@@ -86,7 +86,7 @@ describe("TaskForm — validation comes from the contract schema", () => {
       description: "Exports time out under load; throttle per client.",
       status: "backlog",
       priority: "medium",
-      project: "helpdesk",
+      project: "estuary",
       assignee: null,
       acceptanceCriteria: null,
       links: [],

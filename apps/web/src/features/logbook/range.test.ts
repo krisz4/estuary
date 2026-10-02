@@ -34,7 +34,11 @@ describe("resolveLogbookWindow", () => {
       { from: "2026-01-01T00:00:00.000Z", to: "2026-01-08T00:00:00.000Z" },
       now,
     );
-    expect(window).toEqual({ from: "2026-01-01T00:00:00.000Z", to: "2026-01-08T00:00:00.000Z", bucket: "day" });
+    expect(window).toEqual({
+      from: "2026-01-01T00:00:00.000Z",
+      to: "2026-01-08T00:00:00.000Z",
+      bucket: "day",
+    });
   });
 
   it("falls back to 7d when custom is selected without both bounds", () => {

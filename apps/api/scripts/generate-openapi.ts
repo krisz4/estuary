@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { getOpenApiDocument } from "../src/openapi.js";
 
 /**
- * `pnpm --filter @helpdesk/api openapi:gen` → `apps/api/openapi.json`.
+ * `pnpm --filter @estuary/api openapi:gen` → `apps/api/openapi.json`.
  *
  * The artifact is **committed**, and it is regenerated in the same change set as
  * any contract change. CI re-runs this and fails if the working tree is dirty

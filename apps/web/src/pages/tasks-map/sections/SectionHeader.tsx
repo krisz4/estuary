@@ -8,7 +8,10 @@ const TONE: Record<SectionTone, { bar: string; count: string }> = {
   attention: { bar: "bg-attention", count: "bg-attention-subtle text-attention-subtle-foreground" },
   info: { bar: "bg-info", count: "bg-info-subtle text-info-subtle-foreground" },
   primary: { bar: "bg-primary", count: "bg-primary-subtle text-primary-subtle-foreground" },
-  neutral: { bar: "bg-muted-foreground/60", count: "bg-neutral-subtle text-neutral-subtle-foreground" },
+  neutral: {
+    bar: "bg-muted-foreground/60",
+    count: "bg-neutral-subtle text-neutral-subtle-foreground",
+  },
 };
 
 /**
@@ -39,7 +42,9 @@ export const SectionHeader = ({
     <div className="flex items-stretch gap-3">
       <span aria-hidden="true" className={cn("w-1 shrink-0 rounded-full", TONE[tone].bar)} />
       <div>
-        <p className="font-mono text-[10.5px] tracking-wider text-muted-foreground uppercase">{eyebrow}</p>
+        <p className="font-mono text-[10.5px] tracking-wider text-muted-foreground uppercase">
+          {eyebrow}
+        </p>
         <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground">
           {title}
           {count === undefined ? null : (

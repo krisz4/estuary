@@ -3,7 +3,7 @@ import {
   historyQuerySchema,
   transitionInputSchema,
   type HistoryQuery,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../lib/errors.js";
@@ -111,7 +111,12 @@ describe("statusCounts (the CFD)", () => {
       payload: { status: "backlog", title: "x" },
       createdAt: day(1),
     });
-    await makeEvent({ taskId: 1, type: "task.deleted", payload: { title: "x" }, createdAt: day(2) });
+    await makeEvent({
+      taskId: 1,
+      type: "task.deleted",
+      payload: { title: "x" },
+      createdAt: day(2),
+    });
 
     const result = await history({
       from: "2026-01-01T00:00:00Z",
@@ -256,7 +261,7 @@ describe("project scope", () => {
     await makeEvent({
       taskId: 1,
       type: "task.created",
-      project: "helpdesk",
+      project: "estuary",
       payload: { status: "backlog", title: "x" },
       createdAt: day(1),
     });
@@ -269,7 +274,7 @@ describe("project scope", () => {
     });
 
     const result = await history({
-      project: ["helpdesk"],
+      project: ["estuary"],
       from: "2026-01-01T00:00:00Z",
       to: "2026-01-02T00:00:00Z",
       bucket: "day",

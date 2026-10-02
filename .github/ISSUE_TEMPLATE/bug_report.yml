@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Estuary doesn't work the way the docs say it should.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. For a security problem, don't file it here: use the private report linked from SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem. For API bugs, a curl command is ideal.
+      placeholder: |
+        1. Seed a fresh database
+        2. Open /inbox
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Web UI
+        - REST API
+        - MCP server (estuary-mcp)
+        - Claude Code plugin
+        - GitHub integration
+        - Docker / self-hosting
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: A release tag (v0.1.0) or a commit SHA.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it?
+      options:
+        - docker compose (from source)
+        - Published Docker images
+        - pnpm dev
+        - Other self-hosted setup
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, browser, and MCP client, whichever apply.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: API errors include a requestId, so please paste it. Remove any tokens first.
+      render: text

@@ -1,4 +1,4 @@
-import { type ApiErrorBody, type ApiErrorCode, API_ERROR_STATUS } from "@helpdesk/contracts";
+import { type ApiErrorBody, type ApiErrorCode, API_ERROR_STATUS } from "@estuary/contracts";
 import type { NextFunction, Request, Response } from "express";
 import type { ZodError } from "zod";
 

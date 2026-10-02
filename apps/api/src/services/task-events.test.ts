@@ -1,4 +1,4 @@
-import { eventsQuerySchema, taskEventSchema } from "@helpdesk/contracts";
+import { eventsQuerySchema, taskEventSchema } from "@estuary/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { prisma } from "../lib/prisma.js";
@@ -64,7 +64,11 @@ describe("listEvents", () => {
   it("reports hasMore: false when exactly limit events remain", async () => {
     for (let i = 0; i < 2; i += 1) await makeEvent({ taskId: 1 });
 
-    expect((await feed({ limit: "2" })).meta).toEqual({ nextAfter: 2, nextBefore: null, hasMore: false });
+    expect((await feed({ limit: "2" })).meta).toEqual({
+      nextAfter: 2,
+      nextBefore: null,
+      hasMore: false,
+    });
   });
 
   it("echoes the incoming cursor as nextAfter when nothing new happened", async () => {
@@ -104,11 +108,19 @@ describe("listEvents", () => {
       expect(first.data.map((e) => e.id)).toEqual([5, 4]);
       expect(first.meta).toEqual({ nextAfter: 5, nextBefore: 4, hasMore: true });
 
-      const second = await feed({ order: "desc", limit: "2", before: String(first.meta.nextBefore) });
+      const second = await feed({
+        order: "desc",
+        limit: "2",
+        before: String(first.meta.nextBefore),
+      });
       expect(second.data.map((e) => e.id)).toEqual([3, 2]);
       expect(second.meta).toEqual({ nextAfter: 3, nextBefore: 2, hasMore: true });
 
-      const third = await feed({ order: "desc", limit: "2", before: String(second.meta.nextBefore) });
+      const third = await feed({
+        order: "desc",
+        limit: "2",
+        before: String(second.meta.nextBefore),
+      });
       expect(third.data.map((e) => e.id)).toEqual([1]);
       expect(third.meta).toEqual({ nextAfter: 1, nextBefore: 1, hasMore: false });
     });
@@ -119,9 +131,9 @@ describe("listEvents", () => {
     });
 
     it("combines before with taskId and project the same way after does", async () => {
-      await makeEvent({ taskId: 1, project: "helpdesk" });
+      await makeEvent({ taskId: 1, project: "estuary" });
       await makeEvent({ taskId: 2, project: "billing" });
-      await makeEvent({ taskId: 1, project: "helpdesk" });
+      await makeEvent({ taskId: 1, project: "estuary" });
 
       const page = await feed({ order: "desc", taskId: "1" });
       expect(page.data.map((e) => e.id)).toEqual([3, 1]);

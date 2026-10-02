@@ -1,4 +1,4 @@
-import type { Comment, CreateCommentInput } from "@helpdesk/contracts";
+import type { Comment, CreateCommentInput } from "@estuary/contracts";
 
 import { commentNotFound, taskNotFound } from "../lib/errors.js";
 import { writeTransaction } from "../lib/prisma.js";

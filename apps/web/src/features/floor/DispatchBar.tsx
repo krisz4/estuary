@@ -1,4 +1,4 @@
-import { TASK_Q_MAX, type TaskFacets } from "@helpdesk/contracts";
+import { TASK_Q_MAX, type TaskFacets } from "@estuary/contracts";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useId, useRef, useState } from "react";
 import {
@@ -41,7 +41,7 @@ import {
   type TaskListFilterPatch,
   type TaskListParams,
 } from "@/pages/tasks-list/useTaskListParams";
-import { FLOOR_SHIPPED_WINDOWS, type FloorShippedWindow } from "@helpdesk/contracts";
+import { FLOOR_SHIPPED_WINDOWS, type FloorShippedWindow } from "@estuary/contracts";
 
 /**
  * The Map's Dispatch bar — a **compact, one row** filter bar at `md` and up,
@@ -129,9 +129,13 @@ export const DispatchSearchInput = forwardRef<
         placeholder="Search… (/)"
         className="pl-8"
         autoFocus={autoFocus}
-        onBlur={onBlurEmpty === undefined ? undefined : () => {
-          if (text.trim() === "") onBlurEmpty();
-        }}
+        onBlur={
+          onBlurEmpty === undefined
+            ? undefined
+            : () => {
+                if (text.trim() === "") onBlurEmpty();
+              }
+        }
       />
     </div>
   );
@@ -208,10 +212,16 @@ export const DispatchBar = ({
     { value: ASSIGNEE_ANY, label: "Anyone" },
     { value: ASSIGNEE_NONE, label: "Unassigned" },
     { value: ASSIGNEE_SOMEONE, label: "Assigned to anyone" },
-    ...(facets?.assignees ?? []).map((name) => ({ value: `${ASSIGNEE_NAME_PREFIX}${name}`, label: name })),
+    ...(facets?.assignees ?? []).map((name) => ({
+      value: `${ASSIGNEE_NAME_PREFIX}${name}`,
+      label: name,
+    })),
   ];
   const creators = [
-    ...new Set([...(facets?.creators ?? []), ...(params.createdBy === undefined ? [] : [params.createdBy])]),
+    ...new Set([
+      ...(facets?.creators ?? []),
+      ...(params.createdBy === undefined ? [] : [params.createdBy]),
+    ]),
   ];
   const creatorOptions = [
     { value: CREATOR_ANY, label: "Anyone" },
@@ -228,7 +238,9 @@ export const DispatchBar = ({
       options={priorityOptions}
       selected={params.priority}
       onToggle={(value) =>
-        onFiltersChange((current: TaskListParams) => ({ priority: toggleValue(current.priority, value) }))
+        onFiltersChange((current: TaskListParams) => ({
+          priority: toggleValue(current.priority, value),
+        }))
       }
     />
   );
@@ -239,7 +251,11 @@ export const DispatchBar = ({
         legend="Label"
         options={labels}
         selected={params.label}
-        onToggle={(value) => onFiltersChange((current: TaskListParams) => ({ label: toggleValue(current.label, value) }))}
+        onToggle={(value) =>
+          onFiltersChange((current: TaskListParams) => ({
+            label: toggleValue(current.label, value),
+          }))
+        }
       />
     );
 
@@ -261,7 +277,9 @@ export const DispatchBar = ({
       <Select
         options={creatorOptions}
         value={params.createdBy ?? CREATOR_ANY}
-        onValueChange={(value) => onFiltersChange({ createdBy: value === CREATOR_ANY ? undefined : value })}
+        onValueChange={(value) =>
+          onFiltersChange({ createdBy: value === CREATOR_ANY ? undefined : value })
+        }
         aria-label="Filter by creator"
       />
     </div>
@@ -273,7 +291,9 @@ export const DispatchBar = ({
         <input
           type="checkbox"
           checked={params.parentIsNull === true}
-          onChange={(event) => onFiltersChange({ parentIsNull: event.target.checked ? true : undefined })}
+          onChange={(event) =>
+            onFiltersChange({ parentIsNull: event.target.checked ? true : undefined })
+          }
           className="size-4 rounded border-input accent-primary"
         />
         Top-level only
@@ -284,7 +304,11 @@ export const DispatchBar = ({
           type="date"
           value={params.createdFrom ?? ""}
           max={params.createdTo}
-          onChange={(event) => onFiltersChange({ createdFrom: event.target.value === "" ? undefined : event.target.value })}
+          onChange={(event) =>
+            onFiltersChange({
+              createdFrom: event.target.value === "" ? undefined : event.target.value,
+            })
+          }
         />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -293,7 +317,11 @@ export const DispatchBar = ({
           type="date"
           value={params.createdTo ?? ""}
           min={params.createdFrom}
-          onChange={(event) => onFiltersChange({ createdTo: event.target.value === "" ? undefined : event.target.value })}
+          onChange={(event) =>
+            onFiltersChange({
+              createdTo: event.target.value === "" ? undefined : event.target.value,
+            })
+          }
         />
       </div>
     </div>
@@ -340,7 +368,10 @@ export const DispatchBar = ({
       <PresetButton active={params.stale} onClick={() => onApplyPreset({ stale: !params.stale })}>
         Stale
       </PresetButton>
-      <PresetButton active={params.working} onClick={() => onApplyPreset({ working: !params.working })}>
+      <PresetButton
+        active={params.working}
+        onClick={() => onApplyPreset({ working: !params.working })}
+      >
         Agents working
       </PresetButton>
     </>
@@ -372,7 +403,9 @@ export const DispatchBar = ({
 
   const liveRegion = (
     <p aria-live="polite" className="sr-only">
-      {activeFilterCount === 0 ? "No filters active" : `${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} active`}
+      {activeFilterCount === 0
+        ? "No filters active"
+        : `${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} active`}
     </p>
   );
 
@@ -428,7 +461,9 @@ export const DispatchBar = ({
       <SlidersHorizontal aria-hidden="true" />
       Filters
       {activeFilterCount > 0 ? (
-        <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{activeFilterCount}</span>
+        <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+          {activeFilterCount}
+        </span>
       ) : null}
     </Button>
   );
@@ -487,7 +522,9 @@ export const DispatchBar = ({
           {() => (
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-2">{viewControls}</div>
-              <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">{presets}</div>
+              <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+                {presets}
+              </div>
             </div>
           )}
         </Popover>
@@ -502,7 +539,12 @@ export const DispatchBar = ({
     return (
       <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-2">
         <div className="flex items-center gap-2">
-          <DispatchSearchInput ref={searchInputRef} value={params.q} onCommit={commitSearch} className="flex-1 sm:flex-none" />
+          <DispatchSearchInput
+            ref={searchInputRef}
+            value={params.q}
+            onCommit={commitSearch}
+            className="flex-1 sm:flex-none"
+          />
           {filtersButton}
         </div>
         {liveRegion}
@@ -578,7 +620,13 @@ const FieldSelect = <TValue extends string>({
 }) => (
   <div className="flex items-center gap-1">
     <span className="text-xs text-muted-foreground">{label}</span>
-    <Select options={options} value={value} onValueChange={onValueChange} aria-label={label} className="h-8 text-xs" />
+    <Select
+      options={options}
+      value={value}
+      onValueChange={onValueChange}
+      aria-label={label}
+      className="h-8 text-xs"
+    />
   </div>
 );
 
@@ -589,7 +637,11 @@ const MatchToggle = ({
   value: FloorMatchMode;
   onChange: (value: FloorMatchMode) => void;
 }) => (
-  <div className="inline-flex overflow-hidden rounded-md border border-border" role="group" aria-label="Non-matching tasks">
+  <div
+    className="inline-flex overflow-hidden rounded-md border border-border"
+    role="group"
+    aria-label="Non-matching tasks"
+  >
     {(["dim", "hide"] as const).map((mode) => (
       <button
         key={mode}
@@ -598,7 +650,9 @@ const MatchToggle = ({
         onClick={() => onChange(mode)}
         className={cn(
           "px-2 py-1 text-xs capitalize transition-colors",
-          value === mode ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted",
+          value === mode
+            ? "bg-primary text-primary-foreground"
+            : "bg-card text-muted-foreground hover:bg-muted",
         )}
       >
         {mode}

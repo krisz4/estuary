@@ -186,12 +186,12 @@ describe("filters", () => {
     const parsed = taskListQuerySchema.parse({
       status: ["todo", "blocked"],
       priority: "urgent",
-      project: "helpdesk",
+      project: "estuary",
     });
     expect(parsed).toMatchObject({
       status: ["todo", "blocked"],
       priority: ["urgent"],
-      project: ["helpdesk"],
+      project: ["estuary"],
     });
   });
 
@@ -208,15 +208,15 @@ describe("filters", () => {
   // --- project --------------------------------------------------------------
 
   it("lowercases project to match how it is stored, one value or several", () => {
-    expect(taskListQuerySchema.parse({ project: " Helpdesk " }).project).toEqual(["helpdesk"]);
-    expect(taskListQuerySchema.parse({ project: ["Helpdesk", "INFRA"] }).project).toEqual([
-      "helpdesk",
+    expect(taskListQuerySchema.parse({ project: " Estuary " }).project).toEqual(["estuary"]);
+    expect(taskListQuerySchema.parse({ project: ["Estuary", "INFRA"] }).project).toEqual([
+      "estuary",
       "infra",
     ]);
   });
 
   it("rejects a project that is not a slug, naming the field", () => {
-    const result = parse({ project: ["helpdesk", "my project"] });
+    const result = parse({ project: ["estuary", "my project"] });
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.path[0]).toBe("project");
   });
@@ -333,9 +333,9 @@ describe("taskStatsQuerySchema", () => {
   });
 
   it("takes a repeatable, lowercased project filter", () => {
-    expect(taskStatsQuerySchema.parse({ project: "Helpdesk" })).toEqual({ project: ["helpdesk"] });
-    expect(taskStatsQuerySchema.parse({ project: ["helpdesk", "", "Infra"] })).toEqual({
-      project: ["helpdesk", "infra"],
+    expect(taskStatsQuerySchema.parse({ project: "Estuary" })).toEqual({ project: ["estuary"] });
+    expect(taskStatsQuerySchema.parse({ project: ["estuary", "", "Infra"] })).toEqual({
+      project: ["estuary", "infra"],
     });
   });
 
@@ -365,8 +365,10 @@ describe("paginatedTasksSchema", () => {
           description: "Expose list, next, transition and comment as MCP tools.",
           status: "in_progress",
           statusNote: null,
+          concerns: null,
+          needsTriage: false,
           priority: "high",
-          project: "helpdesk",
+          project: "estuary",
           assignee: null,
           acceptanceCriteria: "All five tools callable from Claude Code.",
           links: [],

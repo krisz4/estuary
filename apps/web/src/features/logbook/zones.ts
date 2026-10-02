@@ -1,24 +1,23 @@
-import { TASK_STATUSES, type TaskStatus } from "@helpdesk/contracts";
+import { TASK_STATUSES, type TaskStatus } from "@estuary/contracts";
 
 /**
- * The floor's four zones, banded for the Logbook's cumulative flow diagram.
+ * The estuary's four reaches, banded for the Logbook's cumulative flow diagram
+ * and drawn as the task detail's course strip (`features/tasks/StatusCourse`).
+ * The names are the Map's regions — PLAN / headwaters, DOING / the reach,
+ * WAITING / the lagoon, CLOSED / the mouth — so a band in a chart and a region
+ * on the map are called the same thing.
  *
- * **Not** `TASK_STATUS_LANES` from `@helpdesk/contracts` (the retired board's
+ * **Not** `TASK_STATUS_LANES` from `@estuary/contracts` (the retired board's
  * lanes, still defined there): that partition puts `needs_qa` in `doing` and
  * leaves `waiting` with three statuses. The floor plan
  * (`docs/pages/Floor_And_Logbook_Plan.md`) draws the
- * zones differently — Build bay is `in_progress` alone, and Waiting dock
+ * zones differently — the reach is `in_progress` alone, and the lagoon
  * absorbs `needs_qa` — because the CFD's question is "who does this wait on
  * right now", and a task in QA is waiting on a human the same as one that is
  * blocked. Kept local to the Logbook rather than exported from contracts:
  * this is a *presentation* grouping, not a workflow rule.
  */
-export const LOGBOOK_ZONES = [
-  "planning",
-  "build",
-  "waiting",
-  "shipped",
-] as const;
+export const LOGBOOK_ZONES = ["planning", "build", "waiting", "shipped"] as const;
 export type LogbookZone = (typeof LOGBOOK_ZONES)[number];
 
 export const ZONE_STATUSES: Record<LogbookZone, readonly TaskStatus[]> = {
@@ -28,11 +27,28 @@ export const ZONE_STATUSES: Record<LogbookZone, readonly TaskStatus[]> = {
   shipped: ["done", "deferred"],
 };
 
+/** What happens there — the Map's region caption, in sentence case. */
+export const ZONE_NAMES: Record<LogbookZone, string> = {
+  planning: "Plan",
+  build: "Doing",
+  waiting: "Waiting",
+  shipped: "Closed",
+};
+
+/** Where it is on the river — the Map's italic region subtitle. */
+export const ZONE_REACHES: Record<LogbookZone, string> = {
+  planning: "headwaters",
+  build: "the reach",
+  waiting: "the lagoon",
+  shipped: "the mouth",
+};
+
+/** Chart legend label: "Waiting · the lagoon". */
 export const ZONE_LABELS: Record<LogbookZone, string> = {
-  planning: "Planning bench",
-  build: "Build bay",
-  waiting: "Waiting dock",
-  shipped: "Shipped",
+  planning: `${ZONE_NAMES.planning} · ${ZONE_REACHES.planning}`,
+  build: `${ZONE_NAMES.build} · ${ZONE_REACHES.build}`,
+  waiting: `${ZONE_NAMES.waiting} · ${ZONE_REACHES.waiting}`,
+  shipped: `${ZONE_NAMES.shipped} · ${ZONE_REACHES.shipped}`,
 };
 
 /** Stacking order for the area chart, bottom to top. Shipped only grows, so it anchors the bottom. */

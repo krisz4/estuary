@@ -15,9 +15,17 @@ const bucket = (overrides: Partial<Parameters<typeof throughputSeries>[0][number
 
 describe("throughputSeries", () => {
   it("combines completed and deferred into shipped", () => {
-    const points = throughputSeries([bucket({ created: 5, completed: 3, deferred: 1, sentBack: 2 })]);
+    const points = throughputSeries([
+      bucket({ created: 5, completed: 3, deferred: 1, sentBack: 2 }),
+    ]);
     expect(points).toEqual([
-      { start: "2026-09-01T00:00:00.000Z", end: "2026-09-02T00:00:00.000Z", created: 5, shipped: 4, sentBack: 2 },
+      {
+        start: "2026-09-01T00:00:00.000Z",
+        end: "2026-09-02T00:00:00.000Z",
+        created: 5,
+        shipped: 4,
+        sentBack: 2,
+      },
     ]);
   });
 

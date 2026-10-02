@@ -1,4 +1,4 @@
-import { actorKindOf, type TaskClaim } from "@helpdesk/contracts";
+import { actorKindOf, type TaskClaim } from "@estuary/contracts";
 import { Bot, Lock } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {

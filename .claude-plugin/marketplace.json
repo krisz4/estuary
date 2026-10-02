@@ -1,0 +1,12 @@
+{
+  "name": "estuary",
+  "description": "Claude Code integration for Estuary, the self-hosted AI task manager.",
+  "owner": { "name": "krisz4", "url": "https://github.com/krisz4" },
+  "plugins": [
+    {
+      "name": "estuary",
+      "source": "./integrations/claude-code",
+      "description": "Task manager MCP tools, the task-workflow skill, and a SessionStart reminder of your claimed tasks."
+    }
+  ]
+}

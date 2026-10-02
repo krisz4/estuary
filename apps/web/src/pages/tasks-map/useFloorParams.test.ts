@@ -17,7 +17,9 @@ describe("parseFloorParams", () => {
   });
 
   it("reads group, links, match, shipped, fold, task, and at", () => {
-    const parsed = params("group=epic&links=all&match=hide&shipped=7d&fold=a&fold=b&task=42&at=2026-01-01T00:00:00.000Z");
+    const parsed = params(
+      "group=epic&links=all&match=hide&shipped=7d&fold=a&fold=b&task=42&at=2026-01-01T00:00:00.000Z",
+    );
     expect(parsed.group).toBe("epic");
     expect(parsed.links).toBe("all");
     expect(parsed.match).toBe("hide");
@@ -56,6 +58,20 @@ describe("parseFloorParams", () => {
     expect(parsed.at).toBeUndefined();
   });
 
+  it("reads `list` as a deduplicated status list, dropping unknown values", () => {
+    expect(params("list=backlog&list=nonsense&list=backlog&list=blocked").list).toEqual([
+      "backlog",
+      "blocked",
+    ]);
+    expect(params("").list).toEqual([]);
+  });
+
+  it("keeps `list` apart from the map's own `status` filter", () => {
+    const parsed = params("list=backlog");
+    expect(parsed.list).toEqual(["backlog"]);
+    expect(parsed.status).toEqual([]);
+  });
+
   it("still reads the shared list filters (status, q, …)", () => {
     const parsed = params("status=blocked&q=printer&priority=urgent");
     expect(parsed.status).toEqual(["blocked"]);
@@ -65,8 +81,10 @@ describe("parseFloorParams", () => {
 });
 
 describe("hasActiveFloorFilters / floorActiveFilterCount", () => {
-  it("does not count project (scope), group, links, match, shipped, task, or at as filters", () => {
-    const parsed = params("project=helpdesk&group=none&links=all&match=hide&shipped=7d&task=1&at=2026-01-01T00:00:00.000Z");
+  it("does not count project (scope), group, links, match, shipped, task, list, or at as filters", () => {
+    const parsed = params(
+      "project=estuary&group=none&links=all&match=hide&shipped=7d&task=1&list=backlog&at=2026-01-01T00:00:00.000Z",
+    );
     expect(hasActiveFloorFilters(parsed)).toBe(false);
     expect(floorActiveFilterCount(parsed)).toBe(0);
   });

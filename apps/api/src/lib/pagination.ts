@@ -1,4 +1,4 @@
-import { buildPaginationMeta, type Paginated, type PaginationMeta } from "@helpdesk/contracts";
+import { buildPaginationMeta, type Paginated, type PaginationMeta } from "@estuary/contracts";
 
 /**
  * Offset paging helpers.

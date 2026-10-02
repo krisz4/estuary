@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type PaginatedTasks, type TaskSummary } from "@helpdesk/contracts";
+import { type PaginatedTasks, type TaskSummary } from "@estuary/contracts";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import { setViewportWidth } from "../../../vitest.setup";
 import { TasksListPage } from "@/pages/tasks-list/TasksListPage";
-import { makeSummary, mockApi } from "@/test/harness";
+import { makeStats, makeSummary, mockApi } from "@/test/harness";
 
 /* ------------------------------------------------------------------ *
  * Harness
@@ -78,8 +78,10 @@ const stubApi = ({ list }: FetchStub = {}) => {
   // route ordering (stage 8: facets before `:taskId`).
   const { requests } = mockApi({
     "GET /tasks/facets": () => ({
-      body: { assignees: ["Alice Chen"], projects: ["helpdesk"], creators: ["agent:claude-code"] },
+      body: { assignees: ["Alice Chen"], projects: ["estuary"], creators: ["agent:claude-code"] },
     }),
+    // The header's "Clean up done" button reads its count from here.
+    "GET /tasks/stats": () => ({ body: makeStats() }),
     "GET /tasks": async ({ url }) => {
       listRequests.push(url.searchParams);
       if (listGate !== null) await listGate.promise;
@@ -424,19 +426,19 @@ describe("TasksListPage responsive swap", () => {
 describe("TasksListPage — project and creator", () => {
   it("forwards project and createdBy filters from the URL to the request", async () => {
     stubApi();
-    renderPage("/tasks?project=helpdesk&project=mcp-server&createdBy=agent%3Aclaude-code");
+    renderPage("/tasks?project=estuary&project=mcp-server&createdBy=agent%3Aclaude-code");
 
     await screen.findByRole("link", { name: "TASK-000001" });
-    expect(listRequests.at(-1)?.getAll("project")).toEqual(["helpdesk", "mcp-server"]);
+    expect(listRequests.at(-1)?.getAll("project")).toEqual(["estuary", "mcp-server"]);
     expect(listRequests.at(-1)?.get("createdBy")).toBe("agent:claude-code");
   });
 
   it("drops a project that is not a slug and a creator that is not an actor, keeping the rest", async () => {
     stubApi();
-    renderPage("/tasks?project=Not%20A%20Slug&project=helpdesk&createdBy=claude&status=todo");
+    renderPage("/tasks?project=Not%20A%20Slug&project=estuary&createdBy=claude&status=todo");
 
     await screen.findByRole("link", { name: "TASK-000001" });
-    expect(listRequests.at(-1)?.getAll("project")).toEqual(["helpdesk"]);
+    expect(listRequests.at(-1)?.getAll("project")).toEqual(["estuary"]);
     expect(listRequests.at(-1)?.get("createdBy")).toBeNull();
     expect(listRequests.at(-1)?.getAll("status")).toEqual(["todo"]);
   });
@@ -445,7 +447,7 @@ describe("TasksListPage — project and creator", () => {
     stubApi({
       list: () => ({
         body: page([
-          makeTask(1, { project: "helpdesk", createdBy: "agent:claude-code" }),
+          makeTask(1, { project: "estuary", createdBy: "agent:claude-code" }),
           makeTask(2, { project: null, createdBy: "human:krisz" }),
         ]),
       }),
@@ -454,7 +456,7 @@ describe("TasksListPage — project and creator", () => {
 
     await screen.findByRole("link", { name: "TASK-000001" });
     const [, first, second] = screen.getAllByRole("row");
-    expect(first).toHaveTextContent("helpdesk");
+    expect(first).toHaveTextContent("estuary");
     expect(first).toHaveTextContent("Agent claude-code");
     expect(second).toHaveTextContent("Human krisz");
   });

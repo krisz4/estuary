@@ -10,7 +10,7 @@ import {
   type GithubIntegrationStatus,
   type Task,
   type TaskGithubStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { api } from "@/api/http";
 import { queryKeys } from "@/api/queryKeys";
 

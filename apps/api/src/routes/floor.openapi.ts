@@ -1,4 +1,4 @@
-import { floorQuerySchema } from "@helpdesk/contracts";
+import { floorQuerySchema } from "@estuary/contracts";
 import type { z } from "zod";
 
 import {
@@ -19,8 +19,12 @@ import { QUERY_DESCRIPTIONS } from "./tasks.openapi.js";
  * `tasks.openapi.ts`.
  */
 
-const { page: _page, pageSize: _pageSize, sort: _sort, ...TASK_FILTER_DESCRIPTIONS } =
-  QUERY_DESCRIPTIONS;
+const {
+  page: _page,
+  pageSize: _pageSize,
+  sort: _sort,
+  ...TASK_FILTER_DESCRIPTIONS
+} = QUERY_DESCRIPTIONS;
 
 export const FLOOR_QUERY_DESCRIPTIONS: Record<string, string> = {
   ...TASK_FILTER_DESCRIPTIONS,

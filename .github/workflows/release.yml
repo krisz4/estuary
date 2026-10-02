@@ -1,0 +1,173 @@
+# Release: push a `vX.Y.Z` tag and this publishes everything that tag describes.
+# The steps for a maintainer are in docs/operations/RELEASING.md.
+#
+#   check    the tag matches every version field, and CHANGELOG.md has its section
+#   npm      builds and publishes the MCP server as `estuary-mcp`, with provenance
+#   images   builds the API and web images for amd64 + arm64 and pushes them to GHCR
+#   release  creates the GitHub release, with that version's CHANGELOG section as notes
+#
+# Nothing here re-runs the test suite: a tag is cut from a `main` commit that CI
+# already passed (RELEASING.md step 1). `check` fails fast so a bad tag never
+# gets as far as publishing half a release.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches every version field
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          status=0
+          for file in package.json apps/*/package.json packages/*/package.json \
+                      integrations/claude-code/.claude-plugin/plugin.json; do
+            found="$(node -p "require('./$file').version")"
+            if [ "$found" != "$version" ]; then
+              echo "::error file=$file::version is $found, but the tag is v$version"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: CHANGELOG.md has a section for this version
+        run: |
+          if ! grep -q "^## \[${{ steps.version.outputs.version }}\]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::no '## [${{ steps.version.outputs.version }}]' section"
+            exit 1
+          fi
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish estuary-mcp
+        # pnpm, not npm: it rewrites the `workspace:` devDependencies on the way out.
+        # `--provenance` is explicit because pnpm doesn't reliably read it from
+        # `publishConfig`. `prepack` copies the root LICENSE into the tarball.
+        run: pnpm --filter estuary-mcp publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  images:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: apps/api/Dockerfile
+            description: Estuary REST API (Express 5 + Prisma, SQLite)
+          - name: web
+            dockerfile: apps/web/Dockerfile
+            description: Estuary web UI (static build served by nginx, proxies /api to the api service)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/estuary-${{ matrix.name }}
+          # 1.2.3, 1.2, and latest. No bare major while pre-1.0: 0.x minors may break.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=estuary-${{ matrix.name }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  release:
+    needs: [check, npm, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="${{ needs.check.outputs.version }}" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on && /^\[[^]]+\]: / { exit }
+            on { print }
+          ' CHANGELOG.md > release-notes.md
+          cat >> release-notes.md <<NOTES
+
+          ---
+
+          - MCP server: \`npx -y estuary-mcp@${{ needs.check.outputs.version }}\`
+          - Images: \`ghcr.io/${{ github.repository_owner }}/estuary-api:${{ needs.check.outputs.version }}\`, \`ghcr.io/${{ github.repository_owner }}/estuary-web:${{ needs.check.outputs.version }}\`
+          NOTES
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          body_path: release-notes.md
+          prerelease: ${{ startsWith(needs.check.outputs.version, '0.') }}

@@ -1,4 +1,4 @@
-import { type HistoryBucket } from "@helpdesk/contracts";
+import { type HistoryBucket } from "@estuary/contracts";
 
 /** The Logbook's range control. Default `7d`; `custom` means the URL carries explicit `from`/`to`. */
 export const LOGBOOK_RANGES = ["24h", "7d", "30d", "90d", "custom"] as const;

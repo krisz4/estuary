@@ -4,7 +4,7 @@ import {
   type TaskPriority,
   type TaskStatus,
   type TransitionInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 /**
  * Status ranks and the pure half of a transition: what the status note becomes

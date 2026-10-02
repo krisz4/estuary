@@ -1,32 +1,63 @@
 {
-  "name": "@helpdesk/mcp",
-  "version": "0.0.0",
-  "private": true,
-  "license": "UNLICENSED",
-  "description": "Stdio MCP server that lets coding agents drive the task manager through its REST API",
+  "name": "estuary-mcp",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "description": "Stdio MCP server that lets coding agents claim, work, and hand off tasks in an Estuary task manager through its REST API",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "claude-code",
+    "ai-agents",
+    "task-manager",
+    "estuary"
+  ],
+  "homepage": "https://github.com/krisz4/estuary/tree/main/apps/mcp#readme",
+  "bugs": {
+    "url": "https://github.com/krisz4/estuary/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/krisz4/estuary.git",
+    "directory": "apps/mcp"
+  },
   "type": "module",
   "bin": {
-    "helpdesk-tasks-mcp": "./dist/index.js"
+    "estuary-mcp": "./dist/index.js"
   },
   "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
-    "build": "tsc -p tsconfig.build.json",
+    "dev": "node scripts/build.js --watch",
+    "build": "node scripts/build.js",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "prepack": "cp ../../LICENSE LICENSE",
     "clean": "rm -rf dist .turbo node_modules/.cache"
   },
   "dependencies": {
-    "@helpdesk/contracts": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@helpdesk/tsconfig": "workspace:*",
+    "@estuary/contracts": "workspace:*",
+    "@estuary/tsconfig": "workspace:*",
     "@types/node": "^20.19.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }

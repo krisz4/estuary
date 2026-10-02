@@ -1,15 +1,15 @@
-import { TASK_IDEMPOTENCY_KEY_MAX } from "@helpdesk/contracts";
+import { TASK_IDEMPOTENCY_KEY_MAX } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveIdempotencyKey } from "./idempotency.js";
 
 describe("deriveIdempotencyKey", () => {
   it("is stable across case, punctuation, and spacing — the same task written twice", () => {
-    expect(deriveIdempotencyKey("helpdesk", "Fix flaky login test")).toBe(
-      "mcp:helpdesk:fix-flaky-login-test",
+    expect(deriveIdempotencyKey("estuary", "Fix flaky login test")).toBe(
+      "mcp:estuary:fix-flaky-login-test",
     );
-    expect(deriveIdempotencyKey("helpdesk", "  fix flaky  login test. ")).toBe(
-      "mcp:helpdesk:fix-flaky-login-test",
+    expect(deriveIdempotencyKey("estuary", "  fix flaky  login test. ")).toBe(
+      "mcp:estuary:fix-flaky-login-test",
     );
   });
 
@@ -32,6 +32,6 @@ describe("deriveIdempotencyKey", () => {
   });
 
   it("hashes a title with no ASCII letters or digits instead of producing an empty key", () => {
-    expect(deriveIdempotencyKey("helpdesk", "修复登录页面")).toMatch(/^mcp:helpdesk:[0-9a-f]{32}$/);
+    expect(deriveIdempotencyKey("estuary", "修复登录页面")).toMatch(/^mcp:estuary:[0-9a-f]{32}$/);
   });
 });

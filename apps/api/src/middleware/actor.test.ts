@@ -1,4 +1,4 @@
-import { ANONYMOUS_ACTOR, apiErrorResponseSchema } from "@helpdesk/contracts";
+import { ANONYMOUS_ACTOR, apiErrorResponseSchema } from "@estuary/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 

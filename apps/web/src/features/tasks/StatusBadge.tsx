@@ -1,4 +1,4 @@
-import { type TaskStatus } from "@helpdesk/contracts";
+import { type TaskStatus } from "@estuary/contracts";
 import { Badge, type BadgeTone } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { TASK_STATUS_LABELS } from "@/lib/formatting";
@@ -26,7 +26,7 @@ import { TASK_STATUS_LABELS } from "@/lib/formatting";
  * which is always rendered — colour never carries meaning alone.
  */
 
-const TONES: Record<TaskStatus, BadgeTone> = {
+export const STATUS_TONES: Record<TaskStatus, BadgeTone> = {
   backlog: "neutral",
   needs_refinement: "warning",
   todo: "neutral",
@@ -52,7 +52,7 @@ export type StatusBadgeProps = {
 };
 
 export const StatusBadge = ({ status, className }: StatusBadgeProps) => (
-  <Badge tone={TONES[status]} dot className={cn(OVERRIDES[status], className)}>
+  <Badge tone={STATUS_TONES[status]} dot className={cn(OVERRIDES[status], className)}>
     {TASK_STATUS_LABELS[status]}
   </Badge>
 );

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
-import { type Comment, type CreateCommentInput } from "@helpdesk/contracts";
+import { type Comment, type CreateCommentInput } from "@estuary/contracts";
 import { api } from "@/api/http";
 import { queryKeys } from "@/api/queryKeys";
 

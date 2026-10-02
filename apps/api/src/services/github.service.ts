@@ -20,7 +20,7 @@ import {
   type GithubLinkStatus,
   type Task,
   type TaskGithubStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 import { env } from "../lib/env.js";
 import {

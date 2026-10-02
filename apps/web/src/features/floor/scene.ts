@@ -1,14 +1,21 @@
-import { type FloorEdge, type FloorTask, type TaskPriority, type TaskStatus } from "@helpdesk/contracts";
+import {
+  type FloorEdge,
+  type FloorTask,
+  type TaskPriority,
+  type TaskStatus,
+} from "@estuary/contracts";
 import { colorWithAlpha } from "@/features/floor/colorAlpha";
 import {
   POOL_STATIONS,
   beadColorIndex,
   beadRadius,
+  mapRegionOf,
   type MapBead,
   type MapCluster,
   type MapGhostBead,
   type MapLayout,
 } from "@/features/floor/layout";
+import { TASK_STATUS_LABELS } from "@/lib/formatting";
 import { type FloorLinksMode } from "@/pages/tasks-map/useFloorParams";
 
 /**
@@ -43,13 +50,37 @@ import { type FloorLinksMode } from "@/pages/tasks-map/useFloorParams";
 type Pt = [number, number];
 
 const MAIN: Pt[] = [
-  [-0.05, 0.36], [0.05, 0.34], [0.16, 0.37], [0.27, 0.33], [0.4, 0.35],
-  [0.53, 0.39], [0.66, 0.35], [0.79, 0.37], [0.91, 0.36], [1.07, 0.38],
+  [-0.05, 0.36],
+  [0.05, 0.34],
+  [0.16, 0.37],
+  [0.27, 0.33],
+  [0.4, 0.35],
+  [0.53, 0.39],
+  [0.66, 0.35],
+  [0.79, 0.37],
+  [0.91, 0.36],
+  [1.07, 0.38],
 ];
+// The lagoon. Its three stations sit on their own control points — left leg,
+// bottom, right leg — spread evenly rather than bunched around the bottom,
+// where `needs_user_decision` and `needs_user_action` used to sit ~100px
+// apart with overlapping pools and interleaved callouts.
 const LOOP: Pt[] = [
-  [0.4, 0.35], [0.41, 0.55], [0.45, 0.72], [0.54, 0.8], [0.63, 0.72], [0.67, 0.55], [0.68, 0.36],
+  [0.4, 0.35],
+  [0.41, 0.52],
+  [0.43, 0.64],
+  [0.47, 0.75],
+  [0.54, 0.8],
+  [0.61, 0.75],
+  [0.65, 0.64],
+  [0.67, 0.52],
+  [0.68, 0.36],
 ];
-const CREEK: Pt[] = [[0.79, 0.37], [0.82, 0.24], [0.855, 0.12]];
+const CREEK: Pt[] = [
+  [0.79, 0.37],
+  [0.82, 0.24],
+  [0.855, 0.12],
+];
 
 export const STATION: Record<TaskStatus, Pt> = {
   backlog: [0.05, 0.34],
@@ -59,9 +90,44 @@ export const STATION: Record<TaskStatus, Pt> = {
   needs_qa: [0.68, 0.355],
   done: [0.93, 0.365],
   deferred: [0.855, 0.12],
-  blocked: [0.45, 0.72],
+  blocked: [0.43, 0.64],
   needs_user_decision: [0.54, 0.8],
-  needs_user_action: [0.63, 0.72],
+  needs_user_action: [0.65, 0.64],
+};
+
+/** The lagoon's centre — lagoon plates are pushed away from it, onto the loop's outside. */
+const LAGOON_CENTER: Pt = [0.54, 0.6];
+
+/**
+ * The stations that wait on you — decide, act, review — all share the
+ * attention colour (amber means "waits on you" and nothing else), so each
+ * gets its own icon on its plate and its own count wording. The icons are
+ * the ones `KindPill` uses in "Needs you" and the inbox (lucide `Split`,
+ * `Hand`, `Eye`; 24×24 path data), so the map speaks the same language.
+ */
+export const HUMAN_STATION_MARK: Partial<
+  Record<TaskStatus, { icon: readonly string[]; verb: string }>
+> = {
+  needs_user_decision: {
+    icon: ["M16 3h5v5", "M8 3H3v5", "M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3", "m15 9 6-6"],
+    verb: "to decide",
+  },
+  needs_user_action: {
+    icon: [
+      "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2",
+      "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2",
+      "M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8",
+      "M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15",
+    ],
+    verb: "to act",
+  },
+  needs_qa: {
+    icon: [
+      "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0",
+      "M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
+    ],
+    verb: "to review",
+  },
 };
 
 export const REGIONS: readonly [string, string, number, number][] = [
@@ -82,13 +148,16 @@ const catmull = (pts: Pt[], per: number): Pt[] => {
       const t = s / per;
       const t2 = t * t;
       const t3 = t2 * t;
-      out.push([0, 1].map((k) =>
-        0.5 *
-        (2 * p1[k]! +
-          (-p0[k]! + p2[k]!) * t +
-          (2 * p0[k]! - 5 * p1[k]! + 4 * p2[k]! - p3[k]!) * t2 +
-          (-p0[k]! + 3 * p1[k]! - 3 * p2[k]! + p3[k]!) * t3),
-      ) as Pt);
+      out.push(
+        [0, 1].map(
+          (k) =>
+            0.5 *
+            (2 * p1[k]! +
+              (-p0[k]! + p2[k]!) * t +
+              (2 * p0[k]! - 5 * p1[k]! + 4 * p2[k]! - p3[k]!) * t2 +
+              (-p0[k]! + 3 * p1[k]! - 3 * p2[k]! + p3[k]!) * t3),
+        ) as Pt,
+      );
     }
   }
   out.push(pts[pts.length - 1]!);
@@ -114,11 +183,23 @@ export type SceneGeometry = {
   loopPx: [number, number][];
   creekPx: [number, number][];
   mainLen: number[];
+  /** Half-width of the main channel at `u` (0 = source, 1 = the sea), in px. */
   hwMain: (u: number) => number;
+  /** Half-width of the lagoon loop and of the deferred creek, in px. */
+  hwLoop: number;
+  hwCreek: number;
+  /** From `computeRiverScale` — how much the channels are widened for the current load. */
+  riverScale: number;
 };
 
-const hwMain = (u: number, BS: number): number =>
-  BS * (6 + 9 * Math.max(0, u) + Math.pow(Math.max(0, u - 0.8), 1.5) * 330);
+/**
+ * The main channel's half-width. `riverScale` widens the channel itself and
+ * leaves the mouth's flare alone: the flare is already the sea, and scaling it
+ * would flood the right third of the map.
+ */
+const hwMain = (u: number, BS: number, riverScale: number): number =>
+  BS *
+  ((6 + 9 * Math.max(0, u)) * riverScale + Math.pow(Math.max(0, u - 0.8), 1.5) * 330);
 
 const cumLen = (poly: [number, number][]): number[] => {
   const l = [0];
@@ -143,7 +224,11 @@ const cumLen = (poly: [number, number][]): number[] => {
  * independently in each axis), so any aspect ratio in that band still reads
  * as a river, but a pathologically short or tall pane would not.
  */
-export const computeCanvasHeight = (width: number, horiz: boolean, availableHeight?: number): number => {
+export const computeCanvasHeight = (
+  width: number,
+  horiz: boolean,
+  availableHeight?: number,
+): number => {
   // Vertical mode ignores `availableHeight` on purpose: the canvas's own
   // `aspect-[1/2.1]` CSS (`Hero.tsx`) derives its *rendered* height from this
   // same width, so keeping this formula purely width-driven keeps the two in
@@ -151,13 +236,18 @@ export const computeCanvasHeight = (width: number, horiz: boolean, availableHeig
   // depend on this formula, through the aspect-ratio CSS) invites exactly
   // the feedback loop `computeCanvasHeight`'s own docs warn against.
   if (!horiz) return Math.round(clamp(width * 2.1, 500, 900));
-  if (availableHeight === undefined || availableHeight <= 0) return Math.round(clamp(width * 0.58, 410, 580));
+  if (availableHeight === undefined || availableHeight <= 0)
+    return Math.round(clamp(width * 0.58, 410, 580));
   const minH = clamp(width * 0.32, 320, 480);
   const maxH = clamp(width * 1.15, 480, 1100);
   return Math.round(clamp(availableHeight, minH, maxH));
 };
 
-export const computeGeometry = (width: number, availableHeight?: number): SceneGeometry => {
+export const computeGeometry = (
+  width: number,
+  availableHeight?: number,
+  riverScale = 1,
+): SceneGeometry => {
   const horiz = width >= 600;
   const H = computeCanvasHeight(width, horiz, availableHeight);
   const padX = horiz ? 36 : 26;
@@ -188,7 +278,11 @@ export const computeGeometry = (width: number, availableHeight?: number): SceneG
     loopPx,
     creekPx,
     mainLen: cumLen(mainPx),
-    hwMain: (u: number) => hwMain(u, BS),
+    hwMain: (u: number) => hwMain(u, BS, riverScale),
+    hwLoop: 9 * BS * riverScale,
+    // The creek is a side-channel for parked work; it widens more gently.
+    hwCreek: 4.5 * BS * Math.sqrt(riverScale),
+    riverScale,
   };
 };
 
@@ -338,7 +432,14 @@ const bandPath = (
   ctx.closePath();
 };
 
-const rr = (g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void => {
+const rr = (
+  g: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void => {
   g.beginPath();
   g.moveTo(x + r, y);
   g.arcTo(x + w, y, x + w, y + h, r);
@@ -352,8 +453,11 @@ const rr = (g: CanvasRenderingContext2D, x: number, y: number, w: number, h: num
  * Static layer: contours, tidal flats, stipple, sea, water, frame, regions
  * ------------------------------------------------------------------ */
 
-export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): HTMLCanvasElement => {
-  const { W, H, P, uOf, mainPx, loopPx, creekPx, BS, horiz } = geometry;
+export const buildStaticLayer = (
+  geometry: SceneGeometry,
+  colors: FloorColors,
+): HTMLCanvasElement => {
+  const { W, H, P, uOf, mainPx, loopPx, creekPx, BS, horiz, hwLoop, hwCreek } = geometry;
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(W));
   canvas.height = Math.max(1, Math.round(H));
@@ -382,7 +486,9 @@ export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): 
       }
       d = Math.sqrt(d);
       const n =
-        noise(x / 180, y / 180) * 0.55 + noise(x / 70 + 11, y / 70 + 7) * 0.3 + noise(x / 30 + 3, y / 30 + 5) * 0.07;
+        noise(x / 180, y / 180) * 0.55 +
+        noise(x / 70 + 11, y / 70 + 7) * 0.3 +
+        noise(x / 30 + 3, y / 30 + 5) * 0.07;
       const e = n * 0.6 + (1 - Math.exp(-d / 140)) * 0.85;
       f[j * cols + i] = e;
       if (e < mn) mn = e;
@@ -395,9 +501,26 @@ export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): 
   const B = 2;
   const Lft = 1;
   const CASES: Record<number, [number, number][]> = {
-    1: [[Lft, B]], 2: [[B, R]], 3: [[Lft, R]], 4: [[T, R]], 5: [[T, R], [Lft, B]], 6: [[T, B]],
-    7: [[T, Lft]], 8: [[T, Lft]], 9: [[T, B]], 10: [[T, Lft], [B, R]], 11: [[T, R]], 12: [[Lft, R]],
-    13: [[B, R]], 14: [[Lft, B]],
+    1: [[Lft, B]],
+    2: [[B, R]],
+    3: [[Lft, R]],
+    4: [[T, R]],
+    5: [
+      [T, R],
+      [Lft, B],
+    ],
+    6: [[T, B]],
+    7: [[T, Lft]],
+    8: [[T, Lft]],
+    9: [[T, B]],
+    10: [
+      [T, Lft],
+      [B, R],
+    ],
+    11: [[T, R]],
+    12: [[Lft, R]],
+    13: [[B, R]],
+    14: [[Lft, B]],
   };
   for (let k = 1; k < levels; k += 1) {
     const lv = mn + ((mx - mn) * k) / levels;
@@ -408,7 +531,11 @@ export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): 
         const v1 = f[j * cols + i + 1]!;
         const v2 = f[(j + 1) * cols + i + 1]!;
         const v3 = f[(j + 1) * cols + i]!;
-        const idx = ((v0 > lv ? 1 : 0) << 3) | ((v1 > lv ? 1 : 0) << 2) | ((v2 > lv ? 1 : 0) << 1) | (v3 > lv ? 1 : 0);
+        const idx =
+          ((v0 > lv ? 1 : 0) << 3) |
+          ((v1 > lv ? 1 : 0) << 2) |
+          ((v2 > lv ? 1 : 0) << 1) |
+          (v3 > lv ? 1 : 0);
         const segs = CASES[idx];
         if (segs === undefined) continue;
         const pt = (e: number): [number, number] => {
@@ -438,9 +565,9 @@ export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): 
   g.fillStyle = colorWithAlpha(colors.flat, 0.85);
   bandPath(g, mainPx, (u) => geometry.hwMain(u) * 1.9 + 12 * BS, uOf);
   g.fill();
-  bandPath(g, loopPx, 20 * BS, uOf);
+  bandPath(g, loopPx, hwLoop * 1.9 + 3 * BS, uOf);
   g.fill();
-  bandPath(g, creekPx, 11 * BS, uOf);
+  bandPath(g, creekPx, hwCreek * 1.9 + 2.5 * BS, uOf);
   g.fill();
 
   const stippleRng = rng(7);
@@ -450,7 +577,7 @@ export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): 
     const k = Math.floor(stippleRng() * p_.length);
     const p = p_[k]!;
     const n = normals([p_[Math.max(0, k - 1)]!, p, p_[Math.min(p_.length - 1, k + 1)]!])[1]!;
-    const w = p_ === mainPx ? geometry.hwMain(uOf(p)) : 9 * BS;
+    const w = p_ === mainPx ? geometry.hwMain(uOf(p)) : hwLoop;
     const d = (w + 2 + stippleRng() * (w * 0.9 + 12 * BS)) * (stippleRng() < 0.5 ? -1 : 1);
     g.globalAlpha = 0.5 + stippleRng() * 0.8;
     g.fillRect(p[0] + n[0] * d, p[1] + n[1] * d, 1.3, 1.3);
@@ -474,8 +601,8 @@ export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): 
     g.lineWidth = 1.2;
     g.stroke();
   };
-  water(creekPx, 4.5 * BS);
-  water(loopPx, 9 * BS);
+  water(creekPx, hwCreek);
+  water(loopPx, hwLoop);
   water(mainPx, geometry.hwMain);
   g.restore();
 
@@ -515,10 +642,8 @@ export const buildStaticLayer = (geometry: SceneGeometry, colors: FloorColors): 
 };
 
 /* ------------------------------------------------------------------ *
- * Beads: phyllotaxis per cluster, with a sector split when ≥2 groups
+ * Beads: a school in the water around each station
  * ------------------------------------------------------------------ */
-
-const GOLDEN_ANGLE = 2.39996;
 
 export type PlacedBead = { bead: MapBead; x: number; y: number; r: number };
 export type PlacedShoal = { cluster: MapCluster; x: number; y: number; r: number };
@@ -526,10 +651,99 @@ export type PlacedShoal = { cluster: MapCluster; x: number; y: number; r: number
 export type BeadPlacement = {
   beads: Map<number, PlacedBead>;
   shoals: Map<TaskStatus, PlacedShoal>;
+  /** The farthest a station's beads (or shoal) reach from its pin, in px. */
   clusterRadius: Record<TaskStatus, number>;
 };
 
-/** Where every bead (and shoal) sits, in canvas pixels — the pure-ish geometry step between `MapLayout` and drawing. */
+type ChannelKey = "main" | "loop" | "creek";
+
+/** Which channel each station sits on. The lagoon's three are on the loop; deferred is on the creek. */
+const STATION_CHANNEL: Record<TaskStatus, ChannelKey> = {
+  backlog: "main",
+  needs_refinement: "main",
+  todo: "main",
+  in_progress: "main",
+  needs_qa: "main",
+  done: "main",
+  blocked: "loop",
+  needs_user_decision: "loop",
+  needs_user_action: "loop",
+  deferred: "creek",
+};
+
+type Channel = {
+  px: [number, number][];
+  len: number[];
+  normals: [number, number][];
+  /** Half-width of the water at sample `i`. */
+  hwAt: (i: number) => number;
+};
+
+const channelsOf = (geometry: SceneGeometry): Record<ChannelKey, Channel> => {
+  const { mainPx, loopPx, creekPx, mainLen, uOf, hwMain, hwLoop, hwCreek } = geometry;
+  return {
+    main: {
+      px: mainPx,
+      len: mainLen,
+      normals: normals(mainPx),
+      hwAt: (i) => hwMain(uOf(mainPx[i]!)),
+    },
+    loop: { px: loopPx, len: cumLen(loopPx), normals: normals(loopPx), hwAt: () => hwLoop },
+    creek: { px: creekPx, len: cumLen(creekPx), normals: normals(creekPx), hwAt: () => hwCreek },
+  };
+};
+
+/** The point, normal, and water half-width at arc length `s` along a channel (clamped to its ends). */
+const channelPoint = (
+  ch: Channel,
+  s: number,
+): { x: number; y: number; nx: number; ny: number; hw: number } => {
+  const last = ch.len.length - 1;
+  const target = clamp(s, 0, ch.len[last]!);
+  let lo = 0;
+  let hi = last;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (ch.len[mid]! <= target) lo = mid;
+    else hi = mid;
+  }
+  const span = ch.len[hi]! - ch.len[lo]! || 1;
+  const t = (target - ch.len[lo]!) / span;
+  const a = ch.px[lo]!;
+  const b = ch.px[hi]!;
+  const na = ch.normals[lo]!;
+  const nb = ch.normals[hi]!;
+  const nx = na[0] + (nb[0] - na[0]) * t;
+  const ny = na[1] + (nb[1] - na[1]) * t;
+  const nl = Math.hypot(nx, ny) || 1;
+  return {
+    x: a[0] + (b[0] - a[0]) * t,
+    y: a[1] + (b[1] - a[1]) * t,
+    nx: nx / nl,
+    ny: ny / nl,
+    hw: ch.hwAt(lo) + (ch.hwAt(hi) - ch.hwAt(lo)) * t,
+  };
+};
+
+/**
+ * Where every bead (and shoal) sits, in canvas pixels — the pure-ish geometry
+ * step between `MapLayout` and drawing.
+ *
+ * Beads sit **in the river**, not in a disc around the pin. Each station gets
+ * a stretch of its own channel — from halfway to the station upstream to
+ * halfway to the one downstream — and its beads fill a hex lattice inside
+ * that stretch, following the channel's curve. Slots are taken nearest-first
+ * on an ellipse stretched along the flow, and slots in the water always come
+ * before slots on the bank, so a busy station reads as the river filling up
+ * and only then spilling onto the flats. This is what lets the map hold a few
+ * hundred tasks: the capacity grows with the river's length and width
+ * (`computeRiverScale`) instead of with a disc that overlaps its neighbours.
+ *
+ * With two or more groups (projects, epics, …) the chosen slots are ordered
+ * downstream and each group takes a contiguous run, so groups read as bands
+ * of colour moving along the flow. With one group the most important beads
+ * (the layout's `order`) take the slots nearest the pin.
+ */
 export const placeBeads = (
   layout: MapLayout,
   geometry: SceneGeometry,
@@ -539,61 +753,137 @@ export const placeBeads = (
   const beads = new Map<number, PlacedBead>();
   const shoals = new Map<TaskStatus, PlacedShoal>();
   const clusterRadius = {} as Record<TaskStatus, number>;
-  const spacing = 10 * viewportScale * densityScale;
+  // One lattice step: a high-priority bead's diameter plus a hair, so
+  // neighbours touch at most at urgent size.
+  const spacing = 14 * viewportScale * densityScale;
+  const channels = channelsOf(geometry);
+
+  // The first and last channel samples inside the map frame (with a bead of
+  // margin), in each channel's own index space.
+  const inFrame = ([x, y]: [number, number]): boolean =>
+    x >= 16 + spacing && x <= geometry.W - 16 - spacing && y >= 16 + spacing && y <= geometry.H - 16 - spacing;
+  const firstVisible = {} as Record<ChannelKey, number>;
+  const lastVisible = {} as Record<ChannelKey, number>;
+  for (const key of Object.keys(channels) as ChannelKey[]) {
+    const px = channels[key].px;
+    const first = px.findIndex(inFrame);
+    let last = px.length - 1;
+    while (last > 0 && !inFrame(px[last]!)) last -= 1;
+    firstVisible[key] = Math.max(0, first);
+    lastVisible[key] = Math.max(firstVisible[key], last);
+  }
+
+  // Each station's arc position on its channel, so a station knows how far it
+  // may spread before it would reach a neighbour's stretch.
+  const arcOf = {} as Record<TaskStatus, number>;
+  for (const station of Object.keys(STATION) as TaskStatus[]) {
+    const ch = channels[STATION_CHANNEL[station]];
+    arcOf[station] = ch.len[nearestIdx(ch.px, geometry.P(STATION[station]))]!;
+  }
 
   for (const station of Object.keys(STATION) as TaskStatus[]) {
     const cluster = layout.clusters[station];
     const [cx, cy] = geometry.P(STATION[station]);
-    let maxR = 0;
+    const channelKey = STATION_CHANNEL[station];
+    const ch = channels[channelKey];
+    const s0 = arcOf[station];
 
-    const sectorGroups = cluster.groups.filter((g) => g.count > 0);
-    const useSectors = sectorGroups.length >= 2;
-    const totalCount = sectorGroups.reduce((sum, g) => sum + g.count, 0) || 1;
-    let angleCursor = -Math.PI / 2;
-    const sectorAngles = new Map<string, { start: number; sweep: number }>();
-    if (useSectors) {
-      for (const g of sectorGroups) {
-        const sweep = (g.count / totalCount) * Math.PI * 2;
-        sectorAngles.set(g.key, { start: angleCursor, sweep });
-        angleCursor += sweep;
+    // Halfway to the nearest station on the same channel, each way — and
+    // never past the map frame: the main channel starts and ends off-canvas.
+    let up = s0 - ch.len[firstVisible[channelKey]]!;
+    let down = ch.len[lastVisible[channelKey]]! - s0;
+    for (const other of Object.keys(STATION) as TaskStatus[]) {
+      if (other === station || STATION_CHANNEL[other] !== channelKey) continue;
+      const gap = arcOf[other] - s0;
+      if (gap > 0) down = Math.min(down, gap / 2);
+      else if (gap < 0) up = Math.min(up, -gap / 2);
+    }
+    // Leave at least a bead-and-a-half of open water between two stations'
+    // schools, so neighbours never read as one crowd.
+    const cap = 140 * viewportScale;
+    const upSpan = clamp(up - spacing * 1.1, spacing * 0.5, cap);
+    const downSpan = clamp(down - spacing * 1.1, spacing * 0.5, cap);
+    const alongRef = Math.max(spacing, (upSpan + downSpan) / 2);
+
+    const hwHere = channelPoint(ch, s0).hw;
+    const wanted = cluster.beads.length + (cluster.shoal === null ? 0 : 1);
+
+    // Hex lattice slots: rows across the flow, columns along it (odd rows
+    // shifted half a step). Enough rows to hold `wanted` even if most land on
+    // the bank.
+    const dy = spacing * 0.88;
+    const maxRow = Math.max(1, Math.ceil(hwHere / dy) + Math.ceil(wanted / 6) + 2);
+    type Slot = { a: number; c: number; cost: number };
+    const slots: Slot[] = [];
+    for (let row = -maxRow; row <= maxRow; row += 1) {
+      const c = row * dy;
+      const shift = Math.abs(row) % 2 === 1 ? spacing / 2 : 0;
+      for (let k = -Math.ceil(upSpan / spacing) - 1; k <= Math.ceil(downSpan / spacing) + 1; k += 1) {
+        const a = k * spacing + shift;
+        if (a < -upSpan || a > downSpan) continue;
+        const { hw } = channelPoint(ch, s0 + a);
+        const inWater = Math.abs(c) <= Math.max(spacing * 0.5, hw - spacing * 0.35);
+        const cost =
+          (inWater ? 0 : 1000 + Math.abs(c) - hw) +
+          (a / alongRef) ** 2 +
+          (c / Math.max(spacing, hw)) ** 2 * 0.8;
+        slots.push({ a, c, cost });
       }
     }
+    slots.sort((p, q) => p.cost - q.cost);
+    const chosen = slots.slice(0, wanted);
 
-    const localIndex = new Map<string, number>();
+    const sectorGroups = cluster.groups.filter((g) => g.count > 0);
+    const useBands = sectorGroups.length >= 2;
+    let ordered: MapBead[];
+    let beadSlots: Slot[];
+    let shoalSlot: Slot | undefined;
+    if (useBands) {
+      // Downstream order; the shoal (if any) takes the outermost slot first.
+      const beadCount = cluster.beads.length;
+      if (cluster.shoal !== null) shoalSlot = chosen[chosen.length - 1];
+      beadSlots = chosen.slice(0, beadCount).sort((p, q) => p.a - q.a || p.c - q.c);
+      const groupRank = new Map(sectorGroups.map((g, i) => [g.key, i]));
+      ordered = [...cluster.beads].sort(
+        (p, q) =>
+          (groupRank.get(p.groupKey) ?? 0) - (groupRank.get(q.groupKey) ?? 0) ||
+          p.order - q.order,
+      );
+    } else {
+      beadSlots = chosen.slice(0, cluster.beads.length);
+      shoalSlot = cluster.shoal === null ? undefined : chosen[cluster.beads.length];
+      ordered = [...cluster.beads].sort((p, q) => p.order - q.order);
+    }
 
-    cluster.beads.forEach((bead) => {
+    let maxR = 0;
+    ordered.forEach((bead, i) => {
+      const slot = beadSlots[i];
       const r = beadRadius(bead.task.priority, viewportScale, densityScale);
-      let x: number;
-      let y: number;
-      if (useSectors) {
-        const sector = sectorAngles.get(bead.groupKey);
-        const i = localIndex.get(bead.groupKey) ?? 0;
-        localIndex.set(bead.groupKey, i + 1);
-        const groupCount = sectorGroups.find((g) => g.key === bead.groupKey)?.count ?? 1;
-        const theta = sector !== undefined ? sector.start + ((i + 0.5) / Math.max(1, groupCount)) * sector.sweep : 0;
-        const radius = spacing * Math.sqrt(i + 1);
-        x = cx + Math.cos(theta) * radius;
-        y = cy + Math.sin(theta) * radius;
-        maxR = Math.max(maxR, radius + r);
-      } else {
-        const radius = spacing * Math.sqrt(bead.order);
-        const theta = bead.order * GOLDEN_ANGLE + 0.6;
-        x = cx + Math.cos(theta) * radius;
-        y = cy + Math.sin(theta) * radius;
-        maxR = Math.max(maxR, radius + r);
-      }
+      if (slot === undefined) return;
+      const pt = channelPoint(ch, s0 + slot.a);
+      const x = pt.x + pt.nx * slot.c;
+      const y = pt.y + pt.ny * slot.c;
       beads.set(bead.task.id, { bead, x, y, r });
+      maxR = Math.max(maxR, Math.hypot(x - cx, y - cy) + r);
     });
 
     if (cluster.shoal !== null) {
-      const i = cluster.beads.length;
-      const radius = spacing * Math.sqrt(i + 1);
-      const theta = i * GOLDEN_ANGLE + 0.6;
-      const shoalR = Math.max(8, spacing * Math.sqrt(cluster.shoal.count) * 0.6);
-      const x = cx + Math.cos(theta) * radius;
-      const y = cy + Math.sin(theta) * radius;
+      const shoalR = Math.max(8, spacing * Math.sqrt(cluster.shoal.count) * 0.45);
+      // A sandbar just outside the station's own beads, on the side the
+      // lattice filled least — beside the school it belongs to (not at the far
+      // bank: at the mouth the water is hundreds of pixels wide), and never on
+      // top of a bead.
+      const side = (shoalSlot?.c ?? 1) >= 0 ? 1 : -1;
+      const edge = beadSlots.reduce(
+        (outer, slot) => (Math.sign(slot.c) === side ? Math.max(outer, Math.abs(slot.c)) : outer),
+        0,
+      );
+      const pt = channelPoint(ch, s0);
+      const off = side * (edge + spacing / 2 + shoalR + 4);
+      const x = pt.x + pt.nx * off;
+      const y = pt.y + pt.ny * off;
       shoals.set(station, { cluster, x, y, r: shoalR });
-      maxR = Math.max(maxR, radius + shoalR);
+      maxR = Math.max(maxR, Math.hypot(x - cx, y - cy) + shoalR);
     }
 
     clusterRadius[station] = maxR || 6 * viewportScale;
@@ -606,7 +896,15 @@ export const placeBeads = (
  * Callouts — greedy collision avoidance
  * ------------------------------------------------------------------ */
 
-export type CalloutRect = { x: number; y: number; w: number; h: number; text: string; anchorX: number; anchorY: number };
+export type CalloutRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text: string;
+  anchorX: number;
+  anchorY: number;
+};
 
 const rectsOverlap = (a: CalloutRect, b: CalloutRect): boolean =>
   a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -619,7 +917,10 @@ const rectsOverlap = (a: CalloutRect, b: CalloutRect): boolean =>
  * 6px gap, not just "not literally on top of each other."
  */
 const rectsOverlapWithMargin = (a: CalloutRect, b: CalloutRect, margin: number): boolean =>
-  rectsOverlap({ ...a, x: a.x - margin, y: a.y - margin, w: a.w + margin * 2, h: a.h + margin * 2 }, b);
+  rectsOverlap(
+    { ...a, x: a.x - margin, y: a.y - margin, w: a.w + margin * 2, h: a.h + margin * 2 },
+    b,
+  );
 
 /** The minimum gap `placePlate` keeps between two plates (or a plate and a ghost label — see `drawFrame`). */
 export const PLATE_MARGIN = 6;
@@ -670,6 +971,11 @@ export const placeCallout = (
  * legible — a still-overlapping fallback (the first candidate) beats no
  * plate at all. Tries 8 compass directions, closest ring first, at the
  * pin's own `gap` (the cluster radius plus a little air).
+ *
+ * `preferredAngle` (radians, canvas convention: +y is down) reorders the
+ * directions nearest-first and measures `gap` to the plate's near edge
+ * rather than its centre — the lagoon's plates use it to sit on the loop's
+ * outside, each beside its own station, instead of crowding the middle.
  */
 export const placePlate = (
   ax: number,
@@ -680,15 +986,49 @@ export const placePlate = (
   placed: readonly CalloutRect[],
   bounds: { W: number; H: number },
   text: string,
+  preferredAngle?: number,
 ): CalloutRect => {
-  const directions = [-Math.PI / 2, -Math.PI / 4, (-3 * Math.PI) / 4, 0, Math.PI, Math.PI / 4, (3 * Math.PI) / 4, Math.PI / 2];
+  const angularDistance = (a: number, b: number): number => {
+    const d = Math.abs(a - b) % (Math.PI * 2);
+    return d > Math.PI ? Math.PI * 2 - d : d;
+  };
+  const defaultOrder = [
+    -Math.PI / 2,
+    -Math.PI / 4,
+    (-3 * Math.PI) / 4,
+    0,
+    Math.PI,
+    Math.PI / 4,
+    (3 * Math.PI) / 4,
+    Math.PI / 2,
+  ];
+  const directions =
+    preferredAngle === undefined
+      ? defaultOrder
+      : [...defaultOrder].sort(
+          (a, b) => angularDistance(a, preferredAngle) - angularDistance(b, preferredAngle),
+        );
   const rings = [gap, gap + h + 6, gap + (h + 6) * 2];
 
   let fallback: CalloutRect | null = null;
   for (const distance of rings) {
     for (const angle of directions) {
-      const cx = ax + Math.cos(angle) * distance;
-      const cy = ay + Math.sin(angle) * distance;
+      // With a preferred side, `distance` is the air between the pin and the
+      // plate's *near edge*: the centre moves out by the rect's own
+      // half-extent along this direction too. Centre-based (the default,
+      // tuned for the up-first order), a wide plate placed sideways sits on
+      // its own pin.
+      const c = Math.cos(angle);
+      const sn = Math.sin(angle);
+      const halfExtent =
+        preferredAngle === undefined
+          ? 0
+          : Math.min(
+              Math.abs(c) < 1e-6 ? Infinity : w / 2 / Math.abs(c),
+              Math.abs(sn) < 1e-6 ? Infinity : h / 2 / Math.abs(sn),
+            );
+      const cx = ax + c * (distance + halfExtent);
+      const cy = ay + sn * (distance + halfExtent);
       const x = clamp(cx - w / 2, 12, bounds.W - 12 - w);
       const y = clamp(cy - h / 2, 12, bounds.H - 12 - h);
       const rect: CalloutRect = { x, y, w, h, text, anchorX: ax, anchorY: ay };
@@ -713,7 +1053,9 @@ export const isClaimExpiringSoon = (task: FloorTask, now: number): boolean => {
 
 const STALE_MS = 7 * 24 * 60 * 60 * 1000;
 export const isStaleBead = (task: FloorTask, now: number): boolean =>
-  task.status !== "done" && task.status !== "deferred" && now - new Date(task.updatedAt).getTime() > STALE_MS;
+  task.status !== "done" &&
+  task.status !== "deferred" &&
+  now - new Date(task.updatedAt).getTime() > STALE_MS;
 
 /* ------------------------------------------------------------------ *
  * Day / night light
@@ -727,7 +1069,10 @@ export const lightAt = (date: Date): LightState => {
   const s = Math.sin((Math.PI * (hour - 6)) / 12);
   const night = clamp(-s * 1.4, 0, 1);
   const day = clamp(s, 0, 1);
-  const warm = Math.max(Math.exp(-((hour - 6.4) ** 2) / 1.3), Math.exp(-((hour - 19.3) ** 2) / 1.1));
+  const warm = Math.max(
+    Math.exp(-((hour - 6.4) ** 2) / 1.3),
+    Math.exp(-((hour - 19.3) ** 2) / 1.1),
+  );
   return { night, day, warm, hour };
 };
 
@@ -751,23 +1096,139 @@ export const formatClockLabel = (clockAt: string | undefined): string => {
  * Hit list
  * ------------------------------------------------------------------ */
 
-export type FloorHitTarget =
-  | { kind: "bead"; task: FloorTask; x: number; y: number; r: number }
-  | { kind: "shoal"; station: TaskStatus; x: number; y: number; r: number }
-  | { kind: "ghost"; ghost: MapGhostBead; x: number; y: number; r: number }
-  | { kind: "station"; station: TaskStatus; x: number; y: number; r: number };
+/** A rectangular hit area — a station's label plate, a bead's callout, a ghost's label. */
+export type HitBox = { x: number; y: number; w: number; h: number };
 
-export const hitTest = (hits: readonly FloorHitTarget[], px: number, py: number): FloorHitTarget | undefined => {
+/**
+ * `x`/`y` is always the thing's own anchor (a bead's centre, a station's
+ * pin) — the hover tip positions itself from it. With `box`, the target is
+ * that rectangle instead of the `r`-radius circle around the anchor.
+ */
+export type FloorHitTarget = (
+  | { kind: "bead"; task: FloorTask }
+  | { kind: "shoal"; station: TaskStatus }
+  | { kind: "ghost"; ghost: MapGhostBead }
+  | { kind: "station"; station: TaskStatus }
+) & { x: number; y: number; r: number; box?: HitBox };
+
+/**
+ * Lower wins. A single bead sits exactly on its station's pin, so without
+ * this the pin (pushed first, tied on distance) swallowed the bead's click
+ * and a click meant for a task toggled the status filter instead.
+ */
+const HIT_PRIORITY: Record<FloorHitTarget["kind"], number> = {
+  bead: 0,
+  ghost: 0,
+  shoal: 1,
+  station: 2,
+};
+
+/** Forgiveness around a circle's radius — beads are small click targets. */
+const CIRCLE_SLOP = 8;
+/** Forgiveness around a box's edge. */
+const BOX_SLOP = 2;
+
+const hitDistance = (hit: FloorHitTarget, px: number, py: number): number | null => {
+  if (hit.box !== undefined) {
+    const { x, y, w, h } = hit.box;
+    const inside =
+      px >= x - BOX_SLOP && px <= x + w + BOX_SLOP && py >= y - BOX_SLOP && py <= y + h + BOX_SLOP;
+    return inside ? 0 : null;
+  }
+  const d = Math.hypot(hit.x - px, hit.y - py);
+  return d < hit.r + CIRCLE_SLOP ? d : null;
+};
+
+/**
+ * What a hit target points at, independent of which of its shapes (a bead's
+ * disc or its callout box, a station's pin or its plate) was hit — two hits
+ * with the same key open the same thing.
+ */
+export const hitKey = (hit: FloorHitTarget): string => {
+  switch (hit.kind) {
+    case "bead":
+      return `bead:${hit.task.id}`;
+    case "ghost":
+      return `ghost:${hit.ghost.ref.project ?? ""}:${hit.ghost.ref.id}`;
+    case "shoal":
+      return `shoal:${hit.station}`;
+    case "station":
+      return `station:${hit.station}`;
+  }
+};
+
+/**
+ * The target under `(px, py)`: best `HIT_PRIORITY` first, then nearest.
+ *
+ * `stickyKey` (the currently hovered target's `hitKey`) is hysteresis: while
+ * the pointer is still inside that target's own hit area it keeps winning
+ * over an equal-priority neighbour, even a slightly nearer one. Two beads
+ * whose slop circles overlap otherwise hand the hover back and forth on every
+ * pixel of movement along the seam. A higher-priority target (a bead over the
+ * station it sits on) still takes over.
+ */
+export const hitTest = (
+  hits: readonly FloorHitTarget[],
+  px: number,
+  py: number,
+  stickyKey?: string | null,
+): FloorHitTarget | undefined => {
   let best: FloorHitTarget | undefined;
+  let bestPriority = Number.POSITIVE_INFINITY;
   let bestD = Number.POSITIVE_INFINITY;
+  let sticky: FloorHitTarget | undefined;
+  let stickyD = Number.POSITIVE_INFINITY;
   for (const hit of hits) {
-    const d = Math.hypot(hit.x - px, hit.y - py);
-    if (d < hit.r + 8 && d < bestD) {
+    const d = hitDistance(hit, px, py);
+    if (d === null) continue;
+    const priority = HIT_PRIORITY[hit.kind];
+    if (priority < bestPriority || (priority === bestPriority && d < bestD)) {
+      bestPriority = priority;
       bestD = d;
       best = hit;
     }
+    if (stickyKey != null && d < stickyD && hitKey(hit) === stickyKey) {
+      sticky = hit;
+      stickyD = d;
+    }
   }
+  if (sticky !== undefined && HIT_PRIORITY[sticky.kind] === bestPriority) return sticky;
   return best;
+};
+
+/** Gap between the map's hover card and whatever it is describing. */
+const TIP_GAP = 14;
+/** Minimum distance from the canvas edge. */
+const TIP_EDGE = 8;
+
+/**
+ * Where the card goes: beside the hovered bead *and* its callout (`avoid`),
+ * right first, then left, then below, then above — never on top of the thing
+ * under the pointer, which is what made the old card (always `x + 16`) sit
+ * over the label you were reading. Clamped inside the canvas either way.
+ */
+export const placeHoverTip = (
+  avoid: HitBox,
+  anchorY: number,
+  tip: { w: number; h: number },
+  bounds: { width: number; height: number },
+): { left: number; top: number } => {
+  const maxLeft = Math.max(TIP_EDGE, bounds.width - tip.w - TIP_EDGE);
+  const maxTop = Math.max(TIP_EDGE, bounds.height - tip.h - TIP_EDGE);
+  const clampLeft = (v: number) => Math.min(maxLeft, Math.max(TIP_EDGE, v));
+  const clampTop = (v: number) => Math.min(maxTop, Math.max(TIP_EDGE, v));
+  const sideTop = clampTop(anchorY - 28);
+
+  const right = avoid.x + avoid.w + TIP_GAP;
+  if (right + tip.w <= bounds.width - TIP_EDGE) return { left: right, top: sideTop };
+  const left = avoid.x - TIP_GAP - tip.w;
+  if (left >= TIP_EDGE) return { left, top: sideTop };
+  const centred = clampLeft(avoid.x + avoid.w / 2 - tip.w / 2);
+  const below = avoid.y + avoid.h + TIP_GAP;
+  if (below + tip.h <= bounds.height - TIP_EDGE) return { left: centred, top: below };
+  const above = avoid.y - TIP_GAP - tip.h;
+  if (above >= TIP_EDGE) return { left: centred, top: above };
+  return { left: centred, top: clampTop(below) };
 };
 
 /* ------------------------------------------------------------------ *
@@ -831,10 +1292,29 @@ export type RenderedArrival = {
 
 export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
   const {
-    ctx, staticLayer, layout, geometry, placement, colors, projectOrder, groupMode,
-    hoveredTaskId, selectedTaskId, keyboardTaskId, sectorLabelStation, links, now, clockDate, time, dpr,
-    showAllCallouts, isLive, activeAnimations = [], arrivals = [],
-    boatAlpha = new Map<number, number>(), fadingOutBoats = [],
+    ctx,
+    staticLayer,
+    layout,
+    geometry,
+    placement,
+    colors,
+    projectOrder,
+    groupMode,
+    hoveredTaskId,
+    selectedTaskId,
+    keyboardTaskId,
+    sectorLabelStation,
+    links,
+    now,
+    clockDate,
+    time,
+    dpr,
+    showAllCallouts,
+    isLive,
+    activeAnimations = [],
+    arrivals = [],
+    boatAlpha = new Map<number, number>(),
+    fadingOutBoats = [],
   } = options;
   const animatingTaskIds = new Set(activeAnimations.map((a) => a.taskId));
   const { W, H, P } = geometry;
@@ -858,15 +1338,19 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     p.forEach((pt, i) => (i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1])));
     ctx.stroke();
   };
-  ([[geometry.mainPx, [-6, 0, 6]], [geometry.loopPx, [-3, 3]], [geometry.creekPx, [0]]] as const).forEach(
-    ([p_, lanes]) => {
-      lanes.forEach((d, i) => {
-        ctx.setLineDash([2 + i, 17 + i * 3]);
-        ctx.lineDashOffset = off * (1 + i * 0.15);
-        strokePoly(d ? offsetPoly(p_, d * geometry.BS) : p_);
-      });
-    },
-  );
+  (
+    [
+      [geometry.mainPx, [-6, 0, 6]],
+      [geometry.loopPx, [-3, 3]],
+      [geometry.creekPx, [0]],
+    ] as const
+  ).forEach(([p_, lanes]) => {
+    lanes.forEach((d, i) => {
+      ctx.setLineDash([2 + i, 17 + i * 3]);
+      ctx.lineDashOffset = off * (1 + i * 0.15);
+      strokePoly(d ? offsetPoly(p_, d * geometry.BS) : p_);
+    });
+  });
   ctx.setLineDash([]);
 
   // Day/night light, from the real (or replayed) clock. Capped while live —
@@ -903,7 +1387,10 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     if (count === 0) continue;
     const [x, y] = P(STATION[station]);
     const breath = 1 + Math.sin(time * 4.5 + x) * 0.05;
-    const r = (placement.clusterRadius[station] + 14 + Math.min(56, count * 7)) * breath;
+    // The school now stretches along the channel, so its reach can be long;
+    // cap its share of the glow so a busy pool stays a pool, not a lake.
+    const reach = Math.min(placement.clusterRadius[station], 70 * geometry.BS);
+    const r = (reach + 14 + Math.min(40, count * 5)) * breath;
     const col = kind === "block" ? colors.poolBlock : colors.poolAttn;
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
     gradient.addColorStop(0, colorWithAlpha(col, 0.3));
@@ -914,7 +1401,9 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = colorWithAlpha(col, 0.35);
-    ctx.setLineDash([2, 5]);
+    // Decision's ring is dotted, action's dashed — a second cue, besides the
+    // plate icon, that the two neighbouring amber pools are different stations.
+    ctx.setLineDash(station === "needs_user_action" ? [7, 4] : [2, 5]);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(x, y, r * 0.78, 0, Math.PI * 2);
@@ -930,7 +1419,11 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
   // a callout anchored 12–34px from its own bead's centre would otherwise
   // almost always collide with its own bead's obstacle rect.
   const BEAD_OBSTACLE_PAD = 3;
-  const beadObstacles: CalloutRect[] = [...placement.beads.values()].map(({ x, y, r }) => ({
+  // Shoals count as beads here: a plate on top of a "+14" hides the count.
+  const beadObstacles: CalloutRect[] = [
+    ...placement.beads.values(),
+    ...placement.shoals.values(),
+  ].map(({ x, y, r }) => ({
     x: x - r - BEAD_OBSTACLE_PAD,
     y: y - r - BEAD_OBSTACLE_PAD,
     w: (r + BEAD_OBSTACLE_PAD) * 2,
@@ -972,7 +1465,10 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
       [...beadObstacles, ...plateRects],
     );
     plateRects.push(plateRect);
+    // The pin *and* its plate — the plate ("BACKLOG · 2 tasks") is what
+    // reads as the station, so it has to be clickable, not just the 4.5px pin.
     hits.push({ kind: "station", station, x, y, r: 10 });
+    hits.push({ kind: "station", station, x, y, r: 0, box: plateRect });
 
     // Sector dividers + tiny group labels — only for the hovered/selected
     // cluster. Printing every group's name around all ten stations at once
@@ -983,23 +1479,34 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     const cluster = layout.clusters[station];
     const groups = cluster.groups.filter((g) => g.count > 0);
     if (groups.length >= 2) {
-      const total = groups.reduce((sum, g) => sum + g.count, 0) || 1;
-      let angle = -Math.PI / 2;
-      const R = placement.clusterRadius[station] + 6;
-      ctx.strokeStyle = colorWithAlpha(colors.ink, 0.25);
-      ctx.lineWidth = 1;
+      // Groups are bands along the flow now (see `placeBeads`), so each
+      // group's name goes just outside its band: at the band's centroid,
+      // pushed away from the station pin.
+      ctx.fillStyle = colorWithAlpha(colors.ink, 0.75);
+      ctx.font = `600 9px "Azeret Mono", monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
       for (const g of groups) {
-        const sweep = (g.count / total) * Math.PI * 2;
-        const mid = angle + sweep / 2;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(angle) * R, y + Math.sin(angle) * R);
-        ctx.stroke();
-        ctx.fillStyle = colorWithAlpha(colors.ink, 0.7);
-        ctx.font = `600 9px "Azeret Mono", monospace`;
-        ctx.textAlign = "center";
-        ctx.fillText(g.label.slice(0, 12), x + Math.cos(mid) * (R + 10), y + Math.sin(mid) * (R + 10));
-        angle += sweep;
+        let sx = 0;
+        let sy = 0;
+        let n = 0;
+        let reach = 0;
+        for (const bead of cluster.beads) {
+          if (bead.groupKey !== g.key) continue;
+          const placed = placement.beads.get(bead.task.id);
+          if (placed === undefined) continue;
+          sx += placed.x;
+          sy += placed.y;
+          n += 1;
+          reach = Math.max(reach, placed.r);
+        }
+        if (n === 0) continue;
+        const gx = sx / n;
+        const gy = sy / n;
+        // Above the band on a horizontal map, beside it on the phone's vertical one.
+        const lx = geometry.horiz ? gx : gx + (gx >= x ? 1 : -1) * 34;
+        const ly = geometry.horiz ? gy - reach - 16 - Math.sqrt(n) * 3 : gy;
+        ctx.fillText(g.label.slice(0, 12), lx, ly);
       }
     }
   }
@@ -1059,10 +1566,21 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     const h = 16;
 
     let y = geometry.padY + 20 + i * 26;
-    const rectAt = (cy: number): CalloutRect => ({ x: tributaryX - 6, y: cy - h / 2, w, h, text: label, anchorX: tributaryX, anchorY: cy });
+    const rectAt = (cy: number): CalloutRect => ({
+      x: tributaryX - 6,
+      y: cy - h / 2,
+      w,
+      h,
+      text: label,
+      anchorX: tributaryX,
+      anchorY: cy,
+    });
     let rect = rectAt(y);
     let attempts = 0;
-    while (ghostRects.some((other) => rectsOverlapWithMargin(rect, other, PLATE_MARGIN)) && attempts < 40) {
+    while (
+      ghostRects.some((other) => rectsOverlapWithMargin(rect, other, PLATE_MARGIN)) &&
+      attempts < 40
+    ) {
       y += 4;
       rect = rectAt(y);
       attempts += 1;
@@ -1083,6 +1601,7 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     ctx.fillText(label, tributaryX + 12, y + 3);
     ctx.restore();
     hits.push({ kind: "ghost", ghost, x: tributaryX, y, r: 8 });
+    hits.push({ kind: "ghost", ghost, x: tributaryX, y, r: 0, box: rect });
   });
 
   // Beads + shoals. Callouts are collected here and placed in one batch after
@@ -1090,7 +1609,16 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
   // every other callout, and dropping the lowest-priority ones only makes
   // sense once we know how many are actually competing for room.
   const calloutRects: CalloutRect[] = [...plateRects];
-  const calloutCandidates: { x: number; y: number; label: string; w: number; h: number; rank: number; secondary: number }[] = [];
+  const calloutCandidates: {
+    task: FloorTask;
+    x: number;
+    y: number;
+    label: string;
+    w: number;
+    h: number;
+    rank: number;
+    secondary: number;
+  }[] = [];
   const visibleBeadCount = placement.beads.size;
   const lowDensity = visibleBeadCount <= 30;
 
@@ -1102,14 +1630,24 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     const isSelected = taskId === selectedTaskId;
     const isHovered = taskId === hoveredTaskId;
     const isKeyboard = taskId === keyboardTaskId;
-    const colorIndex = beadColorIndex(bead.task, bead.groupKey, bead.groupIndex, groupMode, projectOrder);
+    const colorIndex = beadColorIndex(
+      bead.task,
+      bead.groupKey,
+      bead.groupIndex,
+      groupMode,
+      projectOrder,
+    );
     const col = laneColor(colorIndex, colors);
     const r = placed.r * (isSelected || isHovered ? 1.3 : 1);
 
     ctx.globalAlpha = bead.dimmed || !bead.traced ? (bead.dimmed && !bead.traced ? 0.1 : 0.15) : 1;
 
     // Urgent pulse.
-    if (bead.task.priority === "urgent" && bead.task.status !== "done" && bead.task.status !== "deferred") {
+    if (
+      bead.task.priority === "urgent" &&
+      bead.task.status !== "done" &&
+      bead.task.status !== "deferred"
+    ) {
       const e = (time * 0.5 + bead.task.id) % 1;
       ctx.strokeStyle = colorWithAlpha(col, 0.5 * (1 - e));
       ctx.lineWidth = 1.5;
@@ -1141,6 +1679,14 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
       ctx.arc(x, y, r + 4, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
+    } else if (isHovered) {
+      // A soft halo, lighter than the selection ring — the hover card names
+      // the bead, this just ties the card to it.
+      ctx.strokeStyle = colorWithAlpha(colors.ink, 0.45);
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     if (bead.task.unblocksCount >= 2) {
@@ -1153,37 +1699,94 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     ctx.globalAlpha = 1;
     hits.push({ kind: "bead", task: bead.task, x, y, r: Math.max(r, 6) });
 
-    // Callouts: always for must-show beads in pools/boats, hovered/selected, or
-    // at low density every bead that fits. Collected now, placed after the
-    // loop in priority order (hovered/selected first, then needs-you oldest
-    // first, then urgent, then blocked, then the rest) — see the batch below.
+    // Callouts: always for must-show beads in pools/boats, the selected or
+    // keyboard-focused bead, or at low density every bead that fits.
+    // Collected now, placed after the loop in priority order (selected/focused
+    // first, then needs-you oldest first, then urgent, then blocked, then the
+    // rest) — see the batch below.
+    //
+    // **Hover never decides which callouts exist or where they go.** It used
+    // to rank the hovered bead's callout first, which re-ran the greedy
+    // placement with a different order: other callouts shifted or dropped, a
+    // different one slid under the pointer, the next pointermove hovered
+    // *that* task, and the two traded places every frame — the flickering
+    // hover card. Hit targets must not depend on hover state; the hover card
+    // (`FloorCanvas`'s `HoverTip`) is what names a hovered bead, and hover only
+    // restyles a callout that is already there (`drawCallout`'s `emphasis`).
     const inPool = POOL_STATIONS[bead.task.status] !== undefined;
+    const isPinned = isSelected || isKeyboard;
     // Vertical mode (the phone's narrow river) draws **plates only, plus the
-    // selected/hovered bead's callout** — every must-show/urgent/blocked
+    // selected/focused bead's callout** — every must-show/urgent/blocked
     // callout at once, stacked in a 390px-wide column, is exactly what made
     // the phone map illegible.
+    // Done work never gets a label unless it is pinned: it is finished, and
+    // its titles are what used to crowd the mouth of the river.
+    const isDone = bead.task.status === "done";
     const wantsCallout = geometry.horiz
-      ? isHovered || isSelected || (bead.mustShow && inPool) || (lowDensity && showAllCallouts)
-      : isHovered || isSelected;
+      ? isPinned || (!isDone && ((bead.mustShow && inPool) || (lowDensity && showAllCallouts)))
+      : isPinned;
     if (wantsCallout && !bead.dimmed) {
       const label = `#${bead.task.id} ${truncate(bead.task.title, 28)}`;
       const w = Math.min(180, 14 + label.length * 5.4);
       const h = 16;
-      const rank = isHovered || isSelected ? 0 : inPool && bead.mustShow ? 1 : bead.task.priority === "urgent" ? 2 : bead.task.status === "blocked" ? 3 : 4;
+      const rank = isPinned
+        ? 0
+        : inPool && bead.mustShow
+          ? 1
+          : bead.task.priority === "urgent"
+            ? 2
+            : bead.task.status === "blocked"
+              ? 3
+              : 4;
       const secondary = rank === 1 ? new Date(bead.task.updatedAt).getTime() : 0;
-      calloutCandidates.push({ x, y, label, w, h, rank, secondary });
+      calloutCandidates.push({ task: bead.task, x, y, label, w, h, rank, secondary });
     }
   }
 
   calloutCandidates.sort((a, b) => a.rank - b.rank || a.secondary - b.secondary);
+  // On a busy map a label per waiting bead turns the lagoon into a wall of
+  // text. Past 40 visible beads each pool labels only its two longest
+  // waiting; the plate already carries the count ("30 · to review"), and
+  // hovering any bead still names it. Pinned (selected/focused) callouts are
+  // never capped.
+  const poolCalloutCap = placement.beads.size > 40 ? 2 : Number.POSITIVE_INFINITY;
+  const poolCallouts = new Map<TaskStatus, number>();
   for (const candidate of calloutCandidates) {
-    const rect = placeCallout(candidate.x, candidate.y, candidate.label, candidate.w, candidate.h, calloutRects, {
-      W,
-      H,
-    });
+    if (candidate.rank === 1) {
+      const used = poolCallouts.get(candidate.task.status) ?? 0;
+      if (used >= poolCalloutCap) continue;
+      poolCallouts.set(candidate.task.status, used + 1);
+    }
+    const rect = placeCallout(
+      candidate.x,
+      candidate.y,
+      candidate.label,
+      candidate.w,
+      candidate.h,
+      calloutRects,
+      {
+        W,
+        H,
+      },
+    );
     if (rect === null) continue; // dropped — the bead's hover tip still has this
     calloutRects.push(rect);
-    drawCallout(ctx, colors, rect);
+    const emphasis =
+      candidate.task.id === selectedTaskId
+        ? "selected"
+        : candidate.task.id === hoveredTaskId
+          ? "hovered"
+          : "none";
+    drawCallout(ctx, colors, rect, emphasis);
+    // A callout names its task, so clicking it opens that task like its bead does.
+    hits.push({
+      kind: "bead",
+      task: candidate.task,
+      x: candidate.x,
+      y: candidate.y,
+      r: 0,
+      box: rect,
+    });
   }
 
   for (const [station, shoal] of placement.shoals) {
@@ -1249,7 +1852,8 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
     ctx.strokeStyle = colors.ground2;
     ctx.stroke();
     const task = placement.beads.get(anim.taskId)?.bead.task;
-    if (task !== undefined) hits.push({ kind: "bead", task, x: anim.x, y: anim.y, r: Math.max(anim.radius, 6) });
+    if (task !== undefined)
+      hits.push({ kind: "bead", task, x: anim.x, y: anim.y, r: Math.max(anim.radius, 6) });
   }
 
   // Arrivals: a splash ring at the bead's own arrival point, a brighter flash
@@ -1295,24 +1899,93 @@ export const drawFrame = (options: DrawFrameOptions): FloorHitTarget[] => {
 const truncate = (text: string, max: number): string =>
   text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 
-const drawCallout = (ctx: CanvasRenderingContext2D, colors: FloorColors, rect: CalloutRect): void => {
-  ctx.strokeStyle = colorWithAlpha(colors.ink, 0.25);
-  ctx.lineWidth = 1;
+/**
+ * `emphasis` restyles a callout in place — it never moves or resizes it (see
+ * the hover note in `drawFrame`): a hovered one gets a stronger leader line
+ * and border, the selected one an ink border on top of that.
+ */
+const drawCallout = (
+  ctx: CanvasRenderingContext2D,
+  colors: FloorColors,
+  rect: CalloutRect,
+  emphasis: "none" | "hovered" | "selected" = "none",
+): void => {
+  const emphasized = emphasis !== "none";
+  // The leader meets whichever edge faces the anchor — the side edge when the
+  // box sits level with its bead, else the top/bottom edge.
+  const level = rect.anchorY >= rect.y && rect.anchorY <= rect.y + rect.h;
+  const endX = level
+    ? rect.anchorX < rect.x
+      ? rect.x
+      : rect.x + rect.w
+    : clamp(rect.anchorX, rect.x + 6, rect.x + rect.w - 6);
+  const endY = level ? rect.y + rect.h / 2 : rect.y + (rect.y < rect.anchorY ? rect.h : 0);
+  ctx.strokeStyle = colorWithAlpha(colors.ink, emphasized ? 0.6 : 0.25);
+  ctx.lineWidth = emphasized ? 1.25 : 1;
   ctx.beginPath();
   ctx.moveTo(rect.anchorX, rect.anchorY);
-  ctx.lineTo(clamp(rect.anchorX, rect.x + 6, rect.x + rect.w - 6), rect.y + (rect.y < rect.anchorY ? rect.h : 0));
+  ctx.lineTo(endX, endY);
   ctx.stroke();
-
-  rr(ctx, rect.x, rect.y, rect.w, rect.h, 5);
-  ctx.fillStyle = colorWithAlpha(colors.panel, 0.94);
+  ctx.fillStyle = colorWithAlpha(colors.ink, emphasized ? 0.6 : 0.3);
+  ctx.beginPath();
+  ctx.arc(endX, endY, 1.5, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = colors.line2;
+
+  if (emphasized) {
+    ctx.shadowColor = colorWithAlpha(colors.ink, colors.dark ? 0.5 : 0.18);
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 2;
+  }
+  rr(ctx, rect.x, rect.y, rect.w, rect.h, 5);
+  ctx.fillStyle = emphasized ? colors.panel : colorWithAlpha(colors.panel, 0.94);
+  ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.lineWidth = emphasis === "selected" ? 1.5 : 1;
+  ctx.strokeStyle =
+    emphasis === "selected"
+      ? colors.ink
+      : emphasis === "hovered"
+        ? colorWithAlpha(colors.ink, 0.55)
+        : colors.line2;
   ctx.stroke();
   ctx.fillStyle = colors.ink;
-  ctx.font = `500 10px "Azeret Mono", monospace`;
+  ctx.font = `${emphasized ? 600 : 500} 10px "Azeret Mono", monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(rect.text, rect.x + 6, rect.y + rect.h / 2 + 0.5, rect.w - 10);
+};
+
+/**
+ * A waiting-on-you station's icon, knocked out of a filled disc: the disc in
+ * `fill`, the lucide strokes in `ink`. Skipped where `Path2D` doesn't exist
+ * (jsdom) — the plate's count wording still names the kind.
+ */
+const drawStationGlyph = (
+  ctx: CanvasRenderingContext2D,
+  icon: readonly string[],
+  cx: number,
+  cy: number,
+  fill: string,
+  ink: string,
+): void => {
+  const R = 8;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (typeof Path2D === "undefined") return;
+  const size = 11;
+  ctx.save();
+  ctx.translate(cx - size / 2, cy - size / 2);
+  ctx.scale(size / 24, size / 24);
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const d of icon) ctx.stroke(new Path2D(d));
+  ctx.restore();
 };
 
 const drawPlate = (
@@ -1328,7 +2001,10 @@ const drawPlate = (
 ): CalloutRect => {
   const cluster = layout.clusters[station];
   const isPool = POOL_STATIONS[station] !== undefined;
-  const name = station.replace(/_/g, " ").toUpperCase();
+  const mark = HUMAN_STATION_MARK[station];
+  // The app's own status labels ("NEEDS DECISION", not "NEEDS USER
+  // DECISION") — shorter, and the word that differs comes second, not third.
+  const name = TASK_STATUS_LABELS[station].toUpperCase();
   // Shorter in vertical mode ("4 tasks", not "4 · waiting" / "6 under way")
   // — one of a handful of narrow-layout simplifications (see `drawFrame`'s
   // comments on callouts and region labels) that keep the phone map calm.
@@ -1337,20 +2013,41 @@ const drawPlate = (
     : station === "in_progress"
       ? `${cluster.totalCount} under way`
       : isPool && cluster.totalCount > 0
-        ? `${cluster.totalCount} · waiting`
+        ? `${cluster.totalCount} · ${mark?.verb ?? "waiting"}`
         : `${cluster.totalCount} task${cluster.totalCount === 1 ? "" : "s"}`;
 
   ctx.font = `600 10px "Azeret Mono", monospace`;
   const w1 = ctx.measureText(name).width;
   ctx.font = `500 10px "Azeret Mono", monospace`;
   const w2 = ctx.measureText(sub).width;
-  const w = Math.max(w1, w2) + 16;
+  const GLYPH_W = mark === undefined ? 0 : 20;
+  const w = Math.max(w1, w2) + 16 + GLYPH_W;
   const h = 34;
-  const gap = clusterR + (isPool ? 16 : 12);
+  // Lagoon plates prefer the loop's outside (away from its centre), so each
+  // sits beside its own station instead of the three crowding the middle.
+  // Horizontal only: the vertical river runs the lagoon along the canvas's
+  // right edge, where "outside" has no room and clamping stacks the plates.
+  const [cx, cy] = geometry.P(LAGOON_CENTER);
+  const preferredAngle =
+    geometry.horiz && mapRegionOf(station) === "waiting" ? Math.atan2(y - cy, x - cx) : undefined;
+  // Lagoon plates measure `gap` to their near edge (see `placePlate`), so it
+  // must clear the bead obstacle's 3px pad + `PLATE_MARGIN`, or the first
+  // ring always collides with the cluster's own beads.
+  const gap = clusterR + (preferredAngle !== undefined ? 13 : isPool ? 16 : 12);
   // Collision-avoided, not a fixed "always above the pin" offset — two pins
-  // close together (the lagoon's three waiting stations) used to draw their
-  // plates on top of each other, last-drawn winning.
-  const { x: lx, y: ly } = placePlate(x, y, w, h, gap, placedPlates, { W: geometry.W, H: geometry.H }, name);
+  // close together used to draw their plates on top of each other,
+  // last-drawn winning.
+  const { x: lx, y: ly } = placePlate(
+    x,
+    y,
+    w,
+    h,
+    gap,
+    placedPlates,
+    { W: geometry.W, H: geometry.H },
+    name,
+    preferredAngle,
+  );
 
   rr(ctx, lx, ly, w, h, 7);
   ctx.fillStyle = colorWithAlpha(colors.panel, 0.9);
@@ -1362,14 +2059,30 @@ const drawPlate = (
   ctx.lineWidth = 1;
   ctx.stroke();
 
+  if (mark !== undefined) {
+    drawStationGlyph(
+      ctx,
+      mark.icon,
+      lx + 8 + 7,
+      ly + h / 2,
+      hot ? colors.poolAttn : colors.inkFaint,
+      colors.panel,
+    );
+  }
+
+  const tx = lx + 8 + GLYPH_W;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.font = `600 10px "Azeret Mono", monospace`;
   ctx.fillStyle = colors.ink;
-  ctx.fillText(name, lx + 8, ly + 5);
+  ctx.fillText(name, tx, ly + 5);
   ctx.font = `500 10px "Azeret Mono", monospace`;
-  ctx.fillStyle = hot ? (POOL_STATIONS[station] === "block" ? colors.poolBlock : colors.poolAttn) : colors.inkFaint;
-  ctx.fillText(sub, lx + 8, ly + 19);
+  ctx.fillStyle = hot
+    ? POOL_STATIONS[station] === "block"
+      ? colors.poolBlock
+      : colors.poolAttn
+    : colors.inkFaint;
+  ctx.fillText(sub, tx, ly + 19);
 
   return { x: lx, y: ly, w, h, text: name, anchorX: x, anchorY: y };
 };
@@ -1386,7 +2099,8 @@ const drawEdges = (args: {
   if (links === "off") return;
 
   const visible = layout.edges.filter((edge: FloorEdge) => {
-    if (links === "focus") return focusId !== null && (edge.blockerId === focusId || edge.dependentId === focusId);
+    if (links === "focus")
+      return focusId !== null && (edge.blockerId === focusId || edge.dependentId === focusId);
     if (links === "blocking") return !edge.satisfied;
     return true;
   });
@@ -1407,7 +2121,8 @@ const drawEdges = (args: {
     const to = posOf(edge.dependentId);
     if (from === undefined || to === undefined) continue;
 
-    const isFocused = focusId !== null && (edge.blockerId === focusId || edge.dependentId === focusId);
+    const isFocused =
+      focusId !== null && (edge.blockerId === focusId || edge.dependentId === focusId);
     ctx.save();
     ctx.globalAlpha = edge.satisfied ? 0.35 : links === "focus" || isFocused ? 1 : 0.7;
     ctx.setLineDash(edge.satisfied ? [4, 4] : []);
@@ -1463,7 +2178,15 @@ const drawBoatsAndFlags = (args: {
   );
   const claimedIds = new Set(claimed.map((p) => p.bead.task.id));
 
-  type BoatEntry = { taskId: number; x: number; y: number; r: number; actor: string; expiring: boolean; alpha: number };
+  type BoatEntry = {
+    taskId: number;
+    x: number;
+    y: number;
+    r: number;
+    actor: string;
+    expiring: boolean;
+    alpha: number;
+  };
   const entries: BoatEntry[] = claimed.map((placed) => ({
     taskId: placed.bead.task.id,
     x: placed.x,

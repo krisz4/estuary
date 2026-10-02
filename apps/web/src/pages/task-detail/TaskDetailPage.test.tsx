@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { type TaskEvent } from "@helpdesk/contracts";
+import { type TaskEvent } from "@estuary/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/api/queryKeys";
 import { TaskDetailPage } from "@/pages/task-detail/TaskDetailPage";
@@ -68,7 +68,7 @@ describe("TaskDetailPage — states", () => {
     expect(screen.getByText("TASK-000042")).toBeInTheDocument();
     expect(screen.getByText("On it.")).toBeInTheDocument();
     expect(screen.getByText("Requests over 10/min get a 429.")).toBeInTheDocument();
-    expect(screen.getByText("helpdesk")).toBeInTheDocument();
+    expect(screen.getByText("estuary")).toBeInTheDocument();
     // The creator's kind is words, not only a bot glyph.
     expect(screen.getByText("Created by").nextElementSibling).toHaveTextContent(
       "Agent claude-code",
@@ -125,6 +125,50 @@ describe("TaskDetailPage — states", () => {
       await screen.findByText("That address does not contain a valid task number."),
     ).toBeInTheDocument();
     expect(requests).toHaveLength(0);
+  });
+});
+
+describe("TaskDetailPage — concerns and needsTriage", () => {
+  it("shows what the reviewer should not miss, near the status note", async () => {
+    mockApi({
+      "GET /tasks/42": () => ({
+        body: makeTask({
+          status: "needs_qa",
+          statusNote: "Added the throttle.",
+          concerns: "The retry logic is untested under load.",
+        }),
+      }),
+    });
+    renderDetail();
+
+    await heading();
+    expect(screen.getByText(/Don.t miss this/)).toBeInTheDocument();
+    expect(
+      screen.getByText("The retry logic is untested under load."),
+    ).toBeInTheDocument();
+  });
+
+  it("offers Accept for an agent-filed task nobody has triaged, and clears needsTriage", async () => {
+    const user = userEvent.setup();
+    const { requests } = mockApi({
+      "GET /tasks/42": () => ({ body: makeTask({ status: "todo", needsTriage: true }) }),
+      "PATCH /tasks/42": () => ({ body: makeTask({ status: "todo", needsTriage: false }) }),
+    });
+    renderDetail();
+
+    await heading();
+    expect(screen.getByText(/Suggested by an agent/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Accept" }));
+
+    await waitFor(() =>
+      expect(
+        requests.filter((r) => r.method === "PATCH" && r.url.pathname.endsWith("/tasks/42")),
+      ).toHaveLength(1),
+    );
+    const patch = requests.find(
+      (r) => r.method === "PATCH" && r.url.pathname.endsWith("/tasks/42"),
+    );
+    expect(patch?.body).toEqual({ needsTriage: false, expectedVersion: 3 });
   });
 });
 
@@ -425,7 +469,7 @@ describe("TaskDetailPage — dependencies", () => {
           reference: "TASK-000012",
           title: "Pick a limiter",
           status: "in_progress",
-          project: "helpdesk",
+          project: "estuary",
         },
       ],
       dependents: [
@@ -434,7 +478,7 @@ describe("TaskDetailPage — dependencies", () => {
           reference: "TASK-000050",
           title: "Ship exports",
           status: "blocked",
-          project: "helpdesk",
+          project: "estuary",
         },
       ],
     });
@@ -515,7 +559,7 @@ describe("TaskDetailPage — activity", () => {
     id: 1,
     taskId: 42,
     taskTitle: "Some task",
-    project: "helpdesk",
+    project: "estuary",
     type: "task.created",
     actor: "agent:claude-code",
     payload: {},

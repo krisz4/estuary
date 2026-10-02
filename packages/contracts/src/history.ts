@@ -42,7 +42,11 @@ export const historyQuerySchema = z.preprocess(
     })
     .strict()
     .superRefine((value, ctx) => {
-      if (value.from !== undefined && value.to !== undefined && Date.parse(value.from) >= Date.parse(value.to)) {
+      if (
+        value.from !== undefined &&
+        value.to !== undefined &&
+        Date.parse(value.from) >= Date.parse(value.to)
+      ) {
         ctx.addIssue({ code: "custom", path: ["to"], message: "to must be after from" });
       }
     }),

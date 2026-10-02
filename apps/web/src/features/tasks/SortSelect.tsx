@@ -1,4 +1,4 @@
-import { formatTaskSort, type TaskSort } from "@helpdesk/contracts";
+import { formatTaskSort, type TaskSort } from "@estuary/contracts";
 import { Select } from "@/components/ui";
 
 /**

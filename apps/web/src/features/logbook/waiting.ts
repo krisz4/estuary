@@ -1,4 +1,4 @@
-import { type HistoryBucketRow, type HumanWait } from "@helpdesk/contracts";
+import { type HistoryBucketRow, type HumanWait } from "@estuary/contracts";
 
 /** One bucket's human-wait stats, for the median/p90 chart. `null` minutes render as a gap. */
 export type WaitingPoint = {

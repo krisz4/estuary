@@ -3,7 +3,7 @@ import {
   nextTaskResponseSchema,
   SYSTEM_ACTOR,
   taskSchema,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 

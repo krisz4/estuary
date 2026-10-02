@@ -11,6 +11,7 @@ import { TaskCardList, TaskCardListSkeleton } from "@/features/tasks/TaskCardLis
 import { TaskFilterBar } from "@/features/tasks/TaskFilterBar";
 import { TaskTable, TaskTableSkeleton } from "@/features/tasks/TaskTable";
 import { ViewSwitch } from "@/features/tasks/ViewSwitch";
+import { CleanupDoneButton } from "@/features/tasks/CleanupDoneButton";
 import { GithubImportDialog } from "@/features/tasks/GithubImportDialog";
 import { cn } from "@/lib/cn";
 import { formatCount } from "@/lib/formatting";
@@ -107,6 +108,8 @@ export const TasksListPage = () => {
               <span className="sr-only sm:not-sr-only">Import issue</span>
             </Button>
           ) : null}
+
+          <CleanupDoneButton project={params.project} />
 
           {/*
             The switch carries the current search string to `/tasks/map`,

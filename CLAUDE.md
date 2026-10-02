@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-AI task manager — AI agents (Claude Code, via the MCP server in `apps/mcp`) and humans create, triage, claim, and hand off tasks across ten statuses; humans answer agents' decisions and actions from an inbox. It began as a helpdesk code challenge ([instructions.md](instructions.md) is that original brief, kept for history). Runs on localhost and is self-hostable. **No accounts and no user management** — who did what is a self-declared actor (`X-Actor`), and an optional shared `API_TOKEN` gates self-hosted instances ([docs/features/Actors.md](docs/features/Actors.md)). Do not add real auth.
+**Estuary** is an AI task manager: AI agents (Claude Code, via the MCP server in `apps/mcp`) and humans create, triage, claim, and hand off tasks across ten statuses, and humans answer agents' decisions and actions from an inbox. It began as a helpdesk code challenge ([docs/history/instructions.md](docs/history/instructions.md) is that original brief, kept for history). Runs on localhost and is self-hostable. Open source under **AGPL-3.0-only** ([LICENSE](LICENSE)); contributor workflow in [CONTRIBUTING.md](CONTRIBUTING.md). **No accounts and no user management** — who did what is a self-declared actor (`X-Actor`), and an optional shared `API_TOKEN` gates self-hosted instances ([docs/features/Actors.md](docs/features/Actors.md)). Do not add real auth.
 
 ## Agent checklist (before finishing)
 
@@ -17,11 +17,11 @@ AI task manager — AI agents (Claude Code, via the MCP server in `apps/mcp`) an
 Standard scripts are in `package.json` (root and per-workspace). What isn't obvious from there:
 
 - `pnpm dev` runs both apps via Turborepo → API on **4000**, web on **5173**. `pnpm dev:api` / `pnpm dev:web` run one.
-- **`db:*` scripts are always invoked as `pnpm --filter @helpdesk/api db:<script>`** from the repo root (they are defined in `apps/api/package.json` and resolve paths relative to it). Use that form everywhere, including in docs. The SQLite file lives at `apps/api/prisma/data/helpdesk.db` and is gitignored.
+- **`db:*` scripts are always invoked as `pnpm --filter @estuary/api db:<script>`** from the repo root (they are defined in `apps/api/package.json` and resolve paths relative to it). Use that form everywhere, including in docs. The SQLite file lives at `apps/api/prisma/data/estuary.db` and is gitignored.
 - `db:reset` drops and re-seeds — destructive. `db:seed` generates 62 realistic tasks across three projects — every status represented, with comment threads, decisions, dependencies, and a matching event trail — so the map, list, and inbox have something to show; it is guarded by `ALLOW_SEED`, not `NODE_ENV`.
 - `pnpm test` = vitest across workspaces. API tests run against a **temp SQLite file per worker**, never the dev DB. E2E uses its own third database.
-- `pnpm test:e2e` = Playwright; it boots both apps itself via `webServer` config, on **dedicated ports** (API 4010, web 5183) against a third database at `e2e/helpdesk-e2e.db`. It never reuses a running `pnpm dev` — that would point the mutating specs at your local data.
-- OpenAPI spec is generated from the zod contracts: `pnpm --filter @helpdesk/api openapi:gen` → `apps/api/openapi.json`, served at `GET /docs`.
+- `pnpm test:e2e` = Playwright; it boots both apps itself via `webServer` config, on **dedicated ports** (API 4010, web 5183) against a third database at `e2e/estuary-e2e.db`. It never reuses a running `pnpm dev` — that would point the mutating specs at your local data.
+- OpenAPI spec is generated from the zod contracts: `pnpm --filter @estuary/api openapi:gen` → `apps/api/openapi.json`, served at `GET /docs`.
 
 ## Architecture
 
@@ -74,7 +74,7 @@ SQLite via Prisma. Three constraints shape the schema more than anything else �
 Migration workflow:
 
 1. Edit `apps/api/prisma/schema.prisma`.
-2. `pnpm --filter @helpdesk/api db:migrate --name descriptive_snake_case`.
+2. `pnpm --filter @estuary/api db:migrate --name descriptive_snake_case`.
 3. Commit schema + migration SQL together.
 
 `db push` is for throwaway local experiments only.

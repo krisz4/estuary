@@ -1,4 +1,4 @@
-import { type HistoryBucketRow } from "@helpdesk/contracts";
+import { type HistoryBucketRow } from "@estuary/contracts";
 
 /** One bucket's throughput bar: created vs shipped (`completed + deferred`), plus sent-back. */
 export type ThroughputPoint = {

@@ -1,8 +1,8 @@
-import { formatReference, type TaskSummary } from "@helpdesk/contracts";
+import { formatReference, type TaskSummary } from "@estuary/contracts";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { HAND_BACK_NOTE } from "@/pages/inbox/InboxItem";
+import { DISMISS_REASON, HAND_BACK_NOTE, PARK_REASON } from "@/pages/inbox/InboxItem";
 import { useProjectScopeStore } from "@/stores/projectScope";
 import { InboxPage } from "@/pages/inbox/InboxPage";
 import {
@@ -66,6 +66,11 @@ const inboxList =
 const posted = (requests: MockRequest[], suffix: string) =>
   requests.filter((request) => request.method === "POST" && request.url.pathname.endsWith(suffix));
 
+const patched = (requests: MockRequest[], suffix: string) =>
+  requests.filter(
+    (request) => request.method === "PATCH" && request.url.pathname.endsWith(suffix),
+  );
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -86,21 +91,17 @@ describe("InboxPage — states", () => {
     expect(screen.getByLabelText("Loading inbox")).toHaveAttribute("aria-busy", "true");
 
     release();
-    expect(await screen.findByRole("heading", { name: /Actions/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Act/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Loading inbox")).not.toBeInTheDocument();
   });
 
-  it("asks for exactly the three human-attention statuses, most urgent first", async () => {
+  it("asks for the attention queue, most urgent first", async () => {
     const { requests } = renderInbox({ "GET /tasks": inboxList([actionTask]) });
 
-    await screen.findByRole("heading", { name: /Actions/ });
+    await screen.findByRole("heading", { name: /Act/ });
 
     const request = requests.find((r) => r.url.pathname.endsWith("/tasks"));
-    expect(request?.url.searchParams.getAll("status")).toEqual([
-      "needs_user_decision",
-      "needs_user_action",
-      "needs_qa",
-    ]);
+    expect(request?.url.searchParams.get("attention")).toBe("true");
     expect(request?.url.searchParams.get("sort")).toBe("priority:desc");
     expect(request?.url.searchParams.get("pageSize")).toBe("100");
   });
@@ -137,7 +138,7 @@ describe("InboxPage — states", () => {
     expect(await screen.findByText("Rotate the staging API key")).toBeInTheDocument();
   });
 
-  it("groups by status in lifecycle order, with counts", async () => {
+  it("groups by attention kind in ATTENTION_KINDS order, with counts", async () => {
     renderInbox({ "GET /tasks": inboxList([qaTask, actionTask, decisionTask]) });
 
     await screen.findByText("Pick a rate limiter");
@@ -145,7 +146,7 @@ describe("InboxPage — states", () => {
     const headings = screen
       .getAllByRole("heading", { level: 2 })
       .map((heading) => heading.textContent);
-    expect(headings).toEqual(["Decisions (1)", "Actions (1)", "Ready for QA (1)"]);
+    expect(headings).toEqual(["Decide (1)", "Act (1)", "Review (1)"]);
   });
 });
 
@@ -404,8 +405,8 @@ describe("InboxPage — projects", () => {
     const { requests } = renderInbox({
       "GET /tasks": inboxList([
         task(1, { status: "needs_qa", project: "web-app" }),
-        task(2, { status: "needs_qa", project: "helpdesk" }),
-        task(3, { status: "needs_user_action", project: "helpdesk" }),
+        task(2, { status: "needs_qa", project: "estuary" }),
+        task(3, { status: "needs_user_action", project: "estuary" }),
         task(4, { status: "needs_qa", project: null }),
       ]),
     });
@@ -413,22 +414,270 @@ describe("InboxPage — projects", () => {
     expect(await screen.findByText("Task 1")).toBeInTheDocument();
     expect(requests[0]!.url.searchParams.has("project")).toBe(false);
     const breakdown = screen.getByText(/^From/);
-    expect(breakdown).toHaveTextContent("From helpdesk (2), web-app (1)");
-    expect(within(breakdown).getByRole("link", { name: "helpdesk" })).toHaveAttribute(
+    expect(breakdown).toHaveTextContent("From estuary (2), web-app (1)");
+    expect(within(breakdown).getByRole("link", { name: "estuary" })).toHaveAttribute(
       "href",
-      "/inbox?project=helpdesk",
+      "/inbox?project=estuary",
     );
   });
 
   it("shows no breakdown when every item is from one project", async () => {
     renderInbox({
       "GET /tasks": inboxList([
-        task(1, { status: "needs_qa", project: "helpdesk" }),
-        task(2, { status: "needs_qa", project: "helpdesk" }),
+        task(1, { status: "needs_qa", project: "estuary" }),
+        task(2, { status: "needs_qa", project: "estuary" }),
       ]),
     });
 
     expect(await screen.findByText("Task 1")).toBeInTheDocument();
     expect(screen.queryByText(/^From/)).not.toBeInTheDocument();
+  });
+});
+
+describe("InboxPage — review: routine vs concerns", () => {
+  const routineQaTask = task(20, {
+    status: "needs_qa",
+    title: "Routine hand-off",
+    statusNote: "Added the throttle; ran the suite locally.",
+    concerns: null,
+  });
+
+  const flaggedQaTask = task(21, {
+    status: "needs_qa",
+    title: "Flagged hand-off",
+    statusNote: "Added the throttle.",
+    concerns: "The retry logic is untested under load — look closely.",
+  });
+
+  it("collapses a routine hand-off's summary behind a disclosure, Approve still one click", async () => {
+    renderInbox({ "GET /tasks": inboxList([routineQaTask]) });
+
+    await screen.findByText("Routine hand-off");
+    const summary = screen.getByText(/Routine hand-off — view the summary/);
+    const details = summary.closest("details");
+    expect(details).not.toBeNull();
+    // Collapsed by default — the summary itself is <summary>, the body behind it.
+    expect(details).not.toHaveAttribute("open");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+  });
+
+  it("shows a flagged hand-off's concerns prominently, in the open", async () => {
+    renderInbox({ "GET /tasks": inboxList([flaggedQaTask]) });
+
+    await screen.findByText("Flagged hand-off");
+    expect(screen.getByText(/Don.t miss this/)).toBeInTheDocument();
+    expect(
+      screen.getByText("The retry logic is untested under load — look closely."),
+    ).toBeInTheDocument();
+    // Not collapsed: the summary itself is immediately visible too.
+    expect(screen.getByText("Added the throttle.")).toBeInTheDocument();
+  });
+});
+
+describe("InboxPage — approve all routine", () => {
+  const routineA = task(30, {
+    status: "needs_qa",
+    title: "Routine A",
+    statusNote: "Done.",
+    concerns: null,
+  });
+  const routineB = task(31, {
+    status: "needs_qa",
+    title: "Routine B",
+    statusNote: "Done.",
+    concerns: null,
+  });
+  const flagged = task(32, {
+    status: "needs_qa",
+    title: "Flagged C",
+    statusNote: "Done.",
+    concerns: "Watch the edge case.",
+  });
+
+  it("only offers the batch button with two or more routine items, and never sweeps in a flagged one", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([routineA, routineB, flagged]),
+      "POST /tasks/30/transition": () => ({ body: makeTask({ id: 30, status: "done" }) }),
+      "POST /tasks/31/transition": () => ({ body: makeTask({ id: 31, status: "done" }) }),
+    });
+
+    const button = await screen.findByRole("button", { name: "Approve all routine (2)" });
+    await user.click(button);
+
+    // One confirm step that names what is being approved; nothing is sent yet.
+    const dialog = await screen.findByRole("dialog", { name: "Approve 2 tasks?" });
+    expect(within(dialog).getByText(routineA.title)).toBeInTheDocument();
+    expect(within(dialog).queryByText(flagged.title)).not.toBeInTheDocument();
+    expect(posted(requests, "/transition")).toHaveLength(0);
+    await user.click(within(dialog).getByRole("button", { name: "Approve all" }));
+
+    await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(2));
+    const approvedIds = posted(requests, "/transition")
+      .map((r) => r.url.pathname.split("/").at(-2))
+      .sort();
+    expect(approvedIds).toEqual(["30", "31"]);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("2 tasks approved"));
+  });
+
+  it("does not show the batch button with fewer than two routine items", async () => {
+    renderInbox({ "GET /tasks": inboxList([routineA, flagged]) });
+
+    await screen.findByText("Routine A");
+    expect(screen.queryByRole("button", { name: /Approve all routine/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("InboxPage — refine", () => {
+  const refineTask = task(40, {
+    status: "needs_refinement",
+    title: "Unclear export target",
+    statusNote: "Which format does 'export' mean here — CSV or JSON?",
+  });
+
+  it("requires acceptance criteria before it will move the task to To do", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({ "GET /tasks": inboxList([refineTask]) });
+
+    await user.click(await screen.findByRole("button", { name: "Ready for To do" }));
+
+    expect(
+      await screen.findByText("Acceptance criteria are required before a task can be todo"),
+    ).toBeInTheDocument();
+    expect(posted(requests, "/transition")).toHaveLength(0);
+  });
+
+  it("submits acceptance criteria and an optional note, moving the task to To do", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([refineTask]),
+      "POST /tasks/40/transition": () => ({ body: makeTask({ id: 40, status: "todo" }) }),
+    });
+
+    await screen.findByText("Unclear export target");
+    await user.type(
+      screen.getByLabelText(/acceptance criteria/i),
+      "Exporting produces a CSV with one row per task.",
+    );
+    await user.type(screen.getByLabelText(/Notes for the agent/i), "CSV, not JSON.");
+    await user.click(screen.getByRole("button", { name: "Ready for To do" }));
+
+    await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
+    expect(posted(requests, "/transition")[0]?.body).toEqual({
+      to: "todo",
+      acceptanceCriteria: "Exporting produces a CSV with one row per task.",
+      reason: "CSV, not JSON.",
+    });
+  });
+
+  it("dismisses with a fixed reason, one click, no dialog", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([refineTask]),
+      "POST /tasks/40/transition": () => ({ body: makeTask({ id: 40, status: "deferred" }) }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Dismiss" }));
+
+    await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
+    expect(posted(requests, "/transition")[0]?.body).toEqual({
+      to: "deferred",
+      reason: DISMISS_REASON,
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("InboxPage — suggested", () => {
+  const suggestedTask = task(50, {
+    status: "todo",
+    title: "Add a dark-mode toggle",
+    description: "Add a dark-mode toggle to the settings page. Users keep asking for it.",
+    needsTriage: true,
+  });
+
+  it("accepts by clearing needsTriage, without changing status", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([suggestedTask]),
+      "PATCH /tasks/50": () => ({ body: makeTask({ id: 50, needsTriage: false }) }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Accept" }));
+
+    await waitFor(() => expect(patched(requests, "/tasks/50")).toHaveLength(1));
+    expect(patched(requests, "/tasks/50")[0]?.body).toEqual({
+      needsTriage: false,
+      expectedVersion: suggestedTask.version,
+    });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("TASK-000050 accepted"));
+  });
+
+  it("dismisses with a fixed reason", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([suggestedTask]),
+      "POST /tasks/50/transition": () => ({ body: makeTask({ id: 50, status: "deferred" }) }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Dismiss" }));
+
+    await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
+    expect(posted(requests, "/transition")[0]?.body).toEqual({
+      to: "deferred",
+      reason: DISMISS_REASON,
+    });
+  });
+});
+
+describe("InboxPage — blocked outside", () => {
+  const blockedTask = task(60, {
+    status: "blocked",
+    title: "Blocked on vendor access",
+    statusNote: "Waiting on the vendor to issue an API key.",
+    openDependencyCount: 0,
+    acceptanceCriteria: null,
+  });
+
+  it("opens the dialog to collect acceptance criteria when unblocking a task that has none", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({ "GET /tasks": inboxList([blockedTask]) });
+
+    await user.click(await screen.findByRole("button", { name: "Unblock" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Move TASK-000060 to To do" }),
+    ).toBeInTheDocument();
+    expect(posted(requests, "/transition")).toHaveLength(0);
+  });
+
+  it("unblocks directly when the task already has acceptance criteria", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([{ ...blockedTask, acceptanceCriteria: "Vendor key is set." }]),
+      "POST /tasks/60/transition": () => ({ body: makeTask({ id: 60, status: "todo" }) }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Unblock" }));
+
+    await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
+    expect(posted(requests, "/transition")[0]?.body).toEqual({ to: "todo" });
+  });
+
+  it("parks with a fixed reason, one click, no dialog", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([blockedTask]),
+      "POST /tasks/60/transition": () => ({ body: makeTask({ id: 60, status: "deferred" }) }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Park" }));
+
+    await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
+    expect(posted(requests, "/transition")[0]?.body).toEqual({
+      to: "deferred",
+      reason: PARK_REASON,
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

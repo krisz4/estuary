@@ -28,7 +28,13 @@ export const AppLayout = () => {
       mobile browser's collapsing address bar does not leave the shell one
       toolbar taller than the window.
     */
-    <div className="flex min-h-dvh flex-col bg-background">
+    /*
+      `relative isolate` scopes the ground's `z-index: -1` to this shell: it
+      paints above the shell's own background and below everything in it.
+    */
+    <div className="relative isolate flex min-h-dvh flex-col bg-background">
+      {/* The survey-map contours behind every page (`.estuary-ground`). */}
+      <div aria-hidden="true" className="estuary-ground" />
       <SkipLink />
       <AppHeader />
       <UnauthorizedBanner />
@@ -47,7 +53,8 @@ export const AppLayout = () => {
 
       <footer className="border-t border-border py-6">
         <Container className="text-xs text-muted-foreground">
-          Estuary — one flow for the work humans and AI agents share.
+          Estuary — one flow for the work humans and AI agents share, from headwaters to the
+          mouth.
         </Container>
       </footer>
 

@@ -43,12 +43,15 @@ model Task {
   status       String  @default("backlog") // TaskStatus (contracts)
   statusRank   Int     @default(0) // derived, for ordering
   statusNote   String? // the "why" of the current status; replaced on each transition
+  concerns     String? // needs_qa only: what a reviewer must not miss; null = routine
   priority     String  @default("medium") // TaskPriority (contracts)
   priorityRank Int     @default(1) // derived, for ordering
 
   project   String? // lowercase slug
   assignee  String?
   createdBy String // actor, e.g. "agent:claude-code"
+  // Agent-filed and no person has looked at it yet. Cleared by any human write or a claim.
+  needsTriage Boolean @default(false)
   links     String  @default("[]") // JSON TaskLink[]
 
   // Claim lease. Meaningful only while claimExpiresAt is in the future.
@@ -82,6 +85,7 @@ model Task {
   @@index([assignee])
   @@index([createdBy])
   @@index([parentId])
+  @@index([needsTriage, status])
 }
 
 model Comment {

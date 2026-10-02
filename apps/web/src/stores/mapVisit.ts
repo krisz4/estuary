@@ -26,7 +26,7 @@ import { safeStorage } from "@/stores/safeStorage";
  * cleanup fires in the same tick it mounted; a real departure — navigating
  * away, closing the tab — is always measurably later.
  */
-export const MAP_VISIT_STORAGE_KEY = "helpdesk.mapVisit";
+export const MAP_VISIT_STORAGE_KEY = "estuary.mapVisit";
 
 export type MapVisitState = {
   lastVisitAt: string | null;

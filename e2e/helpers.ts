@@ -11,7 +11,7 @@ import {
   type TaskStats,
   type TransitionInput,
   type UpdateTaskInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 import { API_BASE_URL } from "./env";
 
@@ -36,7 +36,7 @@ import { API_BASE_URL } from "./env";
  * `X-Actor: agent:<name>`. There is no MCP server in the loop because the MCP
  * server is itself a thin client of these same endpoints.
  *
- * The imports from `@helpdesk/contracts` are **types only**, on purpose: a value
+ * The imports from `@estuary/contracts` are **types only**, on purpose: a value
  * import would make `pnpm test:e2e` depend on the package having been built,
  * and the E2E script deliberately does not run through turbo's build graph.
  */

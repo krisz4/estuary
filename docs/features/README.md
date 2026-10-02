@@ -19,9 +19,11 @@ Prefer this index (or the frontmatter) before opening every file.
 | [Task_Priority.md](./Task_Priority.md) | Priority scale, ordering rules, UI mapping |
 | [Labels.md](./Labels.md) | Free-form tags narrowing work inside a project — schema, replace-not-merge, `?label=`, `task_next` |
 | [Task_Query_Filter_Sort_Page.md](./Task_Query_Filter_Sort_Page.md) | The list query: every param, the envelope, and how the UI binds it to the URL |
+| [Task_Cleanup.md](./Task_Cleanup.md) | Bulk delete of done tasks — `POST /tasks/cleanup` (humans only) and the automatic `DONE_RETENTION_DAYS` sweep |
 | [Comments.md](./Comments.md) | Task comment thread: model, endpoints, ordering, cascade |
 | [GitHub_Integration.md](./GitHub_Integration.md) | Optional GitHub link — live PR/issue status, the inbound webhook, issue import |
 | [Floor_Snapshot.md](./Floor_Snapshot.md) | `GET /floor` — the compact, graph-aware snapshot behind `/tasks/floor`: scope vs filters, the shipped window, the cap, dependency edges, replay |
+| [Attention_Queue.md](./Attention_Queue.md) | Everything waiting on a person — the six attention kinds, `needsTriage`, `concerns`, follow-ups, and the SessionEnd hook |
 | [History_Stats.md](./History_Stats.md) | `GET /stats/history` — the Logbook's charts: buckets, the CFD snapshot, human-wait/cycle-time percentiles, per-agent activity |
 
 ## Platform

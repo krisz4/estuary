@@ -1,10 +1,14 @@
-import { type FloorTask, type TaskRef, type TaskStatus } from "@helpdesk/contracts";
-import { Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FloorTask, type TaskRef, type TaskStatus } from "@estuary/contracts";
+import { GitBranch, Link2, User } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { PriorityBadge } from "@/features/tasks/PriorityBadge";
+import { StatusBadge } from "@/features/tasks/StatusBadge";
 import { cn } from "@/lib/cn";
+import { actorDisplayName, formatRelative } from "@/lib/formatting";
 import {
   beadColorIndex,
   computeDensityScale,
+  computeRiverScale,
   computeViewportScale,
   isValidDropTarget,
   POOL_STATIONS,
@@ -28,14 +32,18 @@ import {
   buildStaticLayer,
   computeGeometry,
   drawFrame,
+  hitKey,
   hitTest,
   laneColor,
   placeBeads,
+  placeHoverTip,
   readFloorColors,
+  type FloorColors,
   STATION,
   tipInfoFor,
   type FadingOutBoat,
   type FloorHitTarget,
+  type HitBox,
   type RenderedArrival,
   type RenderedBeadAnimation,
 } from "@/features/floor/scene";
@@ -59,10 +67,45 @@ type ActiveBeadTravel = {
   colorHex: string;
 };
 
-type PendingArrival = { x: number; y: number; station: TaskStatus; startTime: number; colorHex: string };
+type PendingArrival = {
+  x: number;
+  y: number;
+  station: TaskStatus;
+  startTime: number;
+  colorHex: string;
+};
 
-/** Backlog/needs_refinement/todo — the planning stations quick-add appears on. */
-const PLANNING_STATUSES: readonly TaskStatus[] = ["backlog", "needs_refinement", "todo"];
+/**
+ * How long the pointer may sit on empty water before the hover clears. Moving
+ * between two neighbouring beads crosses a few px of nothing; without this
+ * the card unmounted and remounted on every such hop.
+ */
+const HOVER_CLEAR_DELAY_MS = 120;
+
+/** What the pointer is over, plus the area its hover card must not cover. */
+type HoverState = {
+  target: FloorHitTarget;
+  key: string;
+  /** Union of every shape with this target's key — a bead's disc *and* its callout box. */
+  avoid: HitBox;
+};
+
+const boxOf = (hit: FloorHitTarget): HitBox =>
+  hit.box ?? { x: hit.x - hit.r, y: hit.y - hit.r, w: hit.r * 2, h: hit.r * 2 };
+
+const unionBox = (a: HitBox, b: HitBox): HitBox => {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    w: Math.max(a.x + a.w, b.x + b.w) - x,
+    h: Math.max(a.y + a.h, b.y + b.h) - y,
+  };
+};
+
+const sameBox = (a: HitBox, b: HitBox): boolean =>
+  a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 
 /**
  * The Estuary map canvas: the river, its ten stations, and every task as a
@@ -86,7 +129,8 @@ export type FloorCanvasProps = {
   onHoverTask: (taskId: number | null) => void;
   onSelectTask: (task: FloorTask) => void;
   onSelectGhost: (ref: TaskRef) => void;
-  onToggleStatus: (status: TaskStatus) => void;
+  /** A station's pin, plate, or shoal was clicked — the page opens that status's full list (it does not filter the map). */
+  onOpenStation: (status: TaskStatus) => void;
   /** `at`, when replaying — drives the day/night light instead of the real clock. Read-only mode is the caller's concern. */
   clockAt?: string;
   /**
@@ -100,14 +144,6 @@ export type FloorCanvasProps = {
   /** Whether `MapLegend` renders below the canvas — the hero's toolbar has its own toggle for this. Defaults to visible. */
   legendVisible?: boolean;
   /**
-   * Quick add — a small "+" next to a planning station's plate (backlog /
-   * needs_refinement / todo), shown on hover or keyboard focus. `project` is
-   * the cluster's own dominant group when grouped by project, else
-   * `undefined` (the create page falls back to the header's scope).
-   * Omit to not render quick-add at all (e.g. while replaying).
-   */
-  onQuickAdd?: (status: TaskStatus, project: string | undefined) => void;
-  /**
    * Drag-to-transition: pointer-drag a bead onto a station to move it there.
    * Omit to disable dragging entirely (the caller does this while replaying —
    * `clockAt !== undefined` already makes every write read-only elsewhere).
@@ -120,8 +156,16 @@ export type FloorCanvasProps = {
 };
 
 const summaryFor = (layout: MapLayout): string => {
-  const total = Object.values(layout.clusters).reduce((sum, cluster) => sum + cluster.totalCount, 0);
-  const regionSummary = ["backlog,needs_refinement,todo:Planning", "in_progress,needs_qa:Under way", "blocked,needs_user_decision,needs_user_action:Waiting", "done,deferred:Shipped"]
+  const total = Object.values(layout.clusters).reduce(
+    (sum, cluster) => sum + cluster.totalCount,
+    0,
+  );
+  const regionSummary = [
+    "backlog,needs_refinement,todo:Planning",
+    "in_progress,needs_qa:Under way",
+    "blocked,needs_user_decision,needs_user_action:Waiting",
+    "done,deferred:Shipped",
+  ]
     .map((entry) => {
       const [statuses, label] = entry.split(":") as [string, string];
       const count = statuses
@@ -152,20 +196,28 @@ export const FloorCanvas = ({
   onHoverTask,
   onSelectTask,
   onSelectGhost,
-  onToggleStatus,
+  onOpenStation,
   clockAt,
   animateReplay = false,
   className,
   legendVisible = true,
-  onQuickAdd,
   onDropTask,
 }: FloorCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const staticLayerRef = useRef<HTMLCanvasElement | null>(null);
+  /**
+   * The map's colours, resolved from CSS once and again on every theme
+   * change, not per frame: reading ~25 custom properties through
+   * `getComputedStyle` 60 times a second was measurable idle CPU.
+   */
+  const colorsRef = useRef<FloorColors | null>(null);
+  const colorsNow = (): FloorColors => (colorsRef.current ??= readFloorColors());
   const hitsRef = useRef<FloorHitTarget[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [hoverTarget, setHoverTarget] = useState<FloorHitTarget | null>(null);
+  const [hover, setHover] = useState<HoverState | null>(null);
+  const hoverTarget = hover?.target ?? null;
+  const hoverClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardTaskId, setKeyboardTaskId] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
 
@@ -175,12 +227,18 @@ export const FloorCanvas = ({
   // moves past a small threshold (mouse) or a ~350ms long-press elapses
   // (touch). Splitting the two is what keeps an ordinary click on a bead
   // working exactly as before: `dragCandidate` alone never fires anything.
-  const [drag, setDrag] = useState<{ task: FloorTask; x: number; y: number; overStatus: TaskStatus | null } | null>(
-    null,
-  );
-  const dragCandidateRef = useRef<{ task: FloorTask; clientX: number; clientY: number; pointerId: number } | null>(
-    null,
-  );
+  const [drag, setDrag] = useState<{
+    task: FloorTask;
+    x: number;
+    y: number;
+    overStatus: TaskStatus | null;
+  } | null>(null);
+  const dragCandidateRef = useRef<{
+    task: FloorTask;
+    clientX: number;
+    clientY: number;
+    pointerId: number;
+  } | null>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canDrag = onDropTask !== undefined && clockAt === undefined;
 
@@ -191,7 +249,9 @@ export const FloorCanvas = ({
   // against — status *and* resting position, both from the last frame this
   // component actually drew — to notice a task moved without caring whether
   // a poll, a drag-drop, a rail quick action, or the drawer caused it.
-  const prevRenderedRef = useRef<Map<number, { status: TaskStatus; x: number; y: number }>>(new Map());
+  const prevRenderedRef = useRef<Map<number, { status: TaskStatus; x: number; y: number }>>(
+    new Map(),
+  );
   const activeTravelsRef = useRef<ActiveBeadTravel[]>([]);
   const arrivalsRef = useRef<PendingArrival[]>([]);
   /** Lets a caller (drag-drop) seed a travel animation starting from an arbitrary drop point instead of the bead's last resting position. */
@@ -203,7 +263,9 @@ export const FloorCanvas = ({
   // claim from a disappearing one; `boatFadeRef` is the in-flight ramps the
   // draw loop reads every frame.
   const prevClaimedRef = useRef<Map<number, string>>(new Map());
-  const boatFadeRef = useRef<Map<number, { startTime: number; direction: "in" | "out"; actor: string }>>(new Map());
+  const boatFadeRef = useRef<
+    Map<number, { startTime: number; direction: "in" | "out"; actor: string }>
+  >(new Map());
 
   const clearLongPress = () => {
     if (longPressRef.current !== null) {
@@ -213,7 +275,9 @@ export const FloorCanvas = ({
   };
 
   const reducedMotion = useMemo(
-    () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     [],
   );
 
@@ -231,20 +295,35 @@ export const FloorCanvas = ({
       if (rect === undefined) return;
       const width = Math.round(rect.width);
       const height = Math.round(rect.height);
-      setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+      setSize((prev) =>
+        prev.width === width && prev.height === height ? prev : { width, height },
+      );
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  const geometry = useMemo(
-    () => computeGeometry(Math.max(280, size.width), size.height > 0 ? size.height : undefined),
-    [size.width, size.height],
-  );
-
   const totalVisible = useMemo(
     () => Object.values(layout.clusters).reduce((sum, cluster) => sum + cluster.beads.length, 0),
     [layout],
+  );
+  // The river widens with the busiest station, so its beads fit in the water.
+  const riverScale = useMemo(
+    () =>
+      computeRiverScale(
+        Math.max(0, ...Object.values(layout.clusters).map((cluster) => cluster.beads.length)),
+      ),
+    [layout],
+  );
+
+  const geometry = useMemo(
+    () =>
+      computeGeometry(
+        Math.max(280, size.width),
+        size.height > 0 ? size.height : undefined,
+        riverScale,
+      ),
+    [size.width, size.height, riverScale],
   );
   const viewportScale = computeViewportScale(geometry.W, geometry.horiz);
   const densityScale = computeDensityScale(totalVisible);
@@ -261,11 +340,20 @@ export const FloorCanvas = ({
    * hop arc bowed the same way a dependency arc is (`drawEdges`) — see
    * `route.ts`'s `pickRouteKind`.
    */
-  const buildRoutePoints = (fromStation: TaskStatus, toStation: TaskStatus, fromPoint: Point): Point[] => {
+  const buildRoutePoints = (
+    fromStation: TaskStatus,
+    toStation: TaskStatus,
+    fromPoint: Point,
+  ): Point[] => {
     const toPoint = geometry.P(STATION[toStation]);
     if (pickRouteKind(fromStation, toStation) === "main") {
       const us = geometry.mainPx.map((p) => geometry.uOf(p));
-      const slice = sliceMainChannel(geometry.mainPx, us, geometry.uOf(fromPoint), geometry.uOf(toPoint));
+      const slice = sliceMainChannel(
+        geometry.mainPx,
+        us,
+        geometry.uOf(fromPoint),
+        geometry.uOf(toPoint),
+      );
       if (slice.length >= 2) return [fromPoint, ...slice, toPoint];
     }
     const mx = (fromPoint[0] + toPoint[0]) / 2;
@@ -282,8 +370,13 @@ export const FloorCanvas = ({
   useEffect(() => {
     const prevRendered = prevRenderedRef.current;
     const isFirstPaint = prevRendered.size === 0;
-    const currentTasks = [...placement.beads.values()].map(({ bead }) => ({ id: bead.task.id, status: bead.task.status }));
-    const prevStatus = new Map([...prevRendered.entries()].map(([id, v]) => [id, v.status] as const));
+    const currentTasks = [...placement.beads.values()].map(({ bead }) => ({
+      id: bead.task.id,
+      status: bead.task.status,
+    }));
+    const prevStatus = new Map(
+      [...prevRendered.entries()].map(([id, v]) => [id, v.status] as const),
+    );
     const moved = isFirstPaint ? [] : diffMovedTasks(prevStatus, currentTasks);
     const motionAllowed = !reducedMotion && (clockAt === undefined || animateReplay);
     const canAnimate = motionAllowed && moved.length > 0 && moved.length <= ROUTE_SNAP_THRESHOLD;
@@ -292,12 +385,26 @@ export const FloorCanvas = ({
       for (const move of moved) {
         const toPlaced = placement.beads.get(move.taskId);
         if (toPlaced === undefined) continue; // left scope entirely — nothing to animate to
-        const dropOrigin = pendingDropOriginRef.current?.taskId === move.taskId ? pendingDropOriginRef.current : null;
+        const dropOrigin =
+          pendingDropOriginRef.current?.taskId === move.taskId
+            ? pendingDropOriginRef.current
+            : null;
         const prev = prevRendered.get(move.taskId);
-        const fromPoint: Point | null = dropOrigin !== null ? [dropOrigin.x, dropOrigin.y] : prev !== undefined ? [prev.x, prev.y] : null;
+        const fromPoint: Point | null =
+          dropOrigin !== null
+            ? [dropOrigin.x, dropOrigin.y]
+            : prev !== undefined
+              ? [prev.x, prev.y]
+              : null;
         if (fromPoint === null) continue;
         const points = buildRoutePoints(move.from, move.to, fromPoint);
-        const colorIndex = beadColorIndex(toPlaced.bead.task, toPlaced.bead.groupKey, toPlaced.bead.groupIndex, groupMode, projectOrder);
+        const colorIndex = beadColorIndex(
+          toPlaced.bead.task,
+          toPlaced.bead.groupKey,
+          toPlaced.bead.groupIndex,
+          groupMode,
+          projectOrder,
+        );
         activeTravelsRef.current.push({
           taskId: move.taskId,
           points,
@@ -305,7 +412,7 @@ export const FloorCanvas = ({
           durationMs: computeAnimationDurationMs(pathLength(points)),
           toStation: move.to,
           radius: toPlaced.r,
-          colorHex: laneColor(colorIndex, readFloorColors()),
+          colorHex: laneColor(colorIndex, colorsNow()),
         });
       }
     }
@@ -314,21 +421,25 @@ export const FloorCanvas = ({
     // Boat fade: who has a live claim *now*, diffed against last time.
     const currentClaimed = new Map<number, string>();
     for (const { bead } of placement.beads.values()) {
-      if (bead.task.status === "in_progress" && bead.task.claim !== null) currentClaimed.set(bead.task.id, bead.task.claim.actor);
+      if (bead.task.status === "in_progress" && bead.task.claim !== null)
+        currentClaimed.set(bead.task.id, bead.task.claim.actor);
     }
     if (!isFirstPaint && motionAllowed) {
       const nowMs = performance.now();
       for (const [id, actor] of currentClaimed) {
-        if (!prevClaimedRef.current.has(id)) boatFadeRef.current.set(id, { startTime: nowMs, direction: "in", actor });
+        if (!prevClaimedRef.current.has(id))
+          boatFadeRef.current.set(id, { startTime: nowMs, direction: "in", actor });
       }
       for (const [id, actor] of prevClaimedRef.current) {
-        if (!currentClaimed.has(id)) boatFadeRef.current.set(id, { startTime: nowMs, direction: "out", actor });
+        if (!currentClaimed.has(id))
+          boatFadeRef.current.set(id, { startTime: nowMs, direction: "out", actor });
       }
     }
     prevClaimedRef.current = currentClaimed;
 
     const nextRendered = new Map<number, { status: TaskStatus; x: number; y: number }>();
-    for (const { bead, x, y } of placement.beads.values()) nextRendered.set(bead.task.id, { status: bead.task.status, x, y });
+    for (const { bead, x, y } of placement.beads.values())
+      nextRendered.set(bead.task.id, { status: bead.task.status, x, y });
     prevRenderedRef.current = nextRendered;
     // `buildRoutePoints`/`geometry` are stable for the render this effect runs in; re-running this diff on every geometry recompute (a resize) would treat "the same tasks, redrawn at a new size" as a batch of moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -340,17 +451,21 @@ export const FloorCanvas = ({
     return layout.taskPosition.get(taskId)?.station ?? null;
   };
   const sectorLabelStation: TaskStatus | null =
-    (hoverTarget?.kind === "station" || hoverTarget?.kind === "shoal" ? hoverTarget.station : null) ??
+    (hoverTarget?.kind === "station" || hoverTarget?.kind === "shoal"
+      ? hoverTarget.station
+      : null) ??
     stationOf(hoveredTaskId) ??
     stationOf(selectedTaskId);
 
   useEffect(() => {
-    staticLayerRef.current = buildStaticLayer(geometry, readFloorColors());
+    staticLayerRef.current = buildStaticLayer(geometry, colorsNow());
   }, [geometry]);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      staticLayerRef.current = buildStaticLayer(geometry, readFloorColors());
+      // The theme class flipped: re-resolve the palette, then the terrain.
+      colorsRef.current = readFloorColors();
+      staticLayerRef.current = buildStaticLayer(geometry, colorsRef.current);
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
@@ -362,8 +477,13 @@ export const FloorCanvas = ({
       const staticLayer = staticLayerRef.current;
       if (canvas === null || staticLayer === null) return;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      canvas.width = Math.round(geometry.W * dpr);
-      canvas.height = Math.round(geometry.H * dpr);
+      // Assigning `width`/`height` reallocates the backing store (≈10 MB at
+      // 2× for a desktop map) even when the value is unchanged, so only do it
+      // on a real resize. `drawFrame` resets the transform and clears.
+      const pixelW = Math.round(geometry.W * dpr);
+      const pixelH = Math.round(geometry.H * dpr);
+      if (canvas.width !== pixelW) canvas.width = pixelW;
+      if (canvas.height !== pixelH) canvas.height = pixelH;
       const ctx = canvas.getContext("2d");
       if (ctx === null) return;
 
@@ -393,10 +513,20 @@ export const FloorCanvas = ({
         stillTravelling.push(travel);
         const trail: Point[] = [];
         for (let i = 0; i < TRAIL_SAMPLES; i += 1) {
-          const backT = Math.max(0, eased - (TRAIL_SPAN_FRACTION * (TRAIL_SAMPLES - i)) / TRAIL_SAMPLES);
+          const backT = Math.max(
+            0,
+            eased - (TRAIL_SPAN_FRACTION * (TRAIL_SAMPLES - i)) / TRAIL_SAMPLES,
+          );
           trail.push(pointAtFraction(travel.points, backT));
         }
-        renderedAnimations.push({ taskId: travel.taskId, x, y, trail, radius: travel.radius, colorHex: travel.colorHex });
+        renderedAnimations.push({
+          taskId: travel.taskId,
+          x,
+          y,
+          trail,
+          radius: travel.radius,
+          colorHex: travel.colorHex,
+        });
       }
       activeTravelsRef.current = stillTravelling;
 
@@ -424,7 +554,10 @@ export const FloorCanvas = ({
       // write every frame for a boat that isn't moving any more).
       const boatAlpha = new Map<number, number>();
       const fadingOutBoats: FadingOutBoat[] = [];
-      const stillFading = new Map<number, { startTime: number; direction: "in" | "out"; actor: string }>();
+      const stillFading = new Map<
+        number,
+        { startTime: number; direction: "in" | "out"; actor: string }
+      >();
       for (const [taskId, fade] of boatFadeRef.current) {
         const t = Math.min(1, (nowMs - fade.startTime) / BOAT_FADE_MS);
         const alpha = fade.direction === "in" ? t : 1 - t;
@@ -433,7 +566,14 @@ export const FloorCanvas = ({
         if (fade.direction === "out") {
           if (t < 1) stillFading.set(taskId, fade);
           const placed = placement.beads.get(taskId);
-          if (placed !== undefined) fadingOutBoats.push({ taskId, x: placed.x, y: placed.y, r: placed.r, actor: fade.actor });
+          if (placed !== undefined)
+            fadingOutBoats.push({
+              taskId,
+              x: placed.x,
+              y: placed.y,
+              r: placed.r,
+              actor: fade.actor,
+            });
         }
       }
       boatFadeRef.current = stillFading;
@@ -444,7 +584,7 @@ export const FloorCanvas = ({
         layout,
         geometry,
         placement,
-        colors: readFloorColors(),
+        colors: colorsNow(),
         projectOrder,
         groupMode,
         hoveredTaskId,
@@ -480,20 +620,55 @@ export const FloorCanvas = ({
     ],
   );
 
+  // Whether any of the map is on screen. The render loop stops while it is
+  // not — scrolled down to the task list, say — instead of drawing 60 frames
+  // a second nobody sees. (A hidden tab already pauses `requestAnimationFrame`.)
+  const [onScreen, setOnScreen] = useState(true);
   useEffect(() => {
-    if (reducedMotion) {
+    const el = containerRef.current;
+    if (el === null || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      if (entry !== undefined) setOnScreen(entry.isIntersecting);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    // Off screen or reduced motion: one frame for the current state (so
+    // hit-testing and a scroll back never show a stale picture), no loop.
+    if (reducedMotion || !onScreen) {
       draw(0);
       return;
     }
+    // At rest the only motion is the pools' slow breathing and the flow
+    // ticks, which look the same at 30 fps, so the loop draws every other
+    // frame then: the canvas is most of the map's idle CPU. A bead
+    // travelling, splashing, or a boat fading gets every frame. Any
+    // interaction (hover, selection, new data) changes `draw`, restarting
+    // this effect with an immediate frame, so input never waits on the
+    // throttle.
+    const RESTING_FRAME_MS = 1000 / 30;
     let raf = 0;
     const start = performance.now();
+    let last = -Infinity;
     const loop = (now: number) => {
-      draw((now - start) / 1000);
+      const animating =
+        activeTravelsRef.current.length > 0 ||
+        arrivalsRef.current.length > 0 ||
+        boatFadeRef.current.size > 0;
+      // `- 2`: rAF timestamps jitter around the 16.7 ms frame, and a strict
+      // comparison would drop to 20 fps on the frames that land a hair early.
+      if (animating || now - last >= RESTING_FRAME_MS - 2) {
+        last = now;
+        draw((now - start) / 1000);
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [draw, reducedMotion]);
+  }, [draw, reducedMotion, onScreen]);
 
   /** Client coordinates → canvas-geometry space (which is also the container's own CSS px space — see `computeGeometry`). */
   const canvasPoint = (clientX: number, clientY: number): { x: number; y: number } => {
@@ -507,11 +682,57 @@ export const FloorCanvas = ({
 
   const hitAt = (clientX: number, clientY: number): FloorHitTarget | undefined => {
     const { x, y } = canvasPoint(clientX, clientY);
-    return hitTest(hitsRef.current, x, y);
+    return hitTest(hitsRef.current, x, y, hover?.key);
   };
 
-  const pointerTarget = (event: React.PointerEvent<HTMLCanvasElement>): FloorHitTarget | undefined =>
-    hitAt(event.clientX, event.clientY);
+  const cancelHoverClear = () => {
+    if (hoverClearRef.current !== null) {
+      clearTimeout(hoverClearRef.current);
+      hoverClearRef.current = null;
+    }
+  };
+
+  useEffect(() => cancelHoverClear, []);
+
+  const clearHover = () => {
+    cancelHoverClear();
+    setHover(null);
+    onHoverTask(null);
+  };
+
+  /**
+   * Hover only changes state when it points at something *different* —
+   * `hitsRef` is rebuilt every frame, so comparing hit objects would
+   * re-render on every pointermove. Empty water clears after a short grace
+   * (`HOVER_CLEAR_DELAY_MS`) so hopping between neighbours doesn't blink.
+   */
+  const updateHover = (target: FloorHitTarget | undefined) => {
+    if (target === undefined) {
+      if (hover !== null && hoverClearRef.current === null)
+        hoverClearRef.current = setTimeout(() => {
+          hoverClearRef.current = null;
+          setHover(null);
+          onHoverTask(null);
+        }, HOVER_CLEAR_DELAY_MS);
+      return;
+    }
+    cancelHoverClear();
+    const key = hitKey(target);
+    const avoid = hitsRef.current
+      .filter((hit) => hitKey(hit) === key)
+      .map(boxOf)
+      .reduce(unionBox, boxOf(target));
+    setHover((prev) =>
+      prev !== null && prev.key === key && sameBox(prev.avoid, avoid)
+        ? prev
+        : { target, key, avoid },
+    );
+    onHoverTask(target.kind === "bead" ? target.task.id : null);
+  };
+
+  const pointerTarget = (
+    event: React.PointerEvent<HTMLCanvasElement>,
+  ): FloorHitTarget | undefined => hitAt(event.clientX, event.clientY);
 
   /**
    * The drop target under `(x, y)` while dragging — a generous radius
@@ -539,7 +760,10 @@ export const FloorCanvas = ({
     }
     if (canDrag && dragCandidateRef.current !== null) {
       const candidate = dragCandidateRef.current;
-      const moved = Math.hypot(event.clientX - candidate.clientX, event.clientY - candidate.clientY);
+      const moved = Math.hypot(
+        event.clientX - candidate.clientX,
+        event.clientY - candidate.clientY,
+      );
       // Mouse: a real drag starts once the pointer has moved a few px — below
       // that, this stays a click. Touch waits for the long-press timer
       // instead (a moving finger before that fires is just an imprecise tap,
@@ -550,9 +774,7 @@ export const FloorCanvas = ({
       }
       return;
     }
-    const target = pointerTarget(event);
-    setHoverTarget(target ?? null);
-    onHoverTask(target?.kind === "bead" ? target.task.id : null);
+    updateHover(pointerTarget(event));
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -560,7 +782,12 @@ export const FloorCanvas = ({
     const hit = pointerTarget(event);
     if (hit?.kind !== "bead") return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    dragCandidateRef.current = { task: hit.task, clientX: event.clientX, clientY: event.clientY, pointerId: event.pointerId };
+    dragCandidateRef.current = {
+      task: hit.task,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerId: event.pointerId,
+    };
     if (event.pointerType === "touch") {
       clearLongPress();
       longPressRef.current = setTimeout(() => {
@@ -604,7 +831,7 @@ export const FloorCanvas = ({
     const target = pointerTarget(event);
     if (target === undefined) return;
     if (target.kind === "bead") onSelectTask(target.task);
-    else if (target.kind === "shoal" || target.kind === "station") onToggleStatus(target.station);
+    else if (target.kind === "shoal" || target.kind === "station") onOpenStation(target.station);
     else if (target.kind === "ghost") onSelectGhost(target.ghost.ref);
   };
 
@@ -656,7 +883,12 @@ export const FloorCanvas = ({
   };
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border", className)}>
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border",
+        className,
+      )}
+    >
       {/* No clock overlay here any more — the hero's toolbar row renders one
           above the canvas instead, so nothing ever draws on top of the river
           (this was covering the DEFERRED station plate at the top-right). */}
@@ -672,15 +904,18 @@ export const FloorCanvas = ({
           onPointerUp={handlePointerUp}
           onPointerCancel={cancelDrag}
           onPointerLeave={() => {
-            if (drag === null) {
-              setHoverTarget(null);
-              onHoverTask(null);
-            }
+            if (drag === null) clearHover();
           }}
           onKeyDown={handleKeyDown}
         />
-        {hoverTarget?.kind === "bead" && drag === null ? (
-          <HoverTip task={hoverTarget.task} x={hoverTarget.x} y={hoverTarget.y} />
+        {hover?.target.kind === "bead" && drag === null ? (
+          <HoverTip
+            task={hover.target.task}
+            anchorY={hover.target.y}
+            avoid={hover.avoid}
+            bounds={size}
+            canDrag={canDrag}
+          />
         ) : null}
         {drag === null
           ? null
@@ -714,39 +949,10 @@ export const FloorCanvas = ({
             }}
           />
         )}
-        {onQuickAdd === undefined || drag !== null
-          ? null
-          : PLANNING_STATUSES.map((status) => {
-              const [px, py] = geometry.P(STATION[status]);
-              const clusterR = placement.clusterRadius[status] ?? 6;
-              const cluster = layout.clusters[status];
-              const dominantProject =
-                groupMode === "project"
-                  ? [...cluster.groups].sort((a, b) => b.count - a.count)[0]?.key
-                  : undefined;
-              const project =
-                dominantProject === undefined || dominantProject.startsWith("__") ? undefined : dominantProject;
-              const isNear =
-                (hoverTarget?.kind === "station" || hoverTarget?.kind === "shoal") && hoverTarget.station === status;
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => onQuickAdd(status, project)}
-                  aria-label={`Add a task to ${status.replace(/_/g, " ")}`}
-                  title={`Add a task to ${status.replace(/_/g, " ")}`}
-                  className={cn(
-                    "absolute z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-map-panel text-foreground opacity-0 shadow transition-opacity hover:opacity-100 hover:bg-primary hover:text-primary-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
-                    isNear && "opacity-100",
-                  )}
-                  style={{ left: px + clusterR + 10, top: py }}
-                >
-                  <Plus className="size-3.5" aria-hidden="true" />
-                </button>
-              );
-            })}
       </div>
-      {legendVisible ? <MapLegend layout={layout} groupMode={groupMode} projectOrder={projectOrder} /> : null}
+      {legendVisible ? (
+        <MapLegend layout={layout} groupMode={groupMode} projectOrder={projectOrder} />
+      ) : null}
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
@@ -754,25 +960,77 @@ export const FloorCanvas = ({
   );
 };
 
-const HoverTip = ({ task, x, y }: { task: FloorTask; x: number; y: number }) => {
-  const tip = tipInfoFor(task);
+const HoverTip = ({
+  task,
+  anchorY,
+  avoid,
+  bounds,
+  canDrag,
+}: {
+  task: FloorTask;
+  anchorY: number;
+  avoid: HitBox;
+  bounds: { width: number; height: number };
+  canDrag: boolean;
+}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [tipSize, setTipSize] = useState({ w: 288, h: 140 });
+  // Measured before paint, so the first frame is already placed with the
+  // card's real height (a long title or status note makes it taller).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    setTipSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+  }, [task]);
+  const { left, top } = placeHoverTip(avoid, anchorY, tipSize, bounds);
+  const who = task.claim !== null ? actorDisplayName(task.claim.actor) : (task.assignee ?? null);
+
   return (
     <div
-      className="pointer-events-none absolute z-10 w-64 rounded-xl border border-border bg-popover p-3 text-xs text-foreground shadow-floating"
-      style={{ left: x + 16, top: Math.max(0, y - 8) }}
+      ref={ref}
+      role="tooltip"
+      className="pointer-events-none absolute z-30 w-72 max-w-[calc(100%-16px)] overflow-hidden rounded-xl border border-border bg-popover text-xs text-foreground shadow-floating motion-safe:animate-overlay-in motion-safe:transition-[left,top] motion-safe:duration-150 motion-safe:ease-out"
+      style={{ left, top }}
     >
-      <p className="font-mono text-[11px] text-muted-foreground">
-        {tip.reference} {tip.project === null ? "" : `· ${tip.project}`}
-      </p>
-      <p className="mb-1 line-clamp-2 text-sm font-semibold">{tip.title}</p>
-      <p className="font-mono text-[11px] text-muted-foreground">
-        {tip.statusLabel} · {tip.priority}
-      </p>
-      {tip.note !== null ? <p className="mt-1 line-clamp-3 text-muted-foreground">{tip.note}</p> : null}
-      <p className="mt-1 text-muted-foreground">
-        {tip.waitsOn > 0 ? `waits on ${tip.waitsOn} · ` : ""}
-        {tip.unblocks > 0 ? `unblocks ${tip.unblocks} · ` : ""}
-        {tip.assignee ?? "unassigned"}
+      <div className="space-y-2 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+            {task.reference}
+            {task.project === null ? null : <span> · {task.project}</span>}
+          </p>
+          <PriorityBadge priority={task.priority} className="shrink-0" />
+        </div>
+        <p className="line-clamp-2 text-sm leading-snug font-semibold">{task.title}</p>
+        <StatusBadge status={task.status} />
+        {task.statusNote === null ? null : (
+          <p className="line-clamp-3 border-l-2 border-border pl-2 text-muted-foreground">
+            {task.statusNote}
+          </p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <User className="size-3" aria-hidden="true" />
+          {who ?? "unassigned"}
+        </span>
+        {task.openBlockerCount > 0 ? (
+          <span className="inline-flex items-center gap-1 text-destructive">
+            <Link2 className="size-3" aria-hidden="true" />
+            waits on {task.openBlockerCount}
+          </span>
+        ) : null}
+        {task.unblocksCount > 0 ? (
+          <span className="inline-flex items-center gap-1">
+            <GitBranch className="size-3" aria-hidden="true" />
+            unblocks {task.unblocksCount}
+          </span>
+        ) : null}
+        <span className="ml-auto">{formatRelative(task.updatedAt)}</span>
+      </div>
+      <p className="border-t border-border px-3 py-1.5 text-[10px] tracking-wide text-muted-foreground/80 uppercase">
+        Click to open{canDrag ? " · drag to move" : ""}
       </p>
     </div>
   );

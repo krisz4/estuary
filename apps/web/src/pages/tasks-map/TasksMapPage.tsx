@@ -1,14 +1,16 @@
 import {
   ANONYMOUS_ACTOR,
+  HUMAN_ATTENTION_STATUSES,
   slugifyActorName,
+  TERMINAL_TASK_STATUSES,
   type FloorTask,
   type TaskRef,
   type TaskStatus,
   type TransitionInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { Map as MapIcon, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useFloorQuery, usePrefetchFloorAt } from "@/api/floor";
 import { isApiClientError } from "@/api/http";
@@ -30,9 +32,10 @@ import {
   sortedProjectKeys,
 } from "@/features/floor/layout";
 import { formatLiveStatusLine } from "@/features/floor/liveMotion";
-import { TaskDrawer } from "@/features/floor/TaskDrawer";
 import { useLiveMotion } from "@/features/floor/useLiveMotion";
+import { TaskWorkspaceDialog } from "@/features/tasks/TaskWorkspaceDialog";
 import { TransitionDialog } from "@/features/tasks/TransitionDialog";
+import { DEFAULT_TASK_LIST_PARAMS } from "@/pages/tasks-list/useTaskListParams";
 import { AllTasksSection } from "@/pages/tasks-map/sections/AllTasksSection";
 import { Hero } from "@/pages/tasks-map/sections/Hero";
 import { computeInFlightCount, InFlightSection } from "@/pages/tasks-map/sections/InFlightSection";
@@ -59,12 +62,30 @@ const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
  * further back when the last visit was longer ago than that, but never more
  * than `MAX_WINDOW_MS`. Exported for tests.
  */
-export const computeSince = (lastVisit: string | null, minWindowMs: number, now = Date.now()): string => {
+export const computeSince = (
+  lastVisit: string | null,
+  minWindowMs: number,
+  now = Date.now(),
+): string => {
   const floor = now - minWindowMs;
   const cap = now - MAX_WINDOW_MS;
   if (lastVisit === null) return new Date(floor).toISOString();
   const visitedMs = new Date(lastVisit).getTime();
   return new Date(Math.max(Math.min(visitedMs, floor), cap)).toISOString();
+};
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((entry) => b.includes(entry));
+
+/**
+ * The station/tile list dialog's title: a briefing tile's own name for its
+ * status set ("Waiting on you", "Shipped"), else the status labels. Exported
+ * for tests.
+ */
+export const statusListTitle = (statuses: readonly TaskStatus[]): string => {
+  if (sameSet(statuses, HUMAN_ATTENTION_STATUSES)) return "Waiting on you";
+  if (sameSet(statuses, TERMINAL_TASK_STATUSES)) return "Shipped";
+  return statuses.map((status) => TASK_STATUS_LABELS[status]).join(" · ");
 };
 
 /**
@@ -87,9 +108,10 @@ export const computeSince = (lastVisit: string | null, minWindowMs: number, now 
 export const TasksMapPage = () => {
   useDocumentTitle("Map");
   useRememberTaskView("map");
-  const navigate = useNavigate();
   const dropMutation = useTransitionTaskMutation();
-  const [dropDialog, setDropDialog] = useState<{ task: FloorTask; target: TaskStatus } | null>(null);
+  const [dropDialog, setDropDialog] = useState<{ task: FloorTask; target: TaskStatus } | null>(
+    null,
+  );
 
   const {
     params,
@@ -101,6 +123,7 @@ export const TasksMapPage = () => {
     setShipped,
     toggleFold: _toggleFold,
     setSelectedTask,
+    setStatusList,
     setAt,
     applyPreset,
     activeFilterCount,
@@ -121,7 +144,8 @@ export const TasksMapPage = () => {
   const scrubberSince = useMemo(() => computeSince(lastVisit, SCRUBBER_MIN_WINDOW_MS), [lastVisit]);
 
   const group: MapGroupBy =
-    params.group ?? (snapshot === undefined ? "project" : computeDefaultBeltsMode(params.project, snapshot.tasks));
+    params.group ??
+    (snapshot === undefined ? "project" : computeDefaultBeltsMode(params.project, snapshot.tasks));
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelWidth, setPanelWidth] = useState(0);
@@ -158,8 +182,21 @@ export const TasksMapPage = () => {
       selectedTaskId: params.task,
       olderClosedCount: snapshot.meta.olderClosedCount,
       maxPerCluster,
+      // Live: when this snapshot was fetched (a pure value, unlike
+      // `Date.now()` in render, and it advances with every poll). Replaying:
+      // the playhead, so done beads settle exactly as they had at that time.
+      now: params.at === undefined ? floorQuery.dataUpdatedAt : Date.parse(params.at),
     });
-  }, [snapshot, panelWidth, group, params.match, params.task, activeFilterCount]);
+  }, [
+    snapshot,
+    panelWidth,
+    group,
+    params.match,
+    params.task,
+    params.at,
+    activeFilterCount,
+    floorQuery.dataUpdatedAt,
+  ]);
 
   const displayName = useSessionStore((state) => state.displayName);
   const currentActor = (() => {
@@ -191,7 +228,11 @@ export const TasksMapPage = () => {
     onClear: clearFilters,
     activeFilterCount,
     onSetGroup: (value: MapGroupBy | undefined) =>
-      setGroup(snapshot === undefined || value === computeDefaultBeltsMode(params.project, snapshot.tasks) ? undefined : value),
+      setGroup(
+        snapshot === undefined || value === computeDefaultBeltsMode(params.project, snapshot.tasks)
+          ? undefined
+          : value,
+      ),
     onSetLinks: setLinks,
     onSetMatch: setMatch,
     onSetShipped: setShipped,
@@ -208,7 +249,9 @@ export const TasksMapPage = () => {
   };
 
   const reducedMotion = useMemo(
-    () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     [],
   );
   const { syncedSecondsAgo } = useLiveMotion({
@@ -247,7 +290,9 @@ export const TasksMapPage = () => {
         onSuccess: () => toast.success(`${task.reference} moved to ${TASK_STATUS_LABELS[target]}`),
         onError: (error) => {
           if (isApiClientError(error) && error.code === "VERSION_CONFLICT") {
-            toast.error("Someone else changed this task", { description: "Refresh the map and try again." });
+            toast.error("Someone else changed this task", {
+              description: "Refresh the map and try again.",
+            });
             return;
           }
           toast.error(errorCopy(error).title, { description: errorDescription(error) });
@@ -281,7 +326,9 @@ export const TasksMapPage = () => {
           <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />
         ) : snapshot === undefined || layout === null ? null : (
           <>
-            {error !== null ? <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} /> : null}
+            {error !== null ? (
+              <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />
+            ) : null}
 
             {snapshot.tasks.length === 0 && activeFilterCount === 0 ? (
               <EmptyState
@@ -311,7 +358,7 @@ export const TasksMapPage = () => {
                 <Hero
                   briefingProps={{
                     snapshot,
-                    onSetStatuses: (statuses) => setFilters({ status: statuses }),
+                    onOpenStatuses: setStatusList,
                     onSelectTask: (taskId) => setSelectedTask(taskId),
                     project: params.project,
                     since: briefingSince,
@@ -334,26 +381,10 @@ export const TasksMapPage = () => {
                     onHoverTask: setHoveredTaskId,
                     onSelectTask: (task) => setSelectedTask(task.id),
                     onSelectGhost: (ref: TaskRef) => setSelectedTask(ref.id),
-                    onToggleStatus: (status) =>
-                      setFilters((current) => ({
-                        status: current.status.includes(status)
-                          ? current.status.filter((entry) => entry !== status)
-                          : [...current.status, status],
-                      })),
+                    onOpenStation: (status) => setStatusList([status]),
                     clockAt: params.at,
-                    // Quick add: no button at all while replaying (the fieldset
-                    // in the drawer disables writes there for the same reason —
-                    // a snapshot from the past isn't where a new task belongs).
-                    ...(params.at === undefined
-                      ? {
-                          onQuickAdd: (status: TaskStatus, project: string | undefined) => {
-                            const search = new URLSearchParams({ status });
-                            if (project !== undefined) search.set("project", project);
-                            void navigate(`/tasks/new?${search.toString()}`);
-                          },
-                        }
-                      : {}),
-                    // Drag-to-transition: same replay gate as quick add.
+                    // Drag-to-transition: no writes while replaying — a snapshot
+                    // from the past isn't where a write belongs.
                     ...(params.at === undefined ? { onDropTask: handleDropTask } : {}),
                   }}
                   scrubberProps={{
@@ -375,7 +406,10 @@ export const TasksMapPage = () => {
 
                 <NeedsYouSection project={params.project} projectOrder={projectOrder} />
 
-                <InFlightSection snapshot={snapshot} onSelectTask={(taskId) => setSelectedTask(taskId)} />
+                <InFlightSection
+                  snapshot={snapshot}
+                  onSelectTask={(taskId) => setSelectedTask(taskId)}
+                />
 
                 <AllTasksSection
                   snapshot={snapshot}
@@ -395,11 +429,28 @@ export const TasksMapPage = () => {
           </>
         )}
 
-        {params.task === undefined ? null : (
-          <TaskDrawer
+        {/* One large dialog for both a station's list and a task — see
+            `TaskWorkspaceDialog`. Keyed by the list, so opening a different
+            one starts from its own filters. */}
+        {params.list.length === 0 && params.task === undefined ? null : (
+          <TaskWorkspaceDialog
+            key={params.list.join(",")}
+            list={
+              params.list.length === 0
+                ? undefined
+                : {
+                    title: statusListTitle(params.list),
+                    initialParams: {
+                      ...DEFAULT_TASK_LIST_PARAMS,
+                      status: params.list,
+                      project: params.project,
+                    },
+                  }
+            }
             taskId={params.task}
-            onClose={() => setSelectedTask(undefined)}
-            onNavigate={setSelectedTask}
+            onOpenTask={(taskId) => setSelectedTask(taskId)}
+            onBackToList={() => setSelectedTask(undefined)}
+            onClose={() => applyPreset({ list: [], task: undefined })}
             replayingAt={params.at}
             onBackToNow={() => setAt(undefined, { replace: true })}
           />
@@ -416,9 +467,14 @@ export const TasksMapPage = () => {
             target={dropDialog.target}
             onSubmit={(input) =>
               dropMutation
-                .mutateAsync({ taskId: dropDialog.task.id, input: { ...input, expectedVersion: dropDialog.task.version } })
+                .mutateAsync({
+                  taskId: dropDialog.task.id,
+                  input: { ...input, expectedVersion: dropDialog.task.version },
+                })
                 .then(() => {
-                  toast.success(`${dropDialog.task.reference} moved to ${TASK_STATUS_LABELS[dropDialog.target]}`);
+                  toast.success(
+                    `${dropDialog.task.reference} moved to ${TASK_STATUS_LABELS[dropDialog.target]}`,
+                  );
                   setDropDialog(null);
                 })
             }

@@ -11,7 +11,7 @@ import {
   type CreateTaskInput,
   type TaskPriority,
   type UpdateTaskInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { Plus, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
@@ -500,7 +500,7 @@ export const TaskForm = ({
         <Field
           label="Project"
           error={errors.project?.message}
-          help="Optional. A slug like “helpdesk” — pick one in use or start a new one."
+          help="Optional. A slug like “estuary” — pick one in use or start a new one."
         >
           {(field) => (
             <>

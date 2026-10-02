@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LOGBOOK_VISIT_STORAGE_KEY, resetLogbookVisitStore, useLogbookVisitStore } from "@/stores/logbookVisit";
+import {
+  LOGBOOK_VISIT_STORAGE_KEY,
+  resetLogbookVisitStore,
+  useLogbookVisitStore,
+} from "@/stores/logbookVisit";
 
 /** See `taskView.test.ts` for why a real `localStorage` needs stubbing here. */
 const memoryStorage = (): Storage => {

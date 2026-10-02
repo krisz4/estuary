@@ -15,7 +15,7 @@ status: canonical
 | Generator + writer | `apps/api/src/seed/index.ts` |
 | Task content (templates, actors, working notes) | `apps/api/src/seed/seed-data.ts` |
 | Tests | `apps/api/src/seed/seed.test.ts` |
-| Commands | `pnpm --filter @helpdesk/api db:seed` (wipes first), `pnpm --filter @helpdesk/api db:reset` (migrate reset + seed, via the `prisma.seed` hook) |
+| Commands | `pnpm --filter @estuary/api db:seed` (wipes first), `pnpm --filter @estuary/api db:reset` (migrate reset + seed, via the `prisma.seed` hook) |
 
 ## What it creates
 
@@ -25,15 +25,17 @@ status: canonical
 | --------- | ----- |
 | Count | 62 tasks: three full pages and a partial fourth at the default `pageSize=20` |
 | Status | Every one of the ten statuses. More in the plan and closed lanes, a handful in each attention status (table below) |
-| Projects | `helpdesk` 22, `billing-service` 21, `mobile-app` 17, plus 2 with **no** project. Null is a state every screen has to render |
+| Projects | `estuary` 22, `billing-service` 21, `mobile-app` 17, plus 2 with **no** project. Null is a state every screen has to render |
 | Creators | Agents `agent:claude-code` (18), `agent:claude-code-ci` (8), `agent:claude-code-nightly` (2); humans `human:dana` (11), `human:krisz` (10), `human:marco` (8), `human:lena` (5) |
 | Priority | low 14 / medium 22 / high 20 / urgent 6, so severity sorting is visibly not alphabetical |
 | Assignee | The actor who worked the task, or a named human on a few backlog items. 23 unassigned, so `assigneeIsNull=true` has results |
 | `createdAt` | Spread over the last 60 days (about 1 to 58 days old). Rows are inserted oldest-first, so task numbers run in chronological order and `TASK-000001` is the oldest |
 | Subtasks | Three parents with three children each (`parentId`): the MCP server, PDF rendering, offline mode |
 | Links | 21 tasks carry PR/branch links under `https://github.com/example-org/<project>/…`: every `needs_qa` and `done` task, plus a couple of `needs_user_action` tasks with a PR |
-| Labels | Not every task has one. `helpdesk`-project tasks get a workspace slug (`web`, `api`, `contracts`, `mcp`, `db`, `docs` — that project mirrors this monorepo); any task whose title is about a bug/flaky-test/perf issue gets that kind label too. Exercises `?label=` and the facets `labels` list — see [Labels.md](./Labels.md) |
+| Labels | Not every task has one. `estuary`-project tasks get a workspace slug (`web`, `api`, `contracts`, `mcp`, `db`, `docs` — that project mirrors this monorepo); any task whose title is about a bug/flaky-test/perf issue gets that kind label too. Exercises `?label=` and the facets `labels` list — see [Labels.md](./Labels.md) |
 | `idempotencyKey` | On every agent-created task, `<agent-name>:<project>:<slug>` (for example `claude-code:billing-service:vies-client`), unique |
+| `needsTriage` | Set on every agent-created `backlog`/`todo` task that was never started — the same rule the server applies to a live create, replayed over the seed's own templates rather than hand-authored per task. So the inbox's Suggested group is non-empty out of the box |
+| `concerns` | The `vies-client` `needs_qa` task carries one (a skipped-in-CI contract test, a caching edge case) — exercises the inbox's "needs a close look" rendering and keeps it out of "Approve all routine" |
 
 ### Status distribution
 
@@ -113,3 +115,4 @@ No other file reads what it writes.
 - [../engineering/DATABASE.md](../engineering/DATABASE.md)
 - [Task_Workflow_API.md](./Task_Workflow_API.md)
 - [Task_Query_Filter_Sort_Page.md](./Task_Query_Filter_Sort_Page.md)
+- [Attention_Queue.md](./Attention_Queue.md) — `needsTriage` / `concerns`

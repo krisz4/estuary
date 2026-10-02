@@ -1,7 +1,8 @@
 import { type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-export type BadgeTone = "neutral" | "primary" | "success" | "warning" | "info" | "destructive" | "attention";
+export type BadgeTone =
+  "neutral" | "primary" | "success" | "warning" | "info" | "destructive" | "attention";
 
 const TONES: Record<BadgeTone, string> = {
   neutral: "bg-neutral-subtle text-neutral-subtle-foreground",

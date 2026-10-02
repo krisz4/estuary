@@ -29,6 +29,7 @@ import { useLastVisit } from "@/stores/logbookVisit";
 import { useLogbookParams } from "@/pages/logbook/useLogbookParams";
 import { useRememberProjectScope } from "@/stores/projectScope";
 import { SectionHeader } from "@/pages/tasks-map/sections/SectionHeader";
+import { ReachEyebrow } from "@/components/ReachEyebrow";
 
 const NAV_SECTIONS: LogbookMiniNavSection[] = [
   { id: "flow", label: "Flow" },
@@ -93,10 +94,14 @@ export const LogbookPage = () => {
     <div className="flex flex-col gap-10">
       <div id="logbook-top" className="flex flex-col gap-4">
         <header className="flex flex-col gap-1">
+          <ReachEyebrow name="Tide log" place="every movement on the river" />
           <h1 className="text-2xl font-semibold text-foreground">Logbook</h1>
           <p className="text-sm text-muted-foreground">
             History for {params.project.length > 0 ? params.project.join(", ") : "every project"}.{" "}
-            <Link to="/logbook#archive" className="font-medium text-primary underline-offset-4 hover:underline">
+            <Link
+              to="/logbook#archive"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
               Jump to the archive
             </Link>
           </p>
@@ -124,9 +129,13 @@ export const LogbookPage = () => {
         id="flow"
         eyebrow="Cumulative flow diagram"
         title="Flow"
-        description="Banded by the floor's four zones. A widening Waiting dock band is a bottleneck you can see."
+        description="Banded by the estuary's four reaches. Work in review counts as waiting here, because it waits on you. A widening lagoon band is a bottleneck you can see."
         action={
-          <div role="group" aria-label="Flow detail" className="inline-flex gap-1 rounded-md border border-border p-1 text-xs">
+          <div
+            role="group"
+            aria-label="Flow detail"
+            className="inline-flex gap-1 rounded-md border border-border p-1 text-xs"
+          >
             {(["zones", "all"] as const).map((mode) => (
               <button
                 key={mode}
@@ -135,7 +144,9 @@ export const LogbookPage = () => {
                 onClick={() => setCfdMode(mode)}
                 className={
                   "rounded px-2 py-1 font-medium " +
-                  (cfdMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground")
+                  (cfdMode === mode
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground")
                 }
               >
                 {mode === "zones" ? "4 zones" : "All statuses"}
@@ -216,7 +227,12 @@ export const LogbookPage = () => {
         </HistorySection>
       </Section>
 
-      <Section id="event-log" eyebrow="Every write, newest first" title="Event log" description="Grouped by day.">
+      <Section
+        id="event-log"
+        eyebrow="Every write, newest first"
+        title="Event log"
+        description="Grouped by day."
+      >
         <EventLog
           query={eventLogQuery}
           filters={{ actor: params.actor, type: params.type }}
@@ -293,10 +309,20 @@ const HistorySection = ({
     );
   }
   if (query.error !== null && query.data === undefined) {
-    return <ErrorPanel error={query.error} onRetry={() => void query.refetch()} isRetrying={query.isFetching} />;
+    return (
+      <ErrorPanel
+        error={query.error}
+        onRetry={() => void query.refetch()}
+        isRetrying={query.isFetching}
+      />
+    );
   }
   if (query.data === undefined) return null;
-  if (query.data.buckets.every((bucket) => bucket.created === 0 && bucket.completed === 0 && bucket.deferred === 0)) {
+  if (
+    query.data.buckets.every(
+      (bucket) => bucket.created === 0 && bucket.completed === 0 && bucket.deferred === 0,
+    )
+  ) {
     return <p className="text-sm text-muted-foreground">{empty}</p>;
   }
   return <>{children(query.data)}</>;

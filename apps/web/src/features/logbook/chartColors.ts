@@ -1,16 +1,21 @@
-import { type TaskStatus } from "@helpdesk/contracts";
-import { LOGBOOK_ZONES, ZONE_STATUSES, zoneOfStatus, type LogbookZone } from "@/features/logbook/zones";
+import { type TaskStatus } from "@estuary/contracts";
+import {
+  LOGBOOK_ZONES,
+  ZONE_STATUSES,
+  zoneOfStatus,
+  type LogbookZone,
+} from "@/features/logbook/zones";
 
 /**
  * Every chart on this page draws from the same "Estuary" `--map-*` tokens the
  * floor uses for its own stations — `--map-ink-3` (neutral, planning),
  * `--map-ok` (the "moved forward" colour the tide scrubber already uses for
- * `in_progress`/`needs_qa`/`done`), `--map-pool-attn` (a waiting-dock pool),
+ * `in_progress`/`needs_qa`/`done`), `--map-pool-attn` (a lagoon pool),
  * `--map-pool-block` (a blocked pool) — so a reader who has looked at the map
  * recognises the Logbook's colours immediately, and both stay correct in dark
  * mode for free (the tokens already are). Shipped gets its own hue,
  * `--map-water-edge` (the river's edge, closest to the mouth), so it never
- * reads as indistinguishable from the Build bay's `--map-ok` in the stacked
+ * reads as indistinguishable from the reach's `--map-ok` in the stacked
  * flow chart.
  */
 export const ZONE_COLOR_VAR: Record<LogbookZone, string> = {
@@ -35,11 +40,14 @@ export const zoneColor = (zone: LogbookZone): { stroke: string; fill: string } =
 export const statusColor = (status: TaskStatus): { stroke: string; fill: string } => {
   // `blocked` breaks out of its zone's shading: the map already colours a
   // blocked pool `--map-pool-block` (distinct from the amber `--map-pool-attn`
-  // every other Waiting dock status shares), and the all-statuses view is
+  // every other lagoon status shares), and the all-statuses view is
   // exactly where that distinction — "blocked" versus "merely waiting" — is
   // the whole point of switching views for.
   if (status === "blocked") {
-    return { stroke: "var(--map-pool-block)", fill: "color-mix(in oklch, var(--map-pool-block) 55%, transparent)" };
+    return {
+      stroke: "var(--map-pool-block)",
+      fill: "color-mix(in oklch, var(--map-pool-block) 55%, transparent)",
+    };
   }
   const zone = zoneOfStatus(status);
   const siblings = ZONE_STATUSES[zone];

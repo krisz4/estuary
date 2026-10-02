@@ -49,7 +49,7 @@ Report findings as a list; fix them only if asked.
 ## Boundaries
 
 - **Do not** change application code. If a doc and the code disagree, report it and ask which is correct — silently rewriting the doc to match a bug enshrines the bug.
-- **Do not** edit `instructions.md` — it is the original brief and stays as-is.
+- **Do not** edit `docs/history/instructions.md` — it is the original brief and stays as-is.
 
 ## Report back
 

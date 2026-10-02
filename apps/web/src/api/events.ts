@@ -3,7 +3,7 @@ import {
   type InfiniteData,
   type UseInfiniteQueryResult,
 } from "@tanstack/react-query";
-import { EVENTS_MAX_LIMIT, type EventsResponse, type TaskEventType } from "@helpdesk/contracts";
+import { EVENTS_MAX_LIMIT, type EventsResponse, type TaskEventType } from "@estuary/contracts";
 import { api, type QueryInput } from "@/api/http";
 import { POLL_INTERVAL_MS } from "@/api/polling";
 import { queryKeys } from "@/api/queryKeys";
@@ -66,7 +66,8 @@ export const useEventLogQuery = (
     queryFn: ({ pageParam, signal }) =>
       listEvents({ ...base, ...(pageParam === undefined ? {} : { before: pageParam }) }, signal),
     initialPageParam: undefined as number | undefined,
-    getNextPageParam: (last) => (last.meta.hasMore ? (last.meta.nextBefore ?? undefined) : undefined),
+    getNextPageParam: (last) =>
+      last.meta.hasMore ? (last.meta.nextBefore ?? undefined) : undefined,
   });
 };
 

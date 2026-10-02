@@ -59,7 +59,7 @@ const booleanFromString = (defaultValue: boolean) =>
 const envSchema = z.object({
   /**
    * SQLite connection string. Relative paths resolve from `apps/api/prisma/`,
-   * so `file:./data/helpdesk.db` lands at `apps/api/prisma/data/helpdesk.db`.
+   * so `file:./data/estuary.db` lands at `apps/api/prisma/data/estuary.db`.
    *
    * **Required, with no default, on purpose.** A default here is the failure
    * that costs a developer their local data: a vitest worker whose `setupFiles`
@@ -159,6 +159,14 @@ const envSchema = z.object({
    * long enough that an agent deep in a build does not lose its task.
    */
   CLAIM_LEASE_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
+
+  /**
+   * Days a task stays `done` before the API deletes it automatically
+   * (`docs/features/Task_Cleanup.md`). The sweep runs at boot and every six
+   * hours, counting from `completedAt`. `0` turns it off; the manual
+   * `POST /tasks/cleanup` works either way.
+   */
+  DONE_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(90),
 
   /**
    * The optional GitHub integration (`docs/features/GitHub_Integration.md`). Off

@@ -6,6 +6,7 @@ import {
   addDependencyInputSchema,
   answerDecisionInputSchema,
   claimTaskInputSchema,
+  cleanupDoneTasksInputSchema,
   createTaskInputSchema,
   nextTaskInputSchema,
   releaseTaskInputSchema,
@@ -14,11 +15,12 @@ import {
   taskStatsQuerySchema,
   transitionInputSchema,
   updateTaskInputSchema,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { z } from "zod";
 
 import {
   ACTOR_422_NOTE,
+  CleanupDoneTasksResponseComponent,
   NextTaskResponseComponent,
   PaginatedTasksComponent,
   TaskComponent,
@@ -104,7 +106,7 @@ export const QUERY_DESCRIPTIONS: Record<string, string> = {
   status: "Repeatable. Values within one parameter OR together; different parameters AND together.",
   priority: "Repeatable, same OR/AND rule as status.",
   project:
-    "Repeatable, same OR/AND rule as status. A lowercase slug; the input is lowercased before matching, so HelpDesk finds helpdesk.",
+    "Repeatable, same OR/AND rule as status. A lowercase slug; the input is lowercased before matching, so Estuary finds estuary.",
   label:
     "Repeatable, same OR/AND rule as status. Tasks carrying at least one of these labels — a label narrows work inside a project (a monorepo workspace, a kind of work). Send a value from GET /tasks/facets.",
   assignee:
@@ -114,6 +116,8 @@ export const QUERY_DESCRIPTIONS: Record<string, string> = {
     "Exact actor that created the task, e.g. agent:claude-code. Lowercased before matching, like the stored value; GET /tasks/facets lists the creators present.",
   claimedBy:
     "Exact actor holding the task's claim, e.g. agent:claude-code — lowercased before matching. Matches the stored holder even after the lease expired, so an agent can find the work it was doing before a crash.",
+  attention:
+    "true returns everything waiting on a person — needs_user_decision, needs_user_action, needs_qa, needs_refinement, agent-filed backlog/todo nobody has triaged yet (needsTriage), and tasks blocked on an outside reason only (no unfinished dependency). false returns the rest. GET /tasks/stats counts the same set as needsAttention.",
   parentId: "Only the direct subtasks of this task id. Decimal digits only.",
   parentIsNull:
     "true returns only top-level tasks (no parent); false returns only subtasks. Mutually exclusive with parentId.",
@@ -242,7 +246,7 @@ function registerResourcePaths(): void {
     tags: ["Tasks"],
     summary: "Task counts per status",
     description:
-      "Every status is present in byStatus, zero included, so a client can index it without a fallback. needsAttention is the inbox size. Declared before /tasks/{taskId} for the same reason /facets is.",
+      "Every status is present in byStatus, zero included, so a client can index it without a fallback. needsAttention is the inbox size — the count of GET /tasks?attention=true. Declared before /tasks/{taskId} for the same reason /facets is.",
     request: { query: buildTaskStatsQueryParams() },
     responses: {
       200: {
@@ -289,6 +293,34 @@ function registerResourcePaths(): void {
       422: errorResponse(
         `A field failed validation, the body carried status, or it was empty. An empty body — or one with only expectedVersion — is AT_LEAST_ONE_FIELD, which carries no field details. ${ACTOR_422_NOTE}`,
         ["VALIDATION_ERROR", "AT_LEAST_ONE_FIELD"],
+      ),
+    },
+  });
+
+  registerV1Path({
+    method: "post",
+    path: "/api/v1/tasks/cleanup",
+    tags: ["Tasks"],
+    summary: "Delete done tasks in bulk",
+    description: [
+      'Hard-deletes tasks whose status is `done` — no other status is ever touched. Each deleted task gets a `task.deleted` event with `reason: "cleanup"`; comments, decisions, labels, and dependency rows cascade, and subtasks of a deleted parent survive as top-level tasks.',
+      "",
+      "- `project`: only these projects; omit for all.",
+      "- `olderThanDays`: only tasks completed more than this many days ago; omit or 0 for every done task.",
+      "- `dryRun`: return the count and ids without deleting.",
+      "",
+      "Humans only: an `agent:` actor is ACTOR_NOT_PERMITTED, dry run included. The API also runs this on its own for tasks done longer than `DONE_RETENTION_DAYS` (default 90), as `system:taskmanager`.",
+    ].join("\n"),
+    request: { body: jsonBody(cleanupDoneTasksInputSchema, false) },
+    responses: {
+      200: {
+        description: "What was deleted, or would be on a dry run.",
+        content: { "application/json": { schema: CleanupDoneTasksResponseComponent } },
+      },
+      ...bodyParserResponses(),
+      403: errorResponse("The caller is an agent.", ["ACTOR_NOT_PERMITTED"]),
+      422: VALIDATION_422(
+        "An unknown field, a project that is not a slug, or olderThanDays outside 0–3650.",
       ),
     },
   });
@@ -361,7 +393,7 @@ function registerWorkflowPaths(): void {
       "| needs_qa | `summary`; optional `links` are appended |",
       "| deferred | `reason` |",
       "",
-      "The reason / instructions / summary / question becomes `statusNote`, replacing the previous one. Entering in_progress claims the task for the caller; leaving it drops the claim. Leaving needs_user_decision withdraws the open decision. Reaching done stamps completedAt and unblocks dependents whose dependencies are now all done.",
+      "The reason / instructions / summary / question becomes `statusNote`, replacing the previous one. Entering in_progress claims the task for the caller; leaving it drops the claim. Leaving needs_user_decision withdraws the open decision. Reaching done stamps completedAt and unblocks dependents whose dependencies are now all done. A needs_qa hand-off may carry concerns (what a reviewer must not miss; omit for routine work) and followUps, each filed as a needsTriage subtask — todo with acceptance criteria, needs_refinement without. A person's transition, a claim, done, or deferred clears needsTriage.",
       "",
       "An `agent:` actor may not move a task to done unless the server runs with AGENTS_MAY_COMPLETE=true.",
     ].join("\n"),
@@ -426,7 +458,7 @@ function registerWorkflowPaths(): void {
     tags: ["Workflow"],
     summary: "Give up a claimed task",
     description:
-      "The holder gives the task up: back to todo, claim cleared, `reason` as the status note. A human may release anyone's claim; an agent only its own. The body may be omitted.",
+      "The holder gives the task up: back to todo, claim cleared, `reason` as the status note. A human may release anyone's claim; an agent only its own. `followUps` files the work left undone as needsTriage subtasks, like a needs_qa hand-off. The body may be omitted.",
     request: { params: taskId, body: jsonBody(releaseTaskInputSchema, false) },
     responses: {
       200: taskResponse("The task, back in todo."),

@@ -52,6 +52,63 @@ export const HUMAN_ATTENTION_STATUSES = [
   "needs_qa",
 ] as const satisfies readonly TaskStatus[];
 
+/* ------------------------------------------------------------------ *
+ * Attention — everything that waits on a person
+ * ------------------------------------------------------------------ */
+
+/**
+ * Why a task is in front of a human, in the order the inbox shows the groups.
+ * The three `HUMAN_ATTENTION_STATUSES` are where an agent explicitly stopped;
+ * the rest are where work would otherwise sit unseen:
+ *
+ * | Kind | Matches |
+ * | ---- | ------- |
+ * | `decide` / `act` / `review` | `needs_user_decision` / `needs_user_action` / `needs_qa` |
+ * | `refine` | `needs_refinement` — someone has to say what "done" means |
+ * | `suggested` | `backlog` / `todo` that an agent filed and no person has looked at (`needsTriage`) |
+ * | `blocked` | `blocked` on an outside reason only — no unfinished dependency will ever unblock it |
+ *
+ * `GET /tasks?attention=true` selects exactly these; `attentionKindOf` classifies
+ * a row the same way, so the server's filter and the client's grouping cannot
+ * drift apart.
+ */
+export const ATTENTION_KINDS = [
+  "decide",
+  "act",
+  "review",
+  "refine",
+  "suggested",
+  "blocked",
+] as const;
+export type AttentionKind = (typeof ATTENTION_KINDS)[number];
+
+/** Statuses an un-triaged agent task is "suggested" in. Elsewhere its own status already says why it is in front of a person, or nothing is expected of anyone. */
+export const SUGGESTED_TASK_STATUSES = ["backlog", "todo"] as const satisfies readonly TaskStatus[];
+
+export const attentionKindOf = (task: {
+  status: TaskStatus;
+  needsTriage: boolean;
+  openDependencyCount: number;
+}): AttentionKind | null => {
+  switch (task.status) {
+    case "needs_user_decision":
+      return "decide";
+    case "needs_user_action":
+      return "act";
+    case "needs_qa":
+      return "review";
+    case "needs_refinement":
+      return "refine";
+    case "blocked":
+      return task.openDependencyCount === 0 ? "blocked" : null;
+    case "backlog":
+    case "todo":
+      return task.needsTriage ? "suggested" : null;
+    default:
+      return null;
+  }
+};
+
 /** Statuses a task may be created in. Everything else is reached by a transition. */
 export const CREATABLE_TASK_STATUSES = [
   "backlog",
@@ -127,7 +184,7 @@ export const assigneeInputSchema = emptyStringToNull(
  * replaced the old IT `category` enum.
  *
  * A lowercase slug **canonicalised in the schema**: it is an exact-match filter,
- * SQLite's `equals` is case-sensitive, and `Helpdesk` vs `helpdesk` must not be
+ * SQLite's `equals` is case-sensitive, and `Estuary` vs `estuary` must not be
  * two projects.
  */
 export const projectSchema = z
@@ -207,6 +264,10 @@ export type TaskLink = z.infer<typeof taskLinkSchema>;
 export const taskLinksInputSchema = z
   .array(taskLinkSchema)
   .max(TASK_LINKS_MAX, `At most ${TASK_LINKS_MAX} links`);
+
+/** What a reviewer must not miss on a `needs_qa` hand-off. */
+export const TASK_CONCERNS_MAX = 2000;
+export const TASK_FOLLOW_UPS_MAX = 10;
 
 /**
  * `:taskId` — a non-numeric segment fails here and becomes 404, never 422.
@@ -310,6 +371,12 @@ export const updateTaskInputSchema = z
     links: taskLinksInputSchema.optional(),
     labels: labelsInputSchema.optional(),
     parentId: taskIdSchema.nullable().optional(),
+    /**
+     * `false` = a person has seen this agent-filed task and keeps it ("Accept"
+     * in the inbox). `true` puts a task back in front of people. Any human write
+     * clears it anyway; this is for the write that changes nothing else.
+     */
+    needsTriage: z.boolean().optional(),
     expectedVersion: expectedVersionSchema,
   })
   .strict();
@@ -339,7 +406,7 @@ export type TaskClaim = z.infer<typeof taskClaimSchema>;
 /**
  * A compact pointer to another task (parent, child, dependency). `project` is
  * on it because dependencies cross repositories: an agent in `mobile-app`
- * waiting on a `helpdesk` task must be able to tell from the pointer alone.
+ * waiting on a `estuary` task must be able to tell from the pointer alone.
  */
 export const taskRefSchema = z
   .object({
@@ -370,6 +437,17 @@ export const taskSummarySchema = z
     description: z.string(),
     status: taskStatusSchema,
     statusNote: z.string().nullable(),
+    /**
+     * Set only with `needs_qa`: what the agent wants a reviewer to look at
+     * closely (a deviation, a risk, something left out). `null` = a routine
+     * hand-off. Cleared when the task leaves `needs_qa`.
+     */
+    concerns: z.string().nullable(),
+    /**
+     * An agent filed this and no person has looked at it yet. Cleared by any
+     * human write and by a claim (someone is doing it, so it was not ignored).
+     */
+    needsTriage: z.boolean(),
     priority: taskPrioritySchema,
     project: z.string().nullable(),
     assignee: z.string().nullable(),

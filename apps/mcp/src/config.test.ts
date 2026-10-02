@@ -1,4 +1,4 @@
-import { ACTOR_NAME_MAX, ACTOR_PATTERN } from "@helpdesk/contracts";
+import { ACTOR_NAME_MAX, ACTOR_PATTERN } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -20,15 +20,15 @@ const load = (env: Record<string, string | undefined>, info: GitInfo = {}) =>
   loadConfig(env, { gitInfo: () => info, cwd: "/nowhere" });
 
 const MAIN: GitInfo = {
-  originUrl: "git@github.com:krisz4/Helpdesk.git",
-  gitDir: "/home/me/code/helpdesk/.git",
-  commonDir: "/home/me/code/helpdesk/.git",
-  topLevel: "/home/me/code/helpdesk",
+  originUrl: "git@github.com:krisz4/Estuary.git",
+  gitDir: "/home/me/code/estuary/.git",
+  commonDir: "/home/me/code/estuary/.git",
+  topLevel: "/home/me/code/estuary",
 };
 const WORKTREE: GitInfo = {
   ...MAIN,
-  gitDir: "/home/me/code/helpdesk/.git/worktrees/agent-a1b2",
-  topLevel: "/home/me/code/helpdesk/.claude/worktrees/agent-a1b2",
+  gitDir: "/home/me/code/estuary/.git/worktrees/agent-a1b2",
+  topLevel: "/home/me/code/estuary/.claude/worktrees/agent-a1b2",
 };
 
 describe("loadConfig", () => {
@@ -90,32 +90,30 @@ describe("loadConfig", () => {
 
     it("uses origin's repository name, the same in every worktree", () => {
       const env = { CLAUDE_PROJECT_DIR: WORKTREE.topLevel };
-      expect(load(env, WORKTREE).defaultProject).toBe("helpdesk");
-      expect(load({ CLAUDE_PROJECT_DIR: MAIN.topLevel }, MAIN).defaultProject).toBe("helpdesk");
+      expect(load(env, WORKTREE).defaultProject).toBe("estuary");
+      expect(load({ CLAUDE_PROJECT_DIR: MAIN.topLevel }, MAIN).defaultProject).toBe("estuary");
     });
 
     it("without a remote, uses the main checkout's directory — not the worktree's", () => {
       const env = { CLAUDE_PROJECT_DIR: WORKTREE.topLevel };
-      expect(load(env, { ...WORKTREE, originUrl: undefined }).defaultProject).toBe("helpdesk");
+      expect(load(env, { ...WORKTREE, originUrl: undefined }).defaultProject).toBe("estuary");
     });
 
     it("falls through a remote name that is not a slug", () => {
       const info = { ...MAIN, originUrl: "https://example.com/team/My%20Repo.git" };
-      expect(load({}, info).defaultProject).toBe("helpdesk");
+      expect(load({}, info).defaultProject).toBe("estuary");
     });
 
     it("without git, uses the project directory's name (today's behaviour)", () => {
-      expect(load({ CLAUDE_PROJECT_DIR: "/home/me/code/Helpdesk" }).defaultProject).toBe(
-        "helpdesk",
-      );
+      expect(load({ CLAUDE_PROJECT_DIR: "/home/me/code/Estuary" }).defaultProject).toBe("estuary");
       expect(load({ CLAUDE_PROJECT_DIR: "/tmp/My Project!" }).defaultProject).toBeUndefined();
     });
   });
 
   describe("actor", () => {
     it("is per checkout when TASKS_ACTOR is unset", () => {
-      expect(load({}, MAIN).actor).toBe("agent:claude-code@helpdesk");
-      expect(load({}, WORKTREE).actor).toBe("agent:claude-code@helpdesk/agent-a1b2");
+      expect(load({}, MAIN).actor).toBe("agent:claude-code@estuary");
+      expect(load({}, WORKTREE).actor).toBe("agent:claude-code@estuary/agent-a1b2");
     });
 
     it("is stable across restarts of the same checkout", () => {
@@ -128,7 +126,7 @@ describe("loadConfig", () => {
     });
 
     it("exposes origin's GitHub owner/repo", () => {
-      expect(load({}, MAIN).githubRepo).toBe("krisz4/Helpdesk");
+      expect(load({}, MAIN).githubRepo).toBe("krisz4/Estuary");
       expect(load({}, { ...MAIN, originUrl: "git@gitlab.com:a/b.git" }).githubRepo).toBeUndefined();
     });
   });
@@ -161,8 +159,8 @@ describe("parseRemoteUrl", () => {
 
 describe("git helpers", () => {
   it("mainCheckoutName reads the common git dir", () => {
-    expect(mainCheckoutName("/code/helpdesk/.git")).toBe("helpdesk");
-    expect(mainCheckoutName("/srv/helpdesk.git")).toBe("helpdesk");
+    expect(mainCheckoutName("/code/estuary/.git")).toBe("estuary");
+    expect(mainCheckoutName("/srv/estuary.git")).toBe("estuary");
     expect(mainCheckoutName("/code/super/.git/modules/sub")).toBeUndefined();
     expect(mainCheckoutName(undefined)).toBeUndefined();
   });
@@ -185,8 +183,8 @@ describe("deriveActor", () => {
   });
 
   it("slugs the worktree name", () => {
-    expect(deriveActor("helpdesk", "Feature Branch!")).toBe(
-      "agent:claude-code@helpdesk/feature-branch",
+    expect(deriveActor("estuary", "Feature Branch!")).toBe(
+      "agent:claude-code@estuary/feature-branch",
     );
   });
 

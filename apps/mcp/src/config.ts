@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 
-import { ACTOR_NAME_MAX, ACTOR_PATTERN, actorSchema, projectSchema } from "@helpdesk/contracts";
+import { ACTOR_NAME_MAX, ACTOR_PATTERN, actorSchema, projectSchema } from "@estuary/contracts";
 import { z } from "zod";
 
 /**
@@ -135,7 +135,7 @@ export const readGitInfo: GitInfoLookup = (cwd) => {
 };
 
 export interface RemoteInfo {
-  /** The repository's name, `.git` stripped: `helpdesk`. */
+  /** The repository's name, `.git` stripped: `estuary`. */
   repo: string;
   /** `owner/repo`, only when the remote is on github.com. */
   githubRepo?: string | undefined;
@@ -193,7 +193,7 @@ const slug = (candidate: string | undefined): string | undefined => {
 };
 
 /**
- * `/home/me/code/Helpdesk` → `"helpdesk"`. Returns `undefined` when the name
+ * `/home/me/code/Estuary` → `"estuary"`. Returns `undefined` when the name
  * does not survive `projectSchema` (a directory called `My Project!`): guessing a
  * mangled slug would file tasks under a project nobody chose.
  */
@@ -202,7 +202,7 @@ export const projectFromDirectory = (dir: string | undefined): string | undefine
 
 /**
  * The main checkout's directory, from the common git dir every worktree shares:
- * `/code/helpdesk/.git` → `helpdesk`; a bare `/srv/helpdesk.git` → `helpdesk`.
+ * `/code/estuary/.git` → `estuary`; a bare `/srv/estuary.git` → `estuary`.
  * Anything else (a submodule's `.git/modules/x`) says nothing reliable.
  */
 export const mainCheckoutName = (commonDir: string | undefined): string | undefined => {
@@ -227,7 +227,7 @@ export const worktreeName = (info: GitInfo): string | undefined => {
  * 1. `TASKS_DEFAULT_PROJECT`;
  * 2. the repository name of `origin` — the same in every clone and worktree;
  * 3. the main checkout's directory name (parent of the common git dir), so a
- *    worktree at `.claude/worktrees/agent-a1b2` still resolves to `helpdesk`;
+ *    worktree at `.claude/worktrees/agent-a1b2` still resolves to `estuary`;
  * 4. the project directory's name.
  */
 export const resolveDefaultProject = (
@@ -248,8 +248,8 @@ const ACTOR_HASH_LENGTH = 6;
  * The actor when `TASKS_ACTOR` is unset — one per checkout, so two sessions in
  * two worktrees cannot take over each other's claims:
  *
- * - `agent:claude-code@helpdesk` in a main checkout;
- * - `agent:claude-code@helpdesk/agent-a1b2` in a linked worktree.
+ * - `agent:claude-code@estuary` in a main checkout;
+ * - `agent:claude-code@estuary/agent-a1b2` in a linked worktree.
  *
  * Stable across restarts of the same checkout (so a resumed session still owns
  * its claims). Two sessions in the **same** checkout still share it.

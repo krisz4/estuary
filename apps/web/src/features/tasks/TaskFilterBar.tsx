@@ -8,7 +8,7 @@ import {
   type TaskFacets,
   type TaskSort,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
@@ -226,12 +226,14 @@ export const ChipGroup = <TValue extends string>({
  * Search box
  * ------------------------------------------------------------------ */
 
-const SearchInput = ({
+export const SearchInput = ({
   value,
   onCommit,
+  placeholder = "Search title, description, comments, or TASK-000042…",
 }: {
   value: string | undefined;
   onCommit: (next: string | undefined) => void;
+  placeholder?: string;
 }) => {
   const id = useId();
   const [text, setText] = useState(value ?? "");
@@ -288,7 +290,7 @@ const SearchInput = ({
         value={text}
         maxLength={TASK_Q_MAX}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Search title, description, comments, or TASK-000042…"
+        placeholder={placeholder}
         title='Every word must match somewhere on the task. Quote a phrase to search it as one term, e.g. "rate limit".'
         className="pl-9"
       />
@@ -395,15 +397,23 @@ export const TaskFilterBar = ({
  * The controls themselves — rendered inline or inside the sheet, never both
  * ------------------------------------------------------------------ */
 
-const FilterControls = ({
+/**
+ * `bar` (the default) spreads the groups across a wide card at `lg`;
+ * `sidebar` stacks everything in one narrow column — the map's
+ * `TaskWorkspaceDialog`, where filters sit in a ~260px rail beside the list.
+ */
+export const FilterControls = ({
   params,
   facets,
   onFiltersChange,
+  layout = "bar",
 }: {
   params: TaskListParams;
   facets: TaskFacets | undefined;
   onFiltersChange: (patch: TaskListFilterPatch) => void;
+  layout?: "bar" | "sidebar";
 }) => {
+  const isSidebar = layout === "sidebar";
   const fromId = useId();
   const toId = useId();
 
@@ -442,7 +452,7 @@ const FilterControls = ({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:gap-6">
+      <div className={cn("flex flex-col gap-4", !isSidebar && "lg:flex-row lg:flex-wrap lg:gap-6")}>
         <ChipGroup
           legend="Status"
           options={statusOptions}
@@ -500,7 +510,7 @@ const FilterControls = ({
         <span className="text-xs text-muted-foreground">(hide subtasks)</span>
       </label>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className={cn("grid grid-cols-1 gap-3", !isSidebar && "sm:grid-cols-2 lg:grid-cols-4")}>
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted-foreground">Assignee</span>
           <Select
@@ -671,7 +681,7 @@ export const activeFilterChips = (params: TaskListParams): ActiveChip[] => {
   return chips;
 };
 
-const ActiveFilterChips = ({
+export const ActiveFilterChips = ({
   params,
   onFiltersChange,
   onClear,

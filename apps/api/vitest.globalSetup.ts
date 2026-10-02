@@ -32,14 +32,14 @@ const API_ROOT = path.dirname(fileURLToPath(import.meta.url));
  * another is an ordinary thing to do, and so is a pre-commit hook firing during
  * a watch session.
  *
- * The directory name is passed to workers through `HELPDESK_TEST_DB_DIR`.
+ * The directory name is passed to workers through `ESTUARY_TEST_DB_DIR`.
  * `globalSetup` runs in the main process before any worker is forked, so a
  * worker inherits it; the fallback keeps the helpers usable if a worker is ever
  * started without it.
  */
 const TEST_DB_ROOT = os.tmpdir();
-const RUN_DIR_PREFIX = "helpdesk-test-";
-const RUN_DIR_ENV = "HELPDESK_TEST_DB_DIR";
+const RUN_DIR_PREFIX = "estuary-test-";
+const RUN_DIR_ENV = "ESTUARY_TEST_DB_DIR";
 
 export const testDbDir = (): string =>
   process.env[RUN_DIR_ENV] ?? path.join(TEST_DB_ROOT, `${RUN_DIR_PREFIX}${process.pid}`);

@@ -1,4 +1,4 @@
-import { COMMENT_KINDS, TASK_PRIORITIES, TASK_STATUSES } from "@helpdesk/contracts";
+import { COMMENT_KINDS, TASK_PRIORITIES, TASK_STATUSES } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 import {
   actorDisplayName,

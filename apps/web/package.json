@@ -1,9 +1,9 @@
 {
-  "name": "@helpdesk/web",
-  "version": "0.0.0",
+  "name": "@estuary/web",
+  "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
-  "description": "Helpdesk web client — React 19 + Vite + TypeScript",
+  "license": "AGPL-3.0-only",
+  "description": "Estuary web client — React 19 + Vite + TypeScript",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,7 @@
     "clean": "rm -rf dist .turbo node_modules/.cache"
   },
   "dependencies": {
-    "@helpdesk/contracts": "workspace:*",
+    "@estuary/contracts": "workspace:*",
     "@hookform/resolvers": "^5.7.1",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-select": "^2.3.7",
@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
-    "@helpdesk/tsconfig": "workspace:*",
+    "@estuary/tsconfig": "workspace:*",
     "@rolldown/plugin-babel": "^0.2.3",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",

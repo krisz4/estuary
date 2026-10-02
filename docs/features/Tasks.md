@@ -31,10 +31,12 @@ The single core resource. Everything else in the product — comments, decisions
 | `acceptanceCriteria` | `String?` | ≤5000 chars. Required (supplied or already stored) before a task can be `todo` — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) |
 | `status` | `String` | One of ten values, default `backlog`. See [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) |
 | `statusNote` | `String?` | The "why" of the current status — reason, question, instructions, or summary. Replaced on every transition |
+| `concerns` | `String?` | ≤2000 chars. Optional on a `needs_qa` hand-off — what a reviewer must not miss. `null` = routine. Cleared on any transition out of `needs_qa`. See [Attention_Queue.md](./Attention_Queue.md) |
 | `priority` | `String` | `low` \| `medium` \| `high` \| `urgent`. Default `medium`. See [Task_Priority.md](./Task_Priority.md) |
 | `project` | `String?` | Lowercase slug grouping tasks by codebase/effort. Canonicalized on write so exact-match filtering is safe |
 | `assignee` | `String?` | Free-form name/handle of who is working it |
 | `createdBy` | `String` | The actor (`agent:…` / `human:…`) that created it — see [Actors.md](./Actors.md) |
+| `needsTriage` | `Boolean` | Default `false`. Set when an agent creates a task; cleared by any human write, any claim, closing the task, or answering a decision. See [Attention_Queue.md](./Attention_Queue.md) |
 | `links` | `TaskLink[]` | `{ label, url }` pairs (PRs, branches, docs), max 20, de-duplicated by URL on `needs_qa` and by the GitHub webhook — see [GitHub_Integration.md](./GitHub_Integration.md) |
 | `labels` | `string[]` | Sorted lowercase slugs, max 10, stored in the `TaskLabel` join table (not a column). Replace-not-merge on write, same rule as `links`. See [Labels.md](./Labels.md) |
 | `parentId` | `Int?` | Subtask parent. Cannot be itself or its own descendant. `childCount` on the summary is the number of subtasks (non-zero marks a task as an epic in a list) |
@@ -51,7 +53,7 @@ The single core resource. Everything else in the product — comments, decisions
 
 `project` replaced the old fixed IT `category` enum — it is free text but canonicalized (lowercased, slug-shaped) because it is filtered by exact match, and SQLite's `equals` is case-sensitive with no `mode: "insensitive"`. See [../engineering/DATABASE.md](../engineering/DATABASE.md#canonical-values-instead-of-case-insensitive-matching).
 
-A pointer to another task (`TaskRef` — used for `parent`, `children`, `dependencies`, `dependents`) carries its own `project`, because dependencies and subtasks can cross repositories: an agent in `mobile-app` waiting on a `helpdesk` task needs to see that from the pointer alone.
+A pointer to another task (`TaskRef` — used for `parent`, `children`, `dependencies`, `dependents`) carries its own `project`, because dependencies and subtasks can cross repositories: an agent in `mobile-app` waiting on a `estuary` task needs to see that from the pointer alone.
 
 ## Rules
 
@@ -59,9 +61,11 @@ A pointer to another task (`TaskRef` — used for `parent`, `children`, `depende
 - **Immutable after create:** `id`, `createdAt`, `createdBy`, `version`. Schemas are `.strict()`, so a payload containing a server-owned field is rejected with `VALIDATION_ERROR` rather than silently ignored.
 - **`PATCH` never accepts `status`.** Status changes carry requirements and side effects (claims, decisions, unblocking) and go through `POST /tasks/:taskId/transition` exclusively — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md).
 - **Update is a partial PATCH.** An empty body (`{}`), or a body carrying only `expectedVersion`, returns `AT_LEAST_ONE_FIELD` (422). A body whose fields all resolve to their current values performs **no write at all** — no version bump, no `updatedAt` move, no event.
+- **`PATCH` accepts `needsTriage: boolean` explicitly**, on top of every other human write clearing it implicitly. `{ needsTriage: false }` alone is the inbox's "Accept". See [Attention_Queue.md](./Attention_Queue.md).
 - **Optional string fields normalize `""` to `null`** (`assignee`, `project`, `acceptanceCriteria`). Without this, clearing a field in a form stores an empty string, and that task then matches neither `assigneeIsNull=true` nor any name filter — it disappears from every assignee view.
 - **A task cannot become its own ancestor.** Setting `parentId` to itself, or to a descendant, is `VALIDATION_ERROR` on `parentId`.
 - **Delete is a hard delete.** Comments, decisions, and dependency rows cascade at the database level; the task's own events survive (their `taskId` is not a foreign key) alongside a new `task.deleted` event. Dependents that were blocked only on this task are re-checked and may auto-unblock. Irreversible, and the UI confirms first.
+- **Done tasks can be deleted in bulk** — `POST /tasks/cleanup` (humans only) and an automatic sweep of tasks done longer than `DONE_RETENTION_DAYS` (default 90). See [Task_Cleanup.md](./Task_Cleanup.md).
 - **Claims gate writes.** While a live claim exists, an agent other than the holder cannot `PATCH`, transition, claim, add/remove a dependency, or delete the task (`TASK_ALREADY_CLAIMED`). A human always can. See [Task_Workflow_API.md](./Task_Workflow_API.md#claims-leases).
 
 ## API
@@ -76,6 +80,7 @@ Base path `/api/v1`. Full parameter reference for the list endpoint lives in [Ta
 | `POST` | `/tasks` | Create (or replay an idempotent one) | `201` + `Location`; **200** on replay |
 | `PATCH` | `/tasks/:taskId` | Partial update, never `status` | `200` object |
 | `DELETE` | `/tasks/:taskId` | Hard delete | `204` no body |
+| `POST` | `/tasks/cleanup` | Delete done tasks in bulk — [Task_Cleanup.md](./Task_Cleanup.md) | `200` `{ deleted, taskIds, dryRun }` |
 
 `/tasks/facets` and `/tasks/stats` are declared **before** `/tasks/:taskId` in the router, or they would be parsed as an id (and 404, since neither is numeric — a confusing way to discover a routing order bug).
 
@@ -102,7 +107,7 @@ Returns the full task and `Location: /api/v1/tasks/42`.
 ### Facets
 
 ```json
-{ "assignees": ["agent:claude-code", "human:dana"], "projects": ["billing-service", "helpdesk", "mobile-app"], "labels": ["api", "bug", "web"], "creators": ["agent:claude-code", "human:krisz"] }
+{ "assignees": ["agent:claude-code", "human:dana"], "projects": ["billing-service", "estuary", "mobile-app"], "labels": ["api", "bug", "web"], "creators": ["agent:claude-code", "human:krisz"] }
 ```
 
 Distinct non-null values actually present in the table, sorted. It exists because the list page's assignee/project selects have no other source of options, and because sending an exact stored value is what makes case-sensitive equality matching safe.
@@ -127,4 +132,4 @@ Every CRUD path has a service unit test plus a route integration test (supertest
 
 ## Related pages
 
-[../pages/Tasks_List.md](../pages/Tasks_List.md), [../pages/Task_Detail.md](../pages/Task_Detail.md), [../pages/Task_Create.md](../pages/Task_Create.md), [../pages/Task_Edit.md](../pages/Task_Edit.md) — full index: [../pages/README.md](../pages/README.md).
+[../pages/Tasks_List.md](../pages/Tasks_List.md), [../pages/Task_Detail.md](../pages/Task_Detail.md), [../pages/Task_Create.md](../pages/Task_Create.md), [../pages/Task_Edit.md](../pages/Task_Edit.md) — full index: [../pages/README.md](../pages/README.md). [Attention_Queue.md](./Attention_Queue.md) — `needsTriage` and `concerns` in depth.

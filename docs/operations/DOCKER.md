@@ -1,6 +1,16 @@
 # Docker
 
-Bonus item 3 of the brief. Target: a reviewer clones the repo and runs one command.
+There are two ways to run Estuary in Docker:
+
+- **From source:** the repo-root `docker-compose.yml` builds both images and seeds 62 demo tasks. That's the rest of this page.
+- **From the published images:** [`deploy/docker-compose.yml`](../../deploy/docker-compose.yml) pulls `ghcr.io/krisz4/estuary-api` and `estuary-web` (built for amd64 and arm64 on each release, see [RELEASING.md](./RELEASING.md)). Nothing to clone or build, and it starts empty with Swagger UI off. Pin a version with `ESTUARY_VERSION=0.1.0`, and read [Self-hosting](#self-hosting-agents-against-this-stack) before exposing it.
+
+  ```bash
+  curl -fsSLO https://raw.githubusercontent.com/krisz4/estuary/main/deploy/docker-compose.yml
+  API_TOKEN="$(openssl rand -hex 32)" docker compose up -d   # → http://localhost:5173
+  ```
+
+The from-source target (originally bonus item 3 of the code-challenge brief) is a reviewer cloning the repo and running one command.
 
 ```bash
 docker compose up --build
@@ -27,7 +37,7 @@ services:
     build: { context: ., dockerfile: apps/api/Dockerfile }
     ports: ["127.0.0.1:4000:4000"]   # loopback only — see "Both ports are bound to loopback"
     environment:
-      DATABASE_URL: file:/data/helpdesk.db
+      DATABASE_URL: file:/data/estuary.db
       HOST: 0.0.0.0
       ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
       NODE_ENV: production
@@ -36,7 +46,8 @@ services:
       API_TOKEN: ${API_TOKEN:-}
       AGENTS_MAY_COMPLETE: ${AGENTS_MAY_COMPLETE:-}
       CLAIM_LEASE_MINUTES: ${CLAIM_LEASE_MINUTES:-}
-    volumes: ["helpdesk-db:/data"]
+      DONE_RETENTION_DAYS: ${DONE_RETENTION_DAYS:-}
+    volumes: ["estuary-db:/data"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
       interval: 5s
@@ -55,7 +66,7 @@ services:
       api: { condition: service_healthy }
 
 volumes:
-  helpdesk-db:
+  estuary-db:
 ```
 
 ## The API is reached through nginx, on one origin
@@ -90,7 +101,7 @@ nginx resolves `api` through Docker's embedded DNS **per request** (`resolver 12
 
 **Migrations run at container start**, not at build: the entrypoint runs `prisma migrate deploy` then starts the server. Building them in would bake a database into the image layer, which the volume then shadows.
 
-**The SQLite file lives on the volume at `/data`**, not inside the image. `DATABASE_URL` is the **absolute** `file:/data/helpdesk.db` — a relative `file:./…` resolves from `prisma/` inside the image and lands on a layer the volume then shadows. Without the volume every `docker compose up` starts empty; with it, data survives `down`. Reset with `docker compose down -v`.
+**The SQLite file lives on the volume at `/data`**, not inside the image. `DATABASE_URL` is the **absolute** `file:/data/estuary.db` — a relative `file:./…` resolves from `prisma/` inside the image and lands on a layer the volume then shadows. Without the volume every `docker compose up` starts empty; with it, data survives `down`. Reset with `docker compose down -v`.
 
 **`HOST=0.0.0.0` is required in the container.** The default `127.0.0.1` binds the loopback interface *inside* the network namespace, and the published port connects to nothing.
 
@@ -118,7 +129,7 @@ So:
 
 - The entrypoint runs `prisma migrate deploy`, then runs the seed **only if `SEED_ON_START` is truthy and the task table is empty**. Restarting the stack never wipes data you added. The count is taken through `@prisma/client` (`node -e`), because the sqlite3 CLI is not in the image and `prisma db execute` cannot return a value; a failed count aborts the container rather than being read as "empty".
 - `SEED_ON_START` accepts `true` / `1` / `yes` / `on`, the same four spellings `src/lib/env.ts` accepts. The shell has to agree with the parser, or `SEED_ON_START=1` would seed the app but not the API.
-- `pnpm --filter @helpdesk/api db:seed` refuses unless `ALLOW_SEED=true` or `NODE_ENV !== "production"`, so it cannot be pointed at a real database by accident.
+- `pnpm --filter @estuary/api db:seed` refuses unless `ALLOW_SEED=true` or `NODE_ENV !== "production"`, so it cannot be pointed at a real database by accident.
 - Nothing in the container calls `db:reset`. That script prompts, has no `--force`, and drops the database before `ALLOW_SEED` is ever consulted — it exists for a human at a terminal. The container path is `migrate deploy` plus the guarded seed.
 
 Reseed from scratch:
@@ -136,7 +147,7 @@ docker compose exec -e ALLOW_SEED=true api node dist/seed/index.js    # in place
 - `pnpm` via `corepack enable`, so the container resolves the same lockfile the developer does. The `ENV CI=1` above it also keeps corepack from prompting before it downloads the pinned pnpm.
 - **`CHECKPOINT_DISABLE=1` in the runtime stage.** The Prisma CLI otherwise pings `checkpoint-api.prisma.io` for a version check on each of the entrypoint's two `migrate` invocations. It has a timeout, so an offline host degrades rather than fails — but this is a local-first SQLite app and there is no reason for an outbound HTTPS round trip to sit on the critical path of every start.
 - **The web image ships no source maps.** `vite.config.ts` builds them by default, because that is what makes a stack trace from `pnpm build` or `vite preview` readable; the Dockerfile sets `WEB_SOURCEMAP=false`, because the runtime stage copies `dist/` into nginx and serves it publicly under `/assets/` with a one-year cache, so every `.map` would publish the app's original TypeScript and roughly double the asset bytes in the image.
-- Each image installs only its own half of the workspace: `--filter "@helpdesk/api..."` skips `apps/web`, and `--filter "@helpdesk/web..."` skips `apps/api` and therefore Prisma, which is ~57% of the tree (P1). Every workspace `package.json` is still copied in first — pnpm reads the whole workspace to validate the lockfile, and a missing importer turns `--frozen-lockfile` into an error about the lockfile rather than about the missing file.
+- Each image installs only its own half of the workspace: `--filter "@estuary/api..."` skips `apps/web`, and `--filter "@estuary/web..."` skips `apps/api` and therefore Prisma, which is ~57% of the tree (P1). Every workspace `package.json` is still copied in first — pnpm reads the whole workspace to validate the lockfile, and a missing importer turns `--frozen-lockfile` into an error about the lockfile rather than about the missing file.
 - Runtime stage copies `dist/` (including the **compiled** `dist/seed/index.js`), production `node_modules`, `prisma/` (schema + migrations), and `package.json`.
 - The seed source lives at `apps/api/src/seed/`, not `apps/api/prisma/`, precisely so it lands in `dist/`: `tsconfig.build.json` has `rootDir: "src"` and will not compile a file outside it. `prisma/` holds the schema and migrations only.
 - **`prisma` (the CLI) must be a production dependency**, not a devDependency. The entrypoint runs `prisma migrate deploy` and `prisma migrate diff`; a runtime image with only `@prisma/client` cannot start on a clean volume at all. This is a deliberate reversal of P1's "keep `prisma` and `@prisma/engines` out of the runtime layer" — that recommendation predates the entrypoint needing the CLI, and it is not a cost the image can trade away. The seed is compiled during the build stage for the same reason: `tsx` is not present at runtime.
@@ -159,7 +170,7 @@ docker compose exec api sh           # shell into the API container
 
 Agents (via `apps/mcp`, see [../features/Agent_Integration.md](../features/Agent_Integration.md)) can point at this stack over a network instead of `localhost`. Two things change from the reviewer-on-one-machine setup above:
 
-- **Set `API_TOKEN` on the `api` service** (`API_TOKEN=<32+ random chars> docker compose up -d`, or in a `.env` beside `docker-compose.yml`). Without it, anyone who can reach the port has full task CRUD — there is no other access control. `AGENTS_MAY_COMPLETE` and `CLAIM_LEASE_MINUTES` pass through the same way if you want to change their defaults; see [../engineering/ENVIRONMENT_VARIABLES.md](../engineering/ENVIRONMENT_VARIABLES.md).
+- **Set `API_TOKEN` on the `api` service** (`API_TOKEN=<32+ random chars> docker compose up -d`, or in a `.env` beside `docker-compose.yml`). Without it, anyone who can reach the port has full task CRUD — there is no other access control. `AGENTS_MAY_COMPLETE`, `CLAIM_LEASE_MINUTES`, and `DONE_RETENTION_DAYS` (done tasks are deleted after 90 days unless you set it; `0` keeps them) pass through the same way if you want to change their defaults; see [../engineering/ENVIRONMENT_VARIABLES.md](../engineering/ENVIRONMENT_VARIABLES.md).
 - **Put it behind HTTPS.** The bearer token travels in a plain `Authorization` header on every request; do not expose `api` (or the proxied port on `web`) to a network you do not control without TLS in front of it (a reverse proxy, a tunnel, or a platform load balancer). This compose file has no TLS termination of its own — see "Not included" below.
 - Each agent/machine then gets `TASKS_API_URL=https://<host>/api/v1`, `TASKS_API_TOKEN=<the same API_TOKEN>`, and its own `TASKS_ACTOR` — see [../features/Agent_Integration.md § Self-hosted server](../features/Agent_Integration.md#self-hosted-server).
 

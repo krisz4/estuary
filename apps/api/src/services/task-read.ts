@@ -1,4 +1,4 @@
-import type { Task, TaskSummary } from "@helpdesk/contracts";
+import type { Task, TaskSummary } from "@estuary/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { taskNotFound } from "../lib/errors.js";

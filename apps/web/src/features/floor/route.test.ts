@@ -31,7 +31,14 @@ describe("pickRouteKind", () => {
   });
 
   it("MAIN_ORDER is exactly the stations physically on the main channel, in flow order", () => {
-    expect(MAIN_ORDER).toEqual(["backlog", "needs_refinement", "todo", "in_progress", "needs_qa", "done"]);
+    expect(MAIN_ORDER).toEqual([
+      "backlog",
+      "needs_refinement",
+      "todo",
+      "in_progress",
+      "needs_qa",
+      "done",
+    ]);
   });
 });
 
@@ -65,7 +72,8 @@ describe("easeInOutCubic", () => {
 
   it("is monotonically increasing", () => {
     const samples = Array.from({ length: 11 }, (_, i) => easeInOutCubic(i / 10));
-    for (let i = 1; i < samples.length; i += 1) expect(samples[i]).toBeGreaterThanOrEqual(samples[i - 1]!);
+    for (let i = 1; i < samples.length; i += 1)
+      expect(samples[i]).toBeGreaterThanOrEqual(samples[i - 1]!);
   });
 
   it("eases in and out — slower than linear near both ends, faster in the middle", () => {
@@ -76,7 +84,12 @@ describe("easeInOutCubic", () => {
 
 describe("pathLength / sampleQuadratic / pointAtFraction", () => {
   it("pathLength sums a straight line correctly", () => {
-    expect(pathLength([[0, 0], [3, 4]])).toBe(5);
+    expect(
+      pathLength([
+        [0, 0],
+        [3, 4],
+      ]),
+    ).toBe(5);
   });
 
   it("pathLength of a single point is 0", () => {
@@ -97,36 +110,61 @@ describe("pathLength / sampleQuadratic / pointAtFraction", () => {
   });
 
   it("pointAtFraction returns the start/end at t=0/1", () => {
-    const points: [number, number][] = [[0, 0], [10, 0], [10, 10]];
+    const points: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+    ];
     expect(pointAtFraction(points, 0)).toEqual([0, 0]);
     expect(pointAtFraction(points, 1)).toEqual([10, 10]);
   });
 
   it("pointAtFraction interpolates proportionally to distance travelled, not sample index", () => {
-    const points: [number, number][] = [[0, 0], [10, 0], [12, 0]];
+    const points: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [12, 0],
+    ];
     // Total length 12; halfway (6) falls partway along the first (longer) segment.
     expect(pointAtFraction(points, 0.5)).toEqual([6, 0]);
   });
 
   it("pointAtFraction clamps out-of-range input", () => {
-    const points: [number, number][] = [[0, 0], [10, 0]];
+    const points: [number, number][] = [
+      [0, 0],
+      [10, 0],
+    ];
     expect(pointAtFraction(points, -1)).toEqual([0, 0]);
     expect(pointAtFraction(points, 2)).toEqual([10, 0]);
   });
 });
 
 describe("sliceMainChannel", () => {
-  const points: [number, number][] = [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]];
+  const points: [number, number][] = [
+    [0, 0],
+    [1, 0],
+    [2, 0],
+    [3, 0],
+    [4, 0],
+  ];
   const us = [0, 0.25, 0.5, 0.75, 1];
 
   it("slices forward between two u fractions in ascending order", () => {
     const slice = sliceMainChannel(points, us, 0.25, 0.75);
-    expect(slice).toEqual([[1, 0], [2, 0], [3, 0]]);
+    expect(slice).toEqual([
+      [1, 0],
+      [2, 0],
+      [3, 0],
+    ]);
   });
 
   it("reverses the slice when moving backward (fromU > toU)", () => {
     const slice = sliceMainChannel(points, us, 0.75, 0.25);
-    expect(slice).toEqual([[3, 0], [2, 0], [1, 0]]);
+    expect(slice).toEqual([
+      [3, 0],
+      [2, 0],
+      [1, 0],
+    ]);
   });
 
   it("falls back to a straight two-point line when too few samples are in range", () => {

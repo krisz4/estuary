@@ -3,7 +3,7 @@ import {
   answerDecisionInputSchema,
   type AnswerDecisionInput,
   type Decision,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { CircleHelp, Star } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";

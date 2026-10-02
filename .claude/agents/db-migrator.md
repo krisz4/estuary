@@ -17,7 +17,7 @@ You own `apps/api/prisma/` — schema, migrations, and seed. Nothing else in the
 
 1. **Every schema edit ships with its migration** in the same change set:
    ```bash
-   pnpm --filter @helpdesk/api db:migrate --name descriptive_snake_case
+   pnpm --filter @estuary/api db:migrate --name descriptive_snake_case
    ```
    Never commit a schema-only diff — it breaks `docker compose up` on a clean volume.
 2. **Never `db push`** except for a throwaway local experiment you then discard.
@@ -39,7 +39,7 @@ You own `apps/api/prisma/` — schema, migrations, and seed. Nothing else in the
 2. Edit `schema.prisma`.
 3. Generate the migration; read the SQL.
 4. Update the seed if the new field needs realistic values.
-5. `pnpm --filter @helpdesk/api db:generate` and `pnpm typecheck`.
+5. `pnpm --filter @estuary/api db:generate` and `pnpm typecheck`.
 6. Update `docs/engineering/DATABASE.md` (schema block + index table) and the affected feature doc.
 
 ## Boundaries

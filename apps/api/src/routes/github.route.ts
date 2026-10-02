@@ -1,4 +1,4 @@
-import { githubImportInputSchema } from "@helpdesk/contracts";
+import { githubImportInputSchema } from "@estuary/contracts";
 import express, { Router } from "express";
 
 import { asyncHandler } from "../lib/asyncHandler.js";

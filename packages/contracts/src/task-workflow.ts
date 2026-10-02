@@ -2,10 +2,14 @@ import { z } from "zod";
 import { decisionRequestSchema } from "./decision.js";
 import {
   acceptanceCriteriaInputSchema,
+  descriptionInputSchema,
   expectedVersionSchema,
   labelSchema,
   projectSchema,
+  TASK_CONCERNS_MAX,
+  TASK_FOLLOW_UPS_MAX,
   TASK_STATUS_NOTE_MAX,
+  titleInputSchema,
   taskIdSchema,
   taskLinksInputSchema,
   taskPrioritySchema,
@@ -37,6 +41,35 @@ const noteField = (message = "Cannot be empty") =>
 const note = noteField();
 
 const base = { expectedVersion: expectedVersionSchema };
+
+/**
+ * Work an agent found but did not do — a recommendation, the part it left out,
+ * a bug next door. Carried on the hand-off itself (`needs_qa`, release) so
+ * filing it costs the agent no extra call, and so it cannot be forgotten
+ * between "I'm done" and the session ending.
+ *
+ * The server files each one as a subtask of the task being handed off, in the
+ * same project with the same labels, marked `needsTriage`: **`todo`** when it
+ * has acceptance criteria, otherwise **`needs_refinement`** with `missing` (or a
+ * default) as the note. A follow-up whose title is already an open subtask of
+ * the same task is skipped, so a retried hand-off does not file it twice.
+ */
+export const followUpInputSchema = z
+  .object({
+    title: titleInputSchema,
+    description: descriptionInputSchema,
+    acceptanceCriteria: acceptanceCriteriaInputSchema.optional(),
+    /** What a person must decide or supply before it can be `todo`. */
+    missing: note.optional(),
+    priority: taskPrioritySchema.optional(),
+  })
+  .strict();
+export type FollowUpInput = z.infer<typeof followUpInputSchema>;
+
+const followUps = z
+  .array(followUpInputSchema)
+  .max(TASK_FOLLOW_UPS_MAX, `At most ${TASK_FOLLOW_UPS_MAX} follow-ups per hand-off`)
+  .optional();
 
 /**
  * One schema per target status, discriminated on `to`. **What a status requires
@@ -118,6 +151,18 @@ export const transitionInputSchema = z.discriminatedUnion("to", [
       summary: noteField("Summarise what changed and how to verify it"),
       /** Appended to the task's links (PR, branch, commit). */
       links: taskLinksInputSchema.optional(),
+      /**
+       * Only when a reviewer must look at something specific: a deviation from
+       * the criteria, a risk, a shortcut. Omit for a routine hand-off — the inbox
+       * then offers it for one-click approval instead of asking for a read.
+       */
+      concerns: z
+        .string()
+        .trim()
+        .min(1)
+        .max(TASK_CONCERNS_MAX, `Must be at most ${TASK_CONCERNS_MAX} characters`)
+        .optional(),
+      followUps,
       ...base,
     })
     .strict(),
@@ -175,6 +220,7 @@ export type ClaimTaskInput = z.infer<typeof claimTaskInputSchema>;
 export const releaseTaskInputSchema = z
   .object({
     reason: note.optional(),
+    followUps,
     expectedVersion: expectedVersionSchema,
   })
   .strict();
@@ -190,3 +236,36 @@ export type ReleaseTaskInput = z.infer<typeof releaseTaskInputSchema>;
  */
 export const addDependencyInputSchema = z.object({ dependsOnId: taskIdSchema }).strict();
 export type AddDependencyInput = z.infer<typeof addDependencyInputSchema>;
+
+/* ------------------------------------------------------------------ *
+ * Cleanup — `POST /tasks/cleanup`
+ * ------------------------------------------------------------------ */
+
+/** Longest `olderThanDays` / `DONE_RETENTION_DAYS` accepted: ten years. */
+export const CLEANUP_MAX_DAYS = 3650;
+
+/**
+ * Hard-delete `done` tasks in bulk. Only `done` — no other status is ever
+ * touched. `olderThanDays` counts from when the task was completed; omit it (or
+ * send 0) to delete every done task in scope. `dryRun` reports what would go
+ * without deleting anything — the web's confirm dialog uses it for its count.
+ */
+export const cleanupDoneTasksInputSchema = z
+  .object({
+    /** Only these projects. Omit for every project. */
+    project: z.array(projectSchema).min(1).optional(),
+    olderThanDays: z.number().int().min(0).max(CLEANUP_MAX_DAYS).optional(),
+    dryRun: z.boolean().optional(),
+  })
+  .strict();
+export type CleanupDoneTasksInput = z.infer<typeof cleanupDoneTasksInputSchema>;
+
+export const cleanupDoneTasksResponseSchema = z
+  .object({
+    /** How many tasks were deleted — or, on a dry run, would be. */
+    deleted: z.number().int().nonnegative(),
+    taskIds: z.array(taskIdSchema),
+    dryRun: z.boolean(),
+  })
+  .strict();
+export type CleanupDoneTasksResponse = z.infer<typeof cleanupDoneTasksResponseSchema>;

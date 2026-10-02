@@ -1,3 +1,4 @@
+import { Eye, Hand, Split } from "lucide-react";
 import { projectColorIndex, type MapLayout } from "@/features/floor/layout";
 import { laneColor, readFloorColors } from "@/features/floor/scene";
 import { type MapGroupBy } from "@/pages/tasks-map/useFloorParams";
@@ -22,6 +23,13 @@ const PRIORITY_SIZES: { label: string; size: number }[] = [
   { label: "urgent", size: 15 },
 ];
 
+/** Keys the icons on the map's amber plates — the same ones `KindPill` uses. */
+const WAITING_KINDS = [
+  { label: "decide", Icon: Split },
+  { label: "act", Icon: Hand },
+  { label: "review", Icon: Eye },
+] as const;
+
 export const MapLegend = ({ layout, groupMode, projectOrder }: MapLegendProps) => {
   const colors = readFloorColors();
   const groups = layout.groups.slice(0, 8);
@@ -30,7 +38,9 @@ export const MapLegend = ({ layout, groupMode, projectOrder }: MapLegendProps) =
   // `group=project` (so the swatch always agrees with the beads it keys),
   // the group's own sector index otherwise.
   const colorIndexFor = (groupKey: string, index: number): number | null =>
-    groupMode === "project" ? projectColorIndex(groupKey === "__no_project__" ? null : groupKey, projectOrder) : index;
+    groupMode === "project"
+      ? projectColorIndex(groupKey === "__no_project__" ? null : groupKey, projectOrder)
+      : index;
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border bg-map-panel px-4 py-2 font-mono text-[10.5px] text-muted-foreground">
@@ -48,7 +58,12 @@ export const MapLegend = ({ layout, groupMode, projectOrder }: MapLegendProps) =
       </span>
       <span className="inline-flex items-center gap-1.5">
         <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true">
-          <path d="M3 3h13q6 3 0 6H3q-2-3 0-6z" fill="none" stroke="currentColor" strokeWidth="1.2" />
+          <path
+            d="M3 3h13q6 3 0 6H3q-2-3 0-6z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
         </svg>
         agent at work
       </span>
@@ -58,12 +73,26 @@ export const MapLegend = ({ layout, groupMode, projectOrder }: MapLegendProps) =
           style={{ background: `radial-gradient(circle, ${colors.poolAttn} 40%, transparent 75%)` }}
           aria-hidden="true"
         />
-        waits on you
+        waits on you:
+        {WAITING_KINDS.map(({ label, Icon }) => (
+          <span key={label} className="inline-flex items-center gap-1">
+            <span
+              className="inline-flex size-3.5 items-center justify-center rounded-full"
+              style={{ backgroundColor: colors.poolAttn, color: colors.panel }}
+              aria-hidden="true"
+            >
+              <Icon className="size-2.5" strokeWidth={2.6} />
+            </span>
+            {label}
+          </span>
+        ))}
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span
           className="inline-block size-3.5 rounded-full"
-          style={{ background: `radial-gradient(circle, ${colors.poolBlock} 40%, transparent 75%)` }}
+          style={{
+            background: `radial-gradient(circle, ${colors.poolBlock} 40%, transparent 75%)`,
+          }}
           aria-hidden="true"
         />
         blocked
@@ -74,7 +103,9 @@ export const MapLegend = ({ layout, groupMode, projectOrder }: MapLegendProps) =
             <span key={group.key} className="inline-flex items-center gap-1">
               <span
                 className="inline-block size-2 rounded-full"
-                style={{ backgroundColor: laneColor(colorIndexFor(group.key, group.index), colors) }}
+                style={{
+                  backgroundColor: laneColor(colorIndexFor(group.key, group.index), colors),
+                }}
                 aria-hidden="true"
               />
               {group.label}

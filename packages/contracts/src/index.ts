@@ -1,5 +1,5 @@
 /**
- * `@helpdesk/contracts` — the single source of truth for the API surface.
+ * `@estuary/contracts` — the single source of truth for the API surface.
  *
  * Hard constraint: **zod and nothing else.** No Express, no Prisma, no React, no
  * `node:*`. This package is bundled into browser code, and a stray runtime

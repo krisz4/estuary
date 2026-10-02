@@ -21,7 +21,8 @@ export const SinceYouLeftPanel = ({ summary, lastVisitAt }: SinceYouLeftPanelPro
   if (summary.firstVisit) {
     return (
       <p className="text-sm text-muted-foreground">
-        First time here — the Logbook will remember when you leave, and tell you what changed next time.
+        First time here — the Logbook will remember when you leave, and tell you what changed next
+        time.
       </p>
     );
   }
@@ -34,7 +35,9 @@ export const SinceYouLeftPanel = ({ summary, lastVisitAt }: SinceYouLeftPanelPro
         {sentence ?? "Nothing new since your last visit."}
       </p>
       {summary.truncated ? (
-        <p className="text-xs text-muted-foreground">Only the most recent events are counted here.</p>
+        <p className="text-xs text-muted-foreground">
+          Only the most recent events are counted here.
+        </p>
       ) : null}
     </div>
   );

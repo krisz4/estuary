@@ -42,13 +42,21 @@ describe("the index route", () => {
           },
         },
       }),
-      "GET /tasks/facets": () => ({ body: { assignees: [], projects: [], creators: [], labels: [] } }),
-      "GET /events": () => ({ body: { data: [], meta: { nextAfter: 0, nextBefore: null, hasMore: false } } }),
+      "GET /tasks/facets": () => ({
+        body: { assignees: [], projects: [], creators: [], labels: [] },
+      }),
+      "GET /events": () => ({
+        body: { data: [], meta: { nextAfter: 0, nextBefore: null, hasMore: false } },
+      }),
       "GET /tasks": () => ({ body: { data: [], meta: { total: 0 } } }),
       "GET /tasks/stats": () => ({ body: { total: 0, byStatus: {}, byPriority: {} } }),
       "GET /stats/history": () => ({
         body: {
-          range: { from: "2026-01-01T00:00:00.000Z", to: "2026-01-02T00:00:00.000Z", bucket: "day" },
+          range: {
+            from: "2026-01-01T00:00:00.000Z",
+            to: "2026-01-02T00:00:00.000Z",
+            bucket: "day",
+          },
           buckets: [],
           cycleTimes: [],
           longestWaits: [],
@@ -103,13 +111,21 @@ describe("the retired board route", () => {
           },
         },
       }),
-      "GET /tasks/facets": () => ({ body: { assignees: [], projects: [], creators: [], labels: [] } }),
-      "GET /events": () => ({ body: { data: [], meta: { nextAfter: 0, nextBefore: null, hasMore: false } } }),
+      "GET /tasks/facets": () => ({
+        body: { assignees: [], projects: [], creators: [], labels: [] },
+      }),
+      "GET /events": () => ({
+        body: { data: [], meta: { nextAfter: 0, nextBefore: null, hasMore: false } },
+      }),
       "GET /tasks": () => ({ body: { data: [], meta: { total: 0 } } }),
       "GET /tasks/stats": () => ({ body: { total: 0, byStatus: {}, byPriority: {} } }),
       "GET /stats/history": () => ({
         body: {
-          range: { from: "2026-01-01T00:00:00.000Z", to: "2026-01-02T00:00:00.000Z", bucket: "day" },
+          range: {
+            from: "2026-01-01T00:00:00.000Z",
+            to: "2026-01-02T00:00:00.000Z",
+            bucket: "day",
+          },
           buckets: [],
           cycleTimes: [],
           longestWaits: [],

@@ -63,6 +63,7 @@ export const FLOOR_FILTER_KEYS = [
   "claimedBy",
   "parentId",
   "parentIsNull",
+  "attention",
   "dependsOn",
   "dependencyOf",
   "q",

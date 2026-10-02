@@ -1,4 +1,4 @@
-import { formatReference, type TaskSummary } from "@helpdesk/contracts";
+import { formatReference, type TaskSummary } from "@estuary/contracts";
 import { Link, useLocation } from "react-router-dom";
 import { Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -8,7 +8,7 @@ import { HighlightText } from "@/features/tasks/HighlightText";
 import { LabelChips } from "@/features/tasks/LabelChips";
 import { PRIORITY_STRIPE, PriorityBadge } from "@/features/tasks/PriorityBadge";
 import { StatusBadge } from "@/features/tasks/StatusBadge";
-import { TaskRowMeta } from "@/features/tasks/TaskTable";
+import { openTaskInPlace, TaskRowMeta } from "@/features/tasks/TaskTable";
 
 /**
  * The mobile (below `md`) task list.
@@ -29,9 +29,11 @@ export type TaskCardListProps = {
   tasks: TaskSummary[];
   /** The active search, for highlighting matched terms in the title. */
   searchQuery?: string | undefined;
+  /** Open a task in place instead of navigating to `/tasks/:id` — see `openTaskInPlace`. */
+  onOpenTask?: (taskId: number) => void;
 };
 
-export const TaskCardList = ({ tasks, searchQuery }: TaskCardListProps) => {
+export const TaskCardList = ({ tasks, searchQuery, onOpenTask }: TaskCardListProps) => {
   /*
     The search string the list is rendered under, carried into the detail page's
     history state so its "Back to tasks" link returns to *this* filtered,
@@ -48,6 +50,7 @@ export const TaskCardList = ({ tasks, searchQuery }: TaskCardListProps) => {
           <Link
             to={`/tasks/${task.id}`}
             state={{ from: search }}
+            onClick={(event) => openTaskInPlace(event, task.id, onOpenTask)}
             className={cn(
               "flex flex-col gap-2 rounded-lg border border-l-4 border-border bg-card p-3 shadow-raised",
               "transition-colors hover:bg-muted/40",

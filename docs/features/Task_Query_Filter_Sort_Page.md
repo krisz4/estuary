@@ -70,6 +70,7 @@ So `desc` is free on descending sorts and costs a temp B-tree on ascending ones 
 | `assigneeIsNull` | boolean | `true` returns only unassigned tasks, `false` only assigned ones. Mutually exclusive with `assignee` (sending both → `VALIDATION_ERROR`) |
 | `createdBy` | actor | Exact; lowercased before compare, matching how `X-Actor` is stored |
 | `claimedBy` | actor | Exact; matches the stored `claimedBy` even once the lease has expired — pair with `status=in_progress` and check `claim` on the rows when only *live* claims matter |
+| `attention` | boolean | `true` = everything waiting on a person — the three `HUMAN_ATTENTION_STATUSES`, un-triaged `backlog`/`todo` suggestions, `needs_refinement`, and `blocked` with no unfinished dependency (see [Attention_Queue.md](./Attention_Queue.md)); `false` = the rest. ANDs with every other filter. Also accepted by `GET /floor`, which shares these filter fields |
 | `parentId` | task id | Subtasks of one parent. Digits only, like `:taskId` (`0x2a` → 422) |
 | `parentIsNull` | boolean | `true` = top-level tasks only (no parent), `false` = subtasks only. Mutually exclusive with `parentId` (sending both → `VALIDATION_ERROR`) |
 | `dependsOn` | task id | Tasks that depend on this one — its **dependents** ("who waits on 42?") |
@@ -203,4 +204,5 @@ The last one is worth stating explicitly: the **server rejects** an inverted dat
 
 ## Related pages
 
-- [../pages/Tasks_List.md](../pages/Tasks_List.md) — the only consumer
+- [../pages/Tasks_List.md](../pages/Tasks_List.md) — the only consumer of plain filtering
+- [Attention_Queue.md](./Attention_Queue.md) — `attention=true`, the inbox's query

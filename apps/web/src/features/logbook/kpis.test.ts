@@ -1,4 +1,4 @@
-import { type AgentHistory, type HistoryBucketRow, type HistoryResponse } from "@helpdesk/contracts";
+import { type AgentHistory, type HistoryBucketRow, type HistoryResponse } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 import { buildKpiTiles } from "@/features/logbook/kpis";
 
@@ -49,7 +49,10 @@ const history = (overrides: Partial<HistoryResponse> = {}): HistoryResponse => (
 describe("buildKpiTiles", () => {
   it("reports shipped and created totals with a normalised sparkline", () => {
     const data = history({
-      buckets: [bucket({ created: 2, completed: 1 }), bucket({ created: 4, completed: 2, deferred: 1 })],
+      buckets: [
+        bucket({ created: 2, completed: 1 }),
+        bucket({ created: 4, completed: 2, deferred: 1 }),
+      ],
       totals: {
         created: 6,
         completed: 3,
@@ -75,7 +78,12 @@ describe("buildKpiTiles", () => {
 
   it("formats the median human wait, and shows an em dash when there is no data", () => {
     const withData = buildKpiTiles(
-      history({ totals: { ...history().totals, humanWait: { count: 3, medianMinutes: 190, p90Minutes: 300 } } }),
+      history({
+        totals: {
+          ...history().totals,
+          humanWait: { count: 3, medianMinutes: 190, p90Minutes: 300 },
+        },
+      }),
     );
     expect(withData.find((tile) => tile.key === "medianWait")!.value).toBe("3h 10m");
 
@@ -85,7 +93,10 @@ describe("buildKpiTiles", () => {
 
   it("computes QA pass rate as approved over approved-plus-sent-back across all agents", () => {
     const data = history({
-      agents: [agent({ approved: 3, sentBack: 1 }), agent({ actor: "agent:claude-code-ci", approved: 6, sentBack: 0 })],
+      agents: [
+        agent({ approved: 3, sentBack: 1 }),
+        agent({ actor: "agent:claude-code-ci", approved: 6, sentBack: 0 }),
+      ],
     });
     expect(buildKpiTiles(data).find((tile) => tile.key === "qaPassRate")!.value).toBe("90%");
   });

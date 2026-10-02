@@ -6,7 +6,7 @@ import {
   updateTaskInputSchema,
   type CreateTaskInput,
   type UpdateTaskInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../lib/errors.js";
@@ -145,8 +145,8 @@ describe("createTask", () => {
   });
 
   it("lowercases the project so filtering by it is exact", async () => {
-    const { task } = await createTask(createInput({ project: "  HelpDesk " }), HUMAN);
-    expect(task.project).toBe("helpdesk");
+    const { task } = await createTask(createInput({ project: "  Estuary " }), HUMAN);
+    expect(task.project).toBe("estuary");
   });
 
   it("stores an empty assignee, project, and acceptance criteria as null", async () => {
@@ -733,14 +733,15 @@ describe("getTaskStats", () => {
     expect(stats.needsAttention).toBe(0);
   });
 
-  it("counts per status and sums the three human-attention statuses into needsAttention", async () => {
-    await makeTask({ status: "todo" });
+  it("counts per status and sums everything waiting on a person into needsAttention", async () => {
+    const blocker = await makeTask({ status: "todo" });
     await makeTask({ status: "todo" });
     await makeTask({ status: "needs_user_decision" });
     await makeTask({ status: "needs_user_action" });
     await makeTask({ status: "needs_qa" });
     await makeTask({ status: "needs_qa" });
-    await makeTask({ status: "blocked" });
+    const blocked = await makeTask({ status: "blocked" });
+    await makeDependency(blocked.id, blocker.id);
 
     const stats = await getTaskStats();
 
@@ -752,7 +753,7 @@ describe("getTaskStats", () => {
       blocked: 1,
       done: 0,
     });
-    // `blocked` waits on another task, not on a human.
+    // `blocked` on an unfinished task waits on that task, not on a person.
     expect(stats.needsAttention).toBe(4);
   });
 

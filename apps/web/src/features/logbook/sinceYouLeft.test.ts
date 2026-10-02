@@ -1,4 +1,4 @@
-import { type TaskEvent } from "@helpdesk/contracts";
+import { type TaskEvent } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 import { sinceYouLeftSentence, sinceYouLeftSummary } from "@/features/logbook/sinceYouLeft";
 
@@ -6,7 +6,7 @@ const event = (overrides: Partial<TaskEvent>): TaskEvent => ({
   id: 1,
   taskId: 42,
   taskTitle: "Some task",
-  project: "helpdesk",
+  project: "estuary",
   type: "task.updated",
   actor: "agent:claude-code",
   payload: {},
@@ -24,11 +24,31 @@ describe("sinceYouLeftSummary", () => {
   it("counts only events after the last visit", () => {
     const lastVisitAt = "2026-09-10T00:00:00.000Z";
     const events = [
-      event({ id: 1, type: "task.status_changed", payload: { from: "needs_qa", to: "done" }, createdAt: "2026-09-09T00:00:00.000Z" }),
-      event({ id: 2, type: "task.status_changed", payload: { from: "in_progress", to: "done" }, createdAt: "2026-09-10T06:00:00.000Z" }),
-      event({ id: 3, type: "task.status_changed", payload: { from: "in_progress", to: "needs_user_action" }, createdAt: "2026-09-10T07:00:00.000Z" }),
+      event({
+        id: 1,
+        type: "task.status_changed",
+        payload: { from: "needs_qa", to: "done" },
+        createdAt: "2026-09-09T00:00:00.000Z",
+      }),
+      event({
+        id: 2,
+        type: "task.status_changed",
+        payload: { from: "in_progress", to: "done" },
+        createdAt: "2026-09-10T06:00:00.000Z",
+      }),
+      event({
+        id: 3,
+        type: "task.status_changed",
+        payload: { from: "in_progress", to: "needs_user_action" },
+        createdAt: "2026-09-10T07:00:00.000Z",
+      }),
       event({ id: 4, type: "decision.requested", createdAt: "2026-09-10T08:00:00.000Z" }),
-      event({ id: 5, type: "task.status_changed", payload: { from: "in_progress", to: "needs_qa" }, createdAt: "2026-09-10T09:00:00.000Z" }),
+      event({
+        id: 5,
+        type: "task.status_changed",
+        payload: { from: "in_progress", to: "needs_qa" },
+        createdAt: "2026-09-10T09:00:00.000Z",
+      }),
     ];
 
     const summary = sinceYouLeftSummary(events, lastVisitAt);
@@ -78,9 +98,24 @@ describe("sinceYouLeftSummary", () => {
 
   it("names the single agent that asked the most questions", () => {
     const events = [
-      event({ id: 1, actor: "agent:claude-code", type: "decision.requested", createdAt: "2026-09-10T09:00:00.000Z" }),
-      event({ id: 2, actor: "agent:claude-code", type: "decision.requested", createdAt: "2026-09-10T09:01:00.000Z" }),
-      event({ id: 3, actor: "agent:other", type: "decision.requested", createdAt: "2026-09-10T09:02:00.000Z" }),
+      event({
+        id: 1,
+        actor: "agent:claude-code",
+        type: "decision.requested",
+        createdAt: "2026-09-10T09:00:00.000Z",
+      }),
+      event({
+        id: 2,
+        actor: "agent:claude-code",
+        type: "decision.requested",
+        createdAt: "2026-09-10T09:01:00.000Z",
+      }),
+      event({
+        id: 3,
+        actor: "agent:other",
+        type: "decision.requested",
+        createdAt: "2026-09-10T09:02:00.000Z",
+      }),
     ];
     const summary = sinceYouLeftSummary(events, "2026-09-01T00:00:00.000Z");
     expect(summary.topAskingAgent).toEqual({ actor: "agent:claude-code", count: 2 });
@@ -88,8 +123,18 @@ describe("sinceYouLeftSummary", () => {
 
   it("names no agent when the top spot is a tie", () => {
     const events = [
-      event({ id: 1, actor: "agent:claude-code", type: "decision.requested", createdAt: "2026-09-10T09:00:00.000Z" }),
-      event({ id: 2, actor: "agent:other", type: "decision.requested", createdAt: "2026-09-10T09:01:00.000Z" }),
+      event({
+        id: 1,
+        actor: "agent:claude-code",
+        type: "decision.requested",
+        createdAt: "2026-09-10T09:00:00.000Z",
+      }),
+      event({
+        id: 2,
+        actor: "agent:other",
+        type: "decision.requested",
+        createdAt: "2026-09-10T09:01:00.000Z",
+      }),
     ];
     const summary = sinceYouLeftSummary(events, "2026-09-01T00:00:00.000Z");
     expect(summary.topAskingAgent).toBeNull();
@@ -103,7 +148,10 @@ describe("sinceYouLeftSentence", () => {
   });
 
   it("returns null when nothing qualifying happened", () => {
-    const summary = sinceYouLeftSummary([event({ type: "comment.created" })], "2026-09-10T00:00:00.000Z");
+    const summary = sinceYouLeftSummary(
+      [event({ type: "comment.created" })],
+      "2026-09-10T00:00:00.000Z",
+    );
     expect(sinceYouLeftSentence(summary, "2026-09-10T00:00:00.000Z")).toBeNull();
   });
 
@@ -115,7 +163,12 @@ describe("sinceYouLeftSentence", () => {
         payload: { from: "in_progress", to: "done" },
         createdAt: "2026-09-10T09:00:00.000Z",
       }),
-      event({ id: 2, actor: "agent:claude-code", type: "decision.requested", createdAt: "2026-09-10T09:01:00.000Z" }),
+      event({
+        id: 2,
+        actor: "agent:claude-code",
+        type: "decision.requested",
+        createdAt: "2026-09-10T09:01:00.000Z",
+      }),
     ];
     const summary = sinceYouLeftSummary(events, "2026-09-01T00:00:00.000Z");
     const sentence = sinceYouLeftSentence(summary, "2026-09-01T00:00:00.000Z");

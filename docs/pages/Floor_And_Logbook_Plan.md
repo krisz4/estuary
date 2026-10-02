@@ -53,7 +53,7 @@ This doc lists what to keep, what breaks, and how the real page should work.
 │               Links: blocking▾ │ dim|hide │ presets: Needs me · Chains · Stale        │
 ├──────────────────────────────────────────────────────────────┬──────────────────────┤
 │  PLANNING BENCH       BUILD BAY   WAITING DOCK       SHIPPED │ WORK ORDERS  (12/62) │
-│  ▸ helpdesk ═══[#17][#58] ··· [#10 Bearer…]  ⚙[#12] ⛓[#23]… │ ▾ Needs you        5 │
+│  ▸ estuary ═══[#17][#58] ··· [#10 Bearer…]  ⚙[#12] ⛓[#23]… │ ▾ Needs you        5 │
 │  ▸ billing  ═══[+14 ▤]  [#33 Coupons…]      ⚙[#22] [#29 ?]… │ ▾ Building         3 │
 │  ▸ 3 more belts ─── ·2 ·5 ·0 ·1 ·0 ·1 ·0 ·2 ·9 ·1 (fold)     │ ▾ Blocked          4 │
 │  rail: Backlog 14 · Refine 2 · To do 6 · … (click = filter)  │ …   (virtualised)    │

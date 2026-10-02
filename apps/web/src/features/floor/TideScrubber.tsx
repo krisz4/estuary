@@ -1,4 +1,4 @@
-import { type TaskEvent } from "@helpdesk/contracts";
+import { type TaskEvent } from "@estuary/contracts";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEventLogQuery } from "@/api/events";
@@ -88,7 +88,9 @@ export const TideScrubber = ({
   const [scrubbing, setScrubbing] = useState(false);
   const [playing, setPlaying] = useState(false);
   /** Local, un-debounced position — 0 = live. Immediate visual feedback while `at` itself is debounced. */
-  const [localPositionMs, setLocalPositionMs] = useState(at === undefined ? 0 : nowMs - new Date(at).getTime());
+  const [localPositionMs, setLocalPositionMs] = useState(
+    at === undefined ? 0 : nowMs - new Date(at).getTime(),
+  );
   const trackRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -117,7 +119,10 @@ export const TideScrubber = ({
   const movesData = movesQuery.data?.pages[0]?.data;
   const moves = useMemo<TaskEvent[]>(() => movesData ?? [], [movesData]);
   const steps = useMemo(() => buildReplaySteps(moves, rangeStartMs), [moves, rangeStartMs]);
-  const moveCount = useMemo(() => steps.reduce((sum, step) => sum + step.events.length, 0), [steps]);
+  const moveCount = useMemo(
+    () => steps.reduce((sum, step) => sum + step.events.length, 0),
+    [steps],
+  );
 
   // Callers pass these inline, so their identity changes on every parent
   // render. Read them through refs so `commit` — and the playback timer that
@@ -153,12 +158,9 @@ export const TideScrubber = ({
   const [shownStep, setShownStep] = useState<ReplayStep | null>(null);
 
   const positionOf = useCallback((ms: number) => nowMs - ms, [nowMs]);
-  const prefetchStep = useCallback(
-    (step: ReplayStep | undefined) => {
-      if (step !== undefined) onPrefetchRef.current?.(new Date(step.atMs).toISOString());
-    },
-    [],
-  );
+  const prefetchStep = useCallback((step: ReplayStep | undefined) => {
+    if (step !== undefined) onPrefetchRef.current?.(new Date(step.atMs).toISOString());
+  }, []);
 
   useEffect(() => {
     onPlayingChangeRef.current?.(playing);
@@ -192,7 +194,8 @@ export const TideScrubber = ({
 
   const startPlayback = () => {
     const currentMs = nowMs - localPositionMs;
-    const resumeAt = localPositionMs >= 30_000 ? steps.findIndex((step) => step.atMs > currentMs) : -1;
+    const resumeAt =
+      localPositionMs >= 30_000 ? steps.findIndex((step) => step.atMs > currentMs) : -1;
     if (resumeAt > 0) {
       // Mid-range: carry on from the next change after the playhead.
       nextStepRef.current = resumeAt;
@@ -253,8 +256,10 @@ export const TideScrubber = ({
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     let next: number | null = null;
-    if (event.key === "ArrowLeft" || event.key === "ArrowDown") next = localPositionMs + (event.shiftKey ? STEP_HOUR_MS : STEP_MIN_MS);
-    if (event.key === "ArrowRight" || event.key === "ArrowUp") next = localPositionMs - (event.shiftKey ? STEP_HOUR_MS : STEP_MIN_MS);
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown")
+      next = localPositionMs + (event.shiftKey ? STEP_HOUR_MS : STEP_MIN_MS);
+    if (event.key === "ArrowRight" || event.key === "ArrowUp")
+      next = localPositionMs - (event.shiftKey ? STEP_HOUR_MS : STEP_MIN_MS);
     if (event.key === "Home") next = totalMs;
     if (event.key === "End") next = 0;
     if (event.key === "PageUp") return jumpToEvent("prev");
@@ -274,7 +279,8 @@ export const TideScrubber = ({
   const caption = useMemo(() => {
     if (playing) {
       const first = shownStep?.events[0];
-      if (shownStep === null || first === undefined) return `Replaying ${moveCount} ${moveCount === 1 ? "move" : "moves"}…`;
+      if (shownStep === null || first === undefined)
+        return `Replaying ${moveCount} ${moveCount === 1 ? "move" : "moves"}…`;
       const more = shownStep.events.length - 1;
       return `${fmtClock(new Date(first.createdAt))} · ${describeMove(first)}${more > 0 ? ` · +${more} more` : ""}`;
     }
@@ -285,7 +291,8 @@ export const TideScrubber = ({
       (found, event) => (new Date(event.createdAt).getTime() >= currentMs ? event : found),
       undefined,
     );
-    if (upcoming === undefined) return isPast ? "Nothing recorded before this point." : "You're viewing now.";
+    if (upcoming === undefined)
+      return isPast ? "Nothing recorded before this point." : "You're viewing now.";
     return `${fmtClock(new Date(upcoming.createdAt))} · ${describeMove(upcoming)}`;
   }, [events, localPositionMs, isPast, nowMs, playing, shownStep, moveCount]);
 
@@ -364,7 +371,14 @@ export const TideScrubber = ({
       <RotateCcw aria-hidden="true" />
     </Button>
   ) : (
-    <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={backToNow} disabled={!isPast}>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="shrink-0"
+      onClick={backToNow}
+      disabled={!isPast}
+    >
       Now
     </Button>
   );
@@ -386,7 +400,12 @@ export const TideScrubber = ({
       onKeyDown={handleKeyDown}
       className="relative h-11 min-w-0 flex-1 cursor-pointer touch-none rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
-      <svg viewBox={`0 0 100 44`} preserveAspectRatio="none" className="absolute inset-0 size-full" aria-hidden="true">
+      <svg
+        viewBox={`0 0 100 44`}
+        preserveAspectRatio="none"
+        className="absolute inset-0 size-full"
+        aria-hidden="true"
+      >
         <polyline
           points={sparkline.map((v, i) => `${(i / (BINS - 1)) * 100},${36 - v * 26}`).join(" ")}
           fill="none"
@@ -394,12 +413,30 @@ export const TideScrubber = ({
           strokeWidth={1}
           vectorEffect="non-scaling-stroke"
         />
-        <line x1={0} x2={100} y1={38} y2={38} stroke="var(--map-line-2)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+        <line
+          x1={0}
+          x2={100}
+          y1={38}
+          y2={38}
+          stroke="var(--map-line-2)"
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+        />
         {markers.map((marker, i) => (
-          <circle key={i} cx={marker.x} cy={38} r={1.6} fill={marker.color} vectorEffect="non-scaling-stroke" />
+          <circle
+            key={i}
+            cx={marker.x}
+            cy={38}
+            r={1.6}
+            fill={marker.color}
+            vectorEffect="non-scaling-stroke"
+          />
         ))}
       </svg>
-      <div className="absolute top-0 bottom-2 w-0.5 bg-foreground" style={{ left: `${knobFraction * 100}%` }}>
+      <div
+        className="absolute top-0 bottom-2 w-0.5 bg-foreground"
+        style={{ left: `${knobFraction * 100}%` }}
+      >
         <span className="absolute -bottom-2 -left-2 size-4 rounded-full border-2 border-map-panel bg-foreground" />
       </div>
     </div>
@@ -407,20 +444,32 @@ export const TideScrubber = ({
 
   if (compact) {
     return (
-      <div className={cn("flex flex-col gap-2 rounded-2xl border border-border bg-map-panel px-3 py-2", className)}>
+      <div
+        className={cn(
+          "flex flex-col gap-2 rounded-2xl border border-border bg-map-panel px-3 py-2",
+          className,
+        )}
+      >
         <div className="flex flex-nowrap items-center gap-2">
           {playButton}
           {timeReadout}
           {nowButton}
         </div>
         <div className="flex items-center">{track}</div>
-        <p className="min-h-[1.4em] truncate font-mono text-[11px] text-muted-foreground">{caption}</p>
+        <p className="min-h-[1.4em] truncate font-mono text-[11px] text-muted-foreground">
+          {caption}
+        </p>
       </div>
     );
   }
 
   return (
-    <div className={cn("flex flex-col gap-2 rounded-2xl border border-border bg-map-panel px-4 py-3 shadow-raised", className)}>
+    <div
+      className={cn(
+        "flex flex-col gap-2 rounded-2xl border border-border bg-map-panel px-4 py-3 shadow-raised",
+        className,
+      )}
+    >
       <div className="flex flex-wrap items-center gap-3">
         {playButton}
         {timeReadout}

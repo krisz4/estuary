@@ -127,11 +127,11 @@ describe("processGithubWebhook", () => {
     pull_request: {
       title: overrides.title,
       body: overrides.body ?? "",
-      html_url: `https://github.com/krisz4/helpdesk/pull/${overrides.number ?? 12}`,
+      html_url: `https://github.com/krisz4/estuary/pull/${overrides.number ?? 12}`,
       merged: overrides.merged ?? false,
       head: { ref: overrides.ref ?? "main", sha: "abc123" },
     },
-    repository: { full_name: "krisz4/helpdesk" },
+    repository: { full_name: "krisz4/estuary" },
   });
 
   it("answers ping without touching the database", async () => {
@@ -172,7 +172,7 @@ describe("processGithubWebhook", () => {
 
     const after = await getTask(task.id);
     expect(after.links).toEqual([
-      { label: "PR krisz4/helpdesk#12", url: "https://github.com/krisz4/helpdesk/pull/12" },
+      { label: "PR krisz4/estuary#12", url: "https://github.com/krisz4/estuary/pull/12" },
     ]);
     expect(after.comments.at(-1)).toMatchObject({
       author: "system:github",
@@ -203,7 +203,7 @@ describe("processGithubWebhook", () => {
 
   it("does not link a URL that is already on the task", async () => {
     const task = await makeTask({
-      links: [{ label: "existing", url: "https://github.com/krisz4/helpdesk/pull/12" }],
+      links: [{ label: "existing", url: "https://github.com/krisz4/estuary/pull/12" }],
     });
 
     await processGithubWebhook({

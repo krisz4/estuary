@@ -1,4 +1,4 @@
-import { type HistoryResponse } from "@helpdesk/contracts";
+import { type HistoryResponse } from "@estuary/contracts";
 import { formatWaitDuration } from "@/features/logbook/waiting";
 
 export type KpiKey = "shipped" | "created" | "medianWait" | "qaPassRate";
@@ -58,7 +58,10 @@ export const buildKpiTiles = (data: HistoryResponse): KpiTile[] => {
     {
       key: "medianWait",
       label: "Median wait on humans",
-      value: data.totals.humanWait.medianMinutes === null ? "—" : formatWaitDuration(data.totals.humanWait.medianMinutes),
+      value:
+        data.totals.humanWait.medianMinutes === null
+          ? "—"
+          : formatWaitDuration(data.totals.humanWait.medianMinutes),
       sparkline: normalize(medianWaitSeries),
     },
     {

@@ -1,4 +1,4 @@
-import { TASK_STATUSES, type HistoryBucketRow, type TaskStatus } from "@helpdesk/contracts";
+import { TASK_STATUSES, type HistoryBucketRow, type TaskStatus } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 import { cfdByStatus, cfdByZone } from "@/features/logbook/cfd";
 
@@ -23,12 +23,21 @@ const makeBucket = (overrides: Partial<HistoryBucketRow>): HistoryBucketRow => (
 describe("cfdByZone", () => {
   it("sums each zone's statuses per bucket, in shipped-first stack order", () => {
     const buckets = [
-      makeBucket({ statusCounts: statusCounts({ backlog: 3, todo: 2, in_progress: 1, blocked: 1, done: 5 }) }),
-      makeBucket({ statusCounts: statusCounts({ backlog: 2, todo: 2, in_progress: 2, done: 7, deferred: 1 }) }),
+      makeBucket({
+        statusCounts: statusCounts({ backlog: 3, todo: 2, in_progress: 1, blocked: 1, done: 5 }),
+      }),
+      makeBucket({
+        statusCounts: statusCounts({ backlog: 2, todo: 2, in_progress: 2, done: 7, deferred: 1 }),
+      }),
     ];
 
     const series = cfdByZone(buckets);
-    expect(series.bands.map((band) => band.key)).toEqual(["shipped", "waiting", "build", "planning"]);
+    expect(series.bands.map((band) => band.key)).toEqual([
+      "shipped",
+      "waiting",
+      "build",
+      "planning",
+    ]);
 
     const shipped = series.bands.find((band) => band.key === "shipped")!;
     expect(shipped.values).toEqual([5, 8]);

@@ -4,7 +4,7 @@ import {
   taskListQuerySchema,
   taskSummarySchema,
   type TaskListQuery,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "../lib/prisma.js";
@@ -253,12 +253,12 @@ describe("filters", () => {
   });
 
   it("ANDs across different parameters", async () => {
-    const match = await makeTask({ status: "todo", priority: "urgent", project: "helpdesk" });
-    await makeTask({ status: "todo", priority: "low", project: "helpdesk" });
-    await makeTask({ status: "deferred", priority: "urgent", project: "helpdesk" });
+    const match = await makeTask({ status: "todo", priority: "urgent", project: "estuary" });
+    await makeTask({ status: "todo", priority: "low", project: "estuary" });
+    await makeTask({ status: "deferred", priority: "urgent", project: "estuary" });
     await makeTask({ status: "todo", priority: "urgent", project: "billing" });
 
-    expect(await listIds({ status: "todo", priority: "urgent", project: "helpdesk" })).toEqual([
+    expect(await listIds({ status: "todo", priority: "urgent", project: "estuary" })).toEqual([
       match.id,
     ]);
   });
@@ -320,20 +320,20 @@ describe("filters", () => {
   });
 
   it("matches project case-insensitively by lowercasing the input to match storage", async () => {
-    const task = await makeTask({ project: "helpdesk" });
+    const task = await makeTask({ project: "estuary" });
     await makeTask({ project: "billing" });
     await makeTask({ project: null });
 
-    expect(await listIds({ project: "HelpDesk" })).toEqual([task.id]);
+    expect(await listIds({ project: "Estuary" })).toEqual([task.id]);
   });
 
   it("ORs repeated project values", async () => {
-    const helpdesk = await makeTask({ project: "helpdesk" });
+    const estuary = await makeTask({ project: "estuary" });
     const billing = await makeTask({ project: "billing" });
     await makeTask({ project: "infra" });
 
-    const ids = await listIds({ project: ["helpdesk", "billing"] });
-    expect(ids.sort((a, b) => a - b)).toEqual([helpdesk.id, billing.id]);
+    const ids = await listIds({ project: ["estuary", "billing"] });
+    expect(ids.sort((a, b) => a - b)).toEqual([estuary.id, billing.id]);
   });
 
   it("rejects a project that is not a slug", () => {

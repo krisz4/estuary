@@ -1,4 +1,4 @@
-import { type Decision } from "@helpdesk/contracts";
+import { type Decision } from "@estuary/contracts";
 import { ActorBadge } from "@/features/tasks/ActorBadge";
 import { formatAbsolute, formatRelative, toDateTimeAttribute } from "@/lib/formatting";
 

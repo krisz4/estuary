@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { type HistoryQueryInput, type HistoryResponse } from "@helpdesk/contracts";
+import { type HistoryQueryInput, type HistoryResponse } from "@estuary/contracts";
 import { api, type QueryInput } from "@/api/http";
 import { POLL_INTERVAL_MS } from "@/api/polling";
 import { queryKeys } from "@/api/queryKeys";

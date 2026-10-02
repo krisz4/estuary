@@ -17,7 +17,7 @@ status: canonical
 | Composition (the one place those are imported) | `apps/api/src/openapi.ts` |
 | `/docs` router | `apps/api/src/routes/docs.route.ts` |
 | Generated artifact | `apps/api/openapi.json` — **committed** |
-| Generator script | `pnpm --filter @helpdesk/api openapi:gen` |
+| Generator script | `pnpm --filter @estuary/api openapi:gen` |
 | Swagger UI | `GET /docs` |
 | Raw spec | `GET /docs/openapi.json` |
 

@@ -6,7 +6,7 @@ import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 
 /**
- * Vite config for the helpdesk SPA.
+ * Vite config for the Estuary SPA.
  *
  * Tailwind v4 has no `tailwind.config.ts`: the plugin below compiles the
  * `@theme` block in `src/index.css`, which is where every design token lives

@@ -1,4 +1,4 @@
-import { EVENTS_DEFAULT_LIMIT, EVENTS_MAX_LIMIT, eventsQuerySchema } from "@helpdesk/contracts";
+import { EVENTS_DEFAULT_LIMIT, EVENTS_MAX_LIMIT, eventsQuerySchema } from "@estuary/contracts";
 import type { z } from "zod";
 
 import {

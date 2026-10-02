@@ -1,4 +1,4 @@
-import { eventsQuerySchema } from "@helpdesk/contracts";
+import { eventsQuerySchema } from "@estuary/contracts";
 import { Router } from "express";
 
 import { asyncHandler } from "../lib/asyncHandler.js";

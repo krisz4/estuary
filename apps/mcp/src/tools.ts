@@ -27,7 +27,7 @@ import {
   type TaskStats,
   type TaskStatus,
   type TransitionInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -41,11 +41,12 @@ import {
   formatStats,
   formatTask,
   formatTaskList,
+  formatWrite,
 } from "./format.js";
 import { deriveIdempotencyKey } from "./idempotency.js";
 
 /**
- * The tool surface. Input schemas are the `@helpdesk/contracts` schemas the API
+ * The tool surface. Input schemas are the `@estuary/contracts` schemas the API
  * itself validates with, composed rather than retyped — so a bound or an enum
  * that changes in the contract changes here too, and the model sees the same
  * limits the API will enforce.
@@ -98,6 +99,11 @@ const variantFor = <T extends TaskStatus>(to: T): VariantFor<T> => {
 };
 
 const listShape = taskListQuerySchema.out.shape;
+
+const FOLLOW_UPS_HELP =
+  "Work you found but did not do — your recommendations, what you left out, a bug next door. Each becomes a subtask a human sees: " +
+  "give acceptanceCriteria and it is todo; otherwise it is needs_refinement with `missing` (what a person must decide or supply) as the note. " +
+  "Use this instead of separate task_create calls or mentioning it only in chat.";
 const eventsShape = eventsQuerySchema.out.shape;
 
 /** Most recent comments `task_get` shows by default; the thread can be long. */
@@ -183,7 +189,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         "label narrows inside a project — in a monorepo, the workspace (web, api). " +
         "Search before filing a follow-up, so you do not file a duplicate. " +
         'sort is "field:direction" with field one of id, createdAt, updatedAt, title, status, priority. ' +
-        'To answer a human\'s "what needs me?", use status [needs_user_decision, needs_user_action, needs_qa]. ' +
+        'To answer a human\'s "what needs me?", use attention: true — decisions, actions, QA, refinement, untriaged agent suggestions, and tasks blocked on an outside reason, in one call. ' +
         "verbose: true appends the rows as JSON. task_get a task before working on it.",
       inputSchema: {
         ...listShape,
@@ -252,7 +258,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
       description:
         "What changed since a cursor: every create, edit, status change, claim, comment, decision, dependency change, and linked GitHub PR event, oldest first. " +
         "Omit `after` (or pass 0) the first time, then pass the returned nextAfter to see only newer events. " +
-        `Covers every project unless you narrow it: taskId (one task), project (e.g. ["${config.defaultProject ?? "helpdesk"}"]), actor (who did it, e.g. a human's human:<name>), type (e.g. ["task.status_changed", "decision.answered"]).`,
+        `Covers every project unless you narrow it: taskId (one task), project (e.g. ["${config.defaultProject ?? "estuary"}"]), actor (who did it, e.g. a human's human:<name>), type (e.g. ["task.status_changed", "decision.answered"]).`,
       inputSchema: {
         after: z
           .number()
@@ -280,7 +286,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     {
       title: "Task counts",
       description:
-        "Count of tasks per status, plus needsAttention: how many are waiting on a human (needs_user_decision, needs_user_action, needs_qa). " +
+        "Count of tasks per status, plus needsAttention: how many are waiting on a person (what task_list attention: true returns). " +
         "Cheap; use it for a quick overview before listing.",
       inputSchema: taskStatsQuerySchema.out.shape,
       annotations: { readOnlyHint: true },
@@ -325,10 +331,16 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
           ? `Already open as ${task.reference} (idempotencyKey "${idempotencyKey}") — returned the existing task unchanged, no duplicate filed.`
           : `Created ${task.reference}.`;
 
-        if (next === undefined) return formatTask(task, heading);
+        // A fresh task echoes only what the agent needs next (reference,
+        // version); a replay returns the stored task in full, since what is
+        // stored may differ from what this call sent.
+        const show = (shown: Task, line: string) =>
+          replay ? formatTask(shown, line) : formatWrite(shown, line);
+
+        if (next === undefined) return show(task, heading);
 
         // Already where this call wanted it: the first run's transition landed.
-        if (replay && task.status === next.to) return formatTask(task, heading);
+        if (replay && task.status === next.to) return show(task, heading);
 
         // On a replay, only finish a transition the first run never got to. A task
         // that has moved on since (claimed, handed to QA, …) must not be dragged
@@ -345,7 +357,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
             ...next,
             expectedVersion: next.expectedVersion ?? task.version,
           });
-          return formatTask(moved.data, `${heading} Then moved to ${next.to}.`);
+          return show(moved.data, `${heading} Then moved to ${next.to}.`);
         } catch (error) {
           if (!(error instanceof ApiError)) throw error;
           const context =
@@ -368,7 +380,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     ({ taskId, ...fields }) =>
       run(async () => {
         const { data } = await api.patch<Task>(taskPath(taskId), fields);
-        return formatTask(data, "Updated.");
+        return formatWrite(data, "Updated.");
       }),
   );
 
@@ -513,12 +525,16 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         "Give up a task you hold without finishing it; it goes back to todo for someone else. " +
         "Use when you are stopping (end of session, switching tasks, out of your depth) and none of the hand-offs fit. " +
         "The reason should say what you did and what is left, so the next agent can continue.",
-      inputSchema: releaseTaskInputSchema.extend({ taskId: taskIdInput, expectedVersion }),
+      inputSchema: releaseTaskInputSchema.extend({
+        taskId: taskIdInput,
+        followUps: releaseTaskInputSchema.shape.followUps.describe(FOLLOW_UPS_HELP),
+        expectedVersion,
+      }),
     },
     ({ taskId, ...body }) =>
       run(async () => {
         const { data } = await api.post<Task>(taskPath(taskId, "/release"), body);
-        return formatTask(data, "Released.");
+        return formatWrite(data, "Released.");
       }),
   );
 
@@ -532,14 +548,14 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         "Move a task to any status; the payload is what that status requires. " +
         "backlog {reason?} · needs_refinement {reason: what is unclear} · todo {acceptanceCriteria unless the task has them} · " +
         "in_progress {} (claims it for you) · blocked {reason and/or blockedBy task ids} · needs_user_decision {decision} · " +
-        "needs_user_action {instructions} · needs_qa {summary, links?} · deferred {reason} · done — humans only; agents get ACTOR_NOT_PERMITTED. " +
+        "needs_user_action {instructions} · needs_qa {summary, links?, concerns?, followUps?} · deferred {reason} · done — humans only; agents get ACTOR_NOT_PERMITTED. " +
         "Leaving in_progress drops your claim. For hand-offs prefer task_submit_for_qa, task_request_decision, task_request_action, task_block.",
       inputSchema: { taskId: taskIdInput, transition: transitionInputSchema },
     },
     ({ taskId, transition: body }) =>
       run(async () => {
         const { data } = await transition(taskId, body);
-        return formatTask(data, `Moved to ${body.to}.`);
+        return formatWrite(data, `Moved to ${body.to}.`);
       }),
   );
 
@@ -558,13 +574,17 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
           "What changed, how to verify it (commands, URLs, screens), and anything deliberately left out.",
         ),
         links: qa.links.describe("PR, branch, or commit links; appended to the task's links."),
+        concerns: qa.concerns.describe(
+          "Only if a reviewer must look at something specific: a deviation from the criteria, a risk, a shortcut, a test you could not run. Omit for routine work — the human can then approve it in one click.",
+        ),
+        followUps: qa.followUps.describe(FOLLOW_UPS_HELP),
         expectedVersion,
       },
     },
     ({ taskId, ...body }) =>
       run(async () => {
         const { data } = await transition(taskId, { to: "needs_qa", ...body });
-        return formatTask(data, "Handed off for QA.");
+        return formatWrite(data, "Handed off for QA.");
       }),
   );
 
@@ -586,7 +606,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
           decision,
           expectedVersion: version,
         });
-        return formatTask(data, "Waiting on a human decision.");
+        return formatWrite(data, "Waiting on a human decision.");
       }),
   );
 
@@ -608,7 +628,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     ({ taskId, ...body }) =>
       run(async () => {
         const { data } = await transition(taskId, { to: "needs_user_action", ...body });
-        return formatTask(data, "Waiting on a human action.");
+        return formatWrite(data, "Waiting on a human action.");
       }),
   );
 
@@ -632,7 +652,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     ({ taskId, ...body }) =>
       run(async () => {
         const { data } = await transition(taskId, { to: "blocked", ...body });
-        return formatTask(data, "Blocked.");
+        return formatWrite(data, "Blocked.");
       }),
   );
 
@@ -649,7 +669,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     ({ taskId, ...body }) =>
       run(async () => {
         const { data } = await api.post<Task>(taskPath(taskId, "/decision/answer"), body);
-        return formatTask(data, "Decision answered.");
+        return formatWrite(data, "Decision answered.");
       }),
   );
 
@@ -688,7 +708,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     ({ taskId, dependsOnId }) =>
       run(async () => {
         const { data } = await api.post<Task>(taskPath(taskId, "/dependencies"), { dependsOnId });
-        return formatTask(data, `Now depends on task ${dependsOnId}.`);
+        return formatWrite(data, `Now depends on task ${dependsOnId}.`);
       }),
   );
 
@@ -703,7 +723,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     ({ taskId, dependsOnId }) =>
       run(async () => {
         const { data } = await api.delete<Task>(taskPath(taskId, `/dependencies/${dependsOnId}`));
-        return formatTask(data, `No longer depends on task ${dependsOnId}.`);
+        return formatWrite(data, `No longer depends on task ${dependsOnId}.`);
       }),
   );
 };

@@ -1,4 +1,4 @@
-import { taskStatusSchema, type TaskStatus } from "@helpdesk/contracts";
+import { taskStatusSchema, type TaskStatus } from "@estuary/contracts";
 import { errorDescription } from "@/lib/errorMessages";
 
 /**

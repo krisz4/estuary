@@ -2,7 +2,7 @@ import {
   commentIdParamSchema,
   createCommentInputSchema,
   taskIdParamSchema,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { z } from "zod";
 
 import {

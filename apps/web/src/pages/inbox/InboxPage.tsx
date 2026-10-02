@@ -1,53 +1,44 @@
-import { HUMAN_ATTENTION_STATUSES, type TaskStatus, type TaskSummary } from "@helpdesk/contracts";
-import { Inbox, Map as MapIcon } from "lucide-react";
+import { type TaskSummary } from "@estuary/contracts";
+import { Check, Inbox, Map as MapIcon } from "lucide-react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useInboxQuery } from "@/api/tasks";
+import { toast } from "sonner";
+import { useInboxQuery, useTransitionTaskMutation } from "@/api/tasks";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
+import { ReachEyebrow } from "@/components/ReachEyebrow";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { Button, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatCount } from "@/lib/formatting";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { InboxItem } from "@/pages/inbox/InboxItem";
+import { type AttentionGroup, groupByAttentionKind } from "@/pages/inbox/attentionGroups";
 import { parseProjects } from "@/pages/tasks-list/useTaskListParams";
 import { projectScopeSearch, useRememberProjectScope } from "@/stores/projectScope";
 
 /**
  * `/inbox` — everything waiting on a human. Spec: `docs/pages/Inbox.md`.
  *
- * Agents stop and hand work to a person in exactly three ways
- * (`HUMAN_ATTENTION_STATUSES`): they ask a question (`needs_user_decision`),
- * they need a manual step done (`needs_user_action`), or they finished and
- * want it verified (`needs_qa`). This page is those three queues, each with
- * the controls to clear an item **without opening the task** — answering,
- * handing back, approving or sending back are all one or two clicks here.
+ * Not only the three statuses an agent explicitly hands off to a person
+ * (a question, a manual step, work to verify) — also a task stuck in
+ * `needs_refinement`, an agent-filed suggestion nobody has triaged, and a
+ * `blocked` task with no open dependency, so nothing an agent leaves behind
+ * can miss a human (`ATTENTION_KINDS` / `attentionKindOf`,
+ * `groupByAttentionKind`). Every item can be cleared **without opening the
+ * task** — answering, handing back, approving, refining, accepting, or
+ * dismissing are all one or two clicks here.
  *
- * One request (`useInboxQuery`) rather than three: it is a single list query
- * with a repeated `status`, grouped client-side in lifecycle order. It polls, so
- * a question an agent asks appears while the page is open; and it sits under
- * `tasks.lists()`, so an item cleared here — or anywhere else — drops out on
- * the invalidation that write already triggers.
+ * One request (`useInboxQuery`, `?attention=true`) rather than one per kind:
+ * it polls, so a question an agent asks appears while the page is open; and
+ * it sits under `tasks.lists()`, so an item cleared here — or anywhere else —
+ * drops out on the invalidation that write already triggers.
  *
  * `?project=` narrows it to one repository (or several), set by the header's
  * project switcher. Unscoped, a line above the groups says which projects the
  * items come from, each a link to that project's inbox — the triage view for
  * someone running agents on several repositories at once.
  */
-
-const GROUPS: Record<(typeof HUMAN_ATTENTION_STATUSES)[number], { title: string; hint: string }> = {
-  needs_user_decision: {
-    title: "Decisions",
-    hint: "An agent asked a question. Pick an option, or answer in your own words.",
-  },
-  needs_user_action: {
-    title: "Actions",
-    hint: "A manual step only a human can do. Do it, then hand the task back.",
-  },
-  needs_qa: {
-    title: "Ready for QA",
-    hint: "The work is done. Check it against the acceptance criteria.",
-  },
-};
 
 export const InboxPage = () => {
   useDocumentTitle("Inbox");
@@ -60,17 +51,16 @@ export const InboxPage = () => {
   const tasks = data?.data ?? [];
   const total = data?.meta.total ?? 0;
 
-  const groups = HUMAN_ATTENTION_STATUSES.map((status) => ({
-    status,
-    tasks: tasks.filter((task) => task.status === status),
-  })).filter((group) => group.tasks.length > 0);
+  const groups = groupByAttentionKind(tasks);
 
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
+        <ReachEyebrow name="The pools" place="where work waits on you" />
         <h1 className="text-2xl font-semibold text-foreground">Inbox</h1>
         <p className="text-sm text-muted-foreground">
-          What agents are waiting on you for: questions, manual steps, and work to verify.
+          Everything agents are waiting on you for: questions, manual steps, work to verify, and
+          anything left unattended.
         </p>
         {/* Scoped and empty, the empty state says the same thing, with the same link. */}
         {projects.length > 0 ? (
@@ -106,13 +96,13 @@ export const InboxPage = () => {
         <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />
       ) : groups.length === 0 ? (
         <EmptyState
-          icon={Inbox}
+          art="still-water"
           title={
             projects.length > 0
               ? `Nothing in ${projects.join(", ")} needs you`
               : "Nothing needs you"
           }
-          description="No questions, manual steps, or work waiting for review. When an agent needs a human, it shows up here."
+          description="Slack water: no questions, manual steps, or work waiting for review. When an agent needs a human, it shows up here."
           action={
             projects.length > 0 ? (
               <Button asChild variant="outline">
@@ -134,7 +124,7 @@ export const InboxPage = () => {
       ) : (
         <>
           {groups.map((group) => (
-            <InboxGroup key={group.status} status={group.status} tasks={group.tasks} />
+            <InboxGroup key={group.kind} group={group} />
           ))}
           {total > tasks.length ? (
             <p className="text-sm text-muted-foreground">
@@ -148,7 +138,7 @@ export const InboxPage = () => {
 };
 
 /**
- * "From helpdesk (3), web-app (2)" — which projects the unscoped inbox's items
+ * "From estuary (3), web-app (2)" — which projects the unscoped inbox's items
  * belong to, each linking to that project's inbox. Counted from the items
  * loaded, so under the 100-item cap it describes what is shown, which the
  * "most urgent of" line already says is not everything.
@@ -184,17 +174,23 @@ const ProjectBreakdown = ({ tasks }: { tasks: TaskSummary[] }) => {
   );
 };
 
-const InboxGroup = ({ status, tasks }: { status: TaskStatus; tasks: TaskSummary[] }) => {
-  const { title, hint } = GROUPS[status as keyof typeof GROUPS];
-  const headingId = `inbox-${status}`;
+const InboxGroup = ({ group }: { group: AttentionGroup }) => {
+  const { kind, title, hint, tasks } = group;
+  const headingId = `inbox-${kind}`;
+  // Only `review` items with no `concerns` are routine — a flagged hand-off
+  // is never swept up in the batch, however many routine siblings it has.
+  const routineTasks = kind === "review" ? tasks.filter((task) => task.concerns === null) : [];
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        <h2 id={headingId} className="text-base font-semibold text-foreground">
-          {title} <span className="font-normal text-muted-foreground">({tasks.length})</span>
-        </h2>
-        <p className="text-sm text-muted-foreground">{hint}</p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-0.5">
+          <h2 id={headingId} className="text-base font-semibold text-foreground">
+            {title} <span className="font-normal text-muted-foreground">({tasks.length})</span>
+          </h2>
+          <p className="text-sm text-muted-foreground">{hint}</p>
+        </div>
+        {routineTasks.length >= 2 ? <ApproveAllRoutine tasks={routineTasks} /> : null}
       </div>
       <ul className="flex flex-col gap-3">
         {tasks.map((task) => (
@@ -207,6 +203,86 @@ const InboxGroup = ({ status, tasks }: { status: TaskStatus; tasks: TaskSummary[
   );
 };
 
+/**
+ * "Approve all routine (N)" — the Review group's header action, only shown
+ * with two or more routine (no `concerns`) hand-offs. Transitions each to
+ * `done` in turn and reports one toast summarising the outcome; a task
+ * flagged with `concerns` is never in `tasks` here, so it can never be swept
+ * into a batch approval.
+ *
+ * One confirm step, listing what will be approved: it is a bulk move to
+ * `done`, and "routine" only means the agent raised no concerns — hand-offs
+ * filed before `concerns` existed count as routine too.
+ */
+const ApproveAllRoutine = ({ tasks }: { tasks: TaskSummary[] }) => {
+  const mutation = useTransitionTaskMutation();
+  const [isRunning, setIsRunning] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const run = async () => {
+    setIsRunning(true);
+    let approved = 0;
+    let failed = 0;
+    for (const task of tasks) {
+      try {
+        await mutation.mutateAsync({ taskId: task.id, input: { to: "done" } });
+        approved += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setIsRunning(false);
+    setConfirming(false);
+    if (failed === 0) {
+      toast.success(`${formatCount(approved, "task")} approved`);
+    } else {
+      toast.error(
+        `${formatCount(approved, "task")} approved, ${formatCount(failed, "task")} failed`,
+        {
+          description: "Open the ones that failed to see why.",
+        },
+      );
+    }
+  };
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        isLoading={isRunning}
+        onClick={() => setConfirming(true)}
+        className="shrink-0"
+      >
+        <Check aria-hidden="true" />
+        Approve all routine ({tasks.length})
+      </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Approve ${formatCount(tasks.length, "task")}?`}
+        description={
+          <>
+            No agent raised concerns on these. Each moves to done.
+            {/* Spans, not a list: the description renders inside a <p>. */}
+            <span className="mt-2 block max-h-60 overflow-y-auto text-left">
+              {tasks.map((task) => (
+                <span key={task.id} className="block truncate">
+                  <span className="font-mono text-xs">{task.reference}</span> {task.title}
+                </span>
+              ))}
+            </span>
+          </>
+        }
+        confirmLabel="Approve all"
+        confirmVariant="primary"
+        isPending={isRunning}
+        onConfirm={() => void run()}
+      />
+    </>
+  );
+};
+
 /** Two groups of card-shaped placeholders — the real layout's shape. */
 const InboxSkeleton = () => (
   <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading inbox">
@@ -216,7 +292,9 @@ const InboxSkeleton = () => (
         {Array.from({ length: count }, (_, index) => (
           <div
             key={index}
-            className={cn("flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-raised")}
+            className={cn(
+              "flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-raised",
+            )}
           >
             <Skeleton className="h-3 w-24" />
             <Skeleton className="h-4 w-3/4" />

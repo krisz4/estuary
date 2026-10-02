@@ -6,7 +6,7 @@ import type {
   TaskLink,
   TaskPriority,
   TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import type { Comment, Decision, Prisma, Task, TaskDependency, TaskEvent } from "@prisma/client";
 
 import { env } from "../lib/env.js";

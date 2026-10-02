@@ -125,6 +125,8 @@ export default defineConfig({
         // Nothing in the suite reads Swagger UI, and generating the document at
         // boot is the one thing that would make the API slower to become ready.
         DOCS_ENABLED: "false",
+        // No retention sweep: a spec must never race a background delete.
+        DONE_RETENTION_DAYS: "0",
       },
     },
     {

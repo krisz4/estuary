@@ -1,9 +1,9 @@
 {
-  "name": "@helpdesk/api",
-  "version": "0.0.0",
+  "name": "@estuary/api",
+  "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
-  "description": "Helpdesk REST API \u2014 Express 5 + Prisma (SQLite)",
+  "license": "AGPL-3.0-only",
+  "description": "Estuary REST API \u2014 Express 5 + Prisma (SQLite)",
   "type": "module",
   "scripts": {
     "postinstall": "prisma generate",
@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
-    "@helpdesk/contracts": "workspace:*",
+    "@estuary/contracts": "workspace:*",
     "@prisma/client": "^6.19.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
@@ -37,7 +37,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@helpdesk/tsconfig": "workspace:*",
+    "@estuary/tsconfig": "workspace:*",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.0",

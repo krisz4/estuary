@@ -95,7 +95,10 @@ export const LogbookMiniNav = ({
       aria-label="Logbook sections"
       className="fixed inset-x-0 top-14 z-30 flex items-center gap-1 overflow-x-auto border-b border-border bg-background/95 px-4 py-2 text-sm backdrop-blur md:px-6"
     >
-      <a href="#logbook-top" className="shrink-0 rounded-md px-2 py-1 font-semibold text-foreground hover:bg-map-panel-2">
+      <a
+        href="#logbook-top"
+        className="shrink-0 rounded-md px-2 py-1 font-semibold text-foreground hover:bg-map-panel-2"
+      >
         Logbook
       </a>
       {sections.map((section) => (
@@ -105,7 +108,9 @@ export const LogbookMiniNav = ({
           aria-current={activeId === section.id ? "location" : undefined}
           className={cn(
             "shrink-0 rounded-md px-2 py-1 whitespace-nowrap transition-colors hover:bg-map-panel-2",
-            activeId === section.id ? "bg-map-panel-2 font-semibold text-foreground" : "text-muted-foreground",
+            activeId === section.id
+              ? "bg-map-panel-2 font-semibold text-foreground"
+              : "text-muted-foreground",
           )}
         >
           {section.label}

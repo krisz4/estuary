@@ -150,7 +150,7 @@ describe("transitionInputSchema", () => {
     ["todo", { reason: "Refined with the user." }],
     ["todo", { acceptanceCriteria: "All five tools callable from Claude Code." }],
     ["in_progress", { reason: "Picking this up." }],
-    ["needs_qa", { links: [{ label: "PR #12", url: "https://github.com/acme/helpdesk/pull/12" }] }],
+    ["needs_qa", { links: [{ label: "PR #12", url: "https://github.com/acme/estuary/pull/12" }] }],
     ["done", { reason: "Verified on staging." }],
     ["needs_user_decision", { decision: { ...decision, recommendedOption: "stdio" } }],
   ] as const)("accepts the optional payload on %s: %j", (status, extra) => {
@@ -208,15 +208,15 @@ describe("nextTaskInputSchema", () => {
   });
 
   it("lowercases the project filter, matching how projects are stored", () => {
-    expect(nextTaskInputSchema.parse({ project: ["Helpdesk", " infra "] })).toEqual({
-      project: ["helpdesk", "infra"],
+    expect(nextTaskInputSchema.parse({ project: ["Estuary", " infra "] })).toEqual({
+      project: ["estuary", "infra"],
     });
   });
 
   it("rejects an empty project list, a bare string, and a malformed slug", () => {
     // An empty list would read as "no project matches" and never return a task.
     expect(nextTaskInputSchema.safeParse({ project: [] }).success).toBe(false);
-    expect(nextTaskInputSchema.safeParse({ project: "helpdesk" }).success).toBe(false);
+    expect(nextTaskInputSchema.safeParse({ project: "estuary" }).success).toBe(false);
     expect(nextTaskInputSchema.safeParse({ project: ["not a slug"] }).success).toBe(false);
   });
 

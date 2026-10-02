@@ -54,7 +54,7 @@ Every optional field the form clears sends `null`, not `""` — the schema trans
 
 ## Route params
 
-`?status=<CREATABLE_TASK_STATUSES value>&project=<slug>` — both optional, parsed by `parseCreatePrefill` (unit-tested). This is the Map's quick-add entry point ([Tasks_Map.md](./Tasks_Map.md) § Quick add): hovering a planning station's plate shows a "+" that navigates here with the station's status and, when the map is grouped by project, the cluster's own dominant project. An invalid or non-creatable `status` (e.g. `done`) is silently ignored rather than producing a form the create schema would reject; a blank `project` is dropped. `project` falls back to the header's project scope when absent — the same default the page always had.
+`?status=<CREATABLE_TASK_STATUSES value>&project=<slug>` — both optional, parsed by `parseCreatePrefill` (unit-tested). Nothing in the app links here with them any more (the Map's hover "+" was removed, see [Tasks_Map.md](./Tasks_Map.md) § Quick add), but a pasted or scripted link still prefills the form. An invalid or non-creatable `status` (e.g. `done`) is silently ignored rather than producing a form the create schema would reject; a blank `project` is dropped. `project` falls back to the header's project scope when absent — the same default the page always had.
 
 ## Behavior / UI flow
 
@@ -95,4 +95,4 @@ Every optional field the form clears sends `null`, not `""` — the schema trans
 - [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) — what "starting status" allows and why
 - [../features/Validation_And_Contracts.md](../features/Validation_And_Contracts.md)
 - [Task_Edit.md](./Task_Edit.md) — shares `TaskForm`
-- [Tasks_Map.md](./Tasks_Map.md) — the quick-add entry point that drives § Route params
+- [Tasks_Map.md](./Tasks_Map.md) — § Quick add explains why the map no longer links here

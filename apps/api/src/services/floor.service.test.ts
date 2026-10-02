@@ -1,4 +1,4 @@
-import { createTaskInputSchema, floorQuerySchema, transitionInputSchema } from "@helpdesk/contracts";
+import { createTaskInputSchema, floorQuerySchema, transitionInputSchema } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "../lib/prisma.js";
@@ -18,16 +18,17 @@ import { getFloorSnapshot } from "./floor.service.js";
 
 const HUMAN = "human:tester";
 
-const snapshot = (raw: Record<string, unknown> = {}) => getFloorSnapshot(floorQuerySchema.parse(raw));
+const snapshot = (raw: Record<string, unknown> = {}) =>
+  getFloorSnapshot(floorQuerySchema.parse(raw));
 
 const ids = (rows: { id: number }[]): number[] => rows.map((r) => r.id);
 
 describe("scope vs filters", () => {
   it("project removes rows entirely — it is scope, not a filter", async () => {
-    const inScope = await makeTask({ project: "helpdesk", status: "todo" });
+    const inScope = await makeTask({ project: "estuary", status: "todo" });
     await makeTask({ project: "billing", status: "todo" });
 
-    const result = await snapshot({ project: "helpdesk" });
+    const result = await snapshot({ project: "estuary" });
 
     expect(ids(result.tasks)).toEqual([inScope.id]);
     expect(result.meta.total).toBe(1);
@@ -120,8 +121,16 @@ describe("the cap and its ordering", () => {
   });
 
   it("orders by priority, then updatedAt desc, within the same must-show bucket", async () => {
-    const low = await makeTask({ status: "todo", priority: "low", updatedAt: new Date(2026, 0, 1) });
-    const high = await makeTask({ status: "todo", priority: "high", updatedAt: new Date(2026, 0, 1) });
+    const low = await makeTask({
+      status: "todo",
+      priority: "low",
+      updatedAt: new Date(2026, 0, 1),
+    });
+    const high = await makeTask({
+      status: "todo",
+      priority: "high",
+      updatedAt: new Date(2026, 0, 1),
+    });
     const newerLow = await makeTask({
       status: "todo",
       priority: "low",
@@ -185,11 +194,15 @@ describe("dependency graph", () => {
   });
 
   it("refs cover edge endpoints and parents outside the returned scope", async () => {
-    const outOfScopeBlocker = await makeTask({ project: "billing", status: "done", completedAt: new Date() });
-    const dependent = await makeTask({ project: "helpdesk", status: "blocked" });
+    const outOfScopeBlocker = await makeTask({
+      project: "billing",
+      status: "done",
+      completedAt: new Date(),
+    });
+    const dependent = await makeTask({ project: "estuary", status: "blocked" });
     await makeDependency(dependent.id, outOfScopeBlocker.id);
 
-    const result = await snapshot({ project: "helpdesk" });
+    const result = await snapshot({ project: "estuary" });
 
     expect(ids(result.tasks)).toEqual([dependent.id]);
     expect(result.refs.map((r) => r.id)).toContain(outOfScopeBlocker.id);
@@ -197,9 +210,9 @@ describe("dependency graph", () => {
 
   it("refs cover a parentId outside the returned scope", async () => {
     const parent = await makeTask({ project: "billing" });
-    const child = await makeTask({ project: "helpdesk", parentId: parent.id });
+    const child = await makeTask({ project: "estuary", parentId: parent.id });
 
-    const result = await snapshot({ project: "helpdesk" });
+    const result = await snapshot({ project: "estuary" });
 
     expect(ids(result.tasks)).toEqual([child.id]);
     expect(result.refs.map((r) => r.id)).toContain(parent.id);
@@ -232,10 +245,16 @@ describe("pullRequestUrl", () => {
 describe("meta.lastEventId", () => {
   it("is the highest TaskEvent id at snapshot time", async () => {
     await createTask(
-      createTaskInputSchema.parse({ title: "Add retries to the sender", description: "Long enough." }),
+      createTaskInputSchema.parse({
+        title: "Add retries to the sender",
+        description: "Long enough.",
+      }),
       HUMAN,
     );
-    const maxId = await prisma.taskEvent.findFirst({ orderBy: { id: "desc" }, select: { id: true } });
+    const maxId = await prisma.taskEvent.findFirst({
+      orderBy: { id: "desc" },
+      select: { id: true },
+    });
 
     const result = await snapshot();
     expect(result.meta.lastEventId).toBe(maxId?.id ?? 0);
@@ -287,7 +306,10 @@ describe("replay (?at=)", () => {
     const before = new Date();
     await new Promise((r) => setTimeout(r, 5));
     await createTask(
-      createTaskInputSchema.parse({ title: "Created later", description: "Long enough description." }),
+      createTaskInputSchema.parse({
+        title: "Created later",
+        description: "Long enough description.",
+      }),
       HUMAN,
     );
 

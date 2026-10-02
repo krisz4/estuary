@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@helpdesk/tsconfig/base.json",
+  "extends": "@estuary/tsconfig/base.json",
   "compilerOptions": {
     // `DOM` is here for the callbacks handed to `page.evaluate()`: those run in
     // the browser, so `document` and `window` are legitimately in scope inside

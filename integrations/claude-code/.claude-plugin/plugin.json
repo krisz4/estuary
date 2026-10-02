@@ -1,10 +1,10 @@
 {
-  "name": "task-manager",
-  "displayName": "Task manager",
+  "name": "estuary",
+  "displayName": "Estuary",
   "version": "0.1.0",
-  "description": "Lets Claude Code agents claim, work, and hand off tasks in the self-hosted AI task manager: MCP tools over its REST API, the task-workflow skill, and a SessionStart hook that lists the tasks you still hold.",
-  "author": { "name": "helpdesk maintainers" },
-  "license": "UNLICENSED",
+  "description": "Lets Claude Code agents claim, work, and hand off tasks in the self-hosted AI task manager: MCP tools over its REST API, the task-workflow skill, a SessionStart hook that lists the tasks you still hold, and a SessionEnd hook that hands unfinished tasks back to todo.",
+  "author": { "name": "krisz4", "url": "https://github.com/krisz4" },
+  "license": "AGPL-3.0-only",
   "keywords": ["tasks", "agents", "workflow", "mcp"],
   "userConfig": {
     "api_url": {
@@ -29,7 +29,7 @@
     "server_path": {
       "type": "string",
       "title": "MCP server path",
-      "description": "Absolute path to apps/mcp/dist/index.js in your task manager checkout. Leave empty when the plugin is installed from that checkout's local marketplace.",
+      "description": "Absolute path to a built apps/mcp/dist/index.js, to run a local build of the server. Leave empty to use the published estuary-mcp package through npx (pinned to this plugin's version), or the checkout's own build when the plugin is installed from a checkout's local marketplace.",
       "default": ""
     }
   }

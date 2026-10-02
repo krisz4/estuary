@@ -23,7 +23,7 @@ import {
   type TaskSort,
   type TaskSortField,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 /**
  * The list screen's state, which **is** the URL.

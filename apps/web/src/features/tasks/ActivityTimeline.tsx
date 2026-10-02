@@ -1,4 +1,4 @@
-import { formatReference, type TaskEvent } from "@helpdesk/contracts";
+import { formatReference, type TaskEvent } from "@estuary/contracts";
 import { Link } from "react-router-dom";
 import { type ReactNode } from "react";
 import { useTaskEventsQuery } from "@/api/events";

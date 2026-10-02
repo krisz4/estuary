@@ -8,7 +8,7 @@ status: canonical
 ---
 # Page Review: Task Detail
 
-A separate page, not a modal, so the URL is shareable — an agent can paste `/tasks/42` into a hand-off note.
+A separate page, not a modal, so the URL is shareable — an agent can paste `/tasks/42` into a hand-off note. Its body is `features/tasks/TaskDetailView.tsx` (`variant="page"`), shared with the map's task modal (`variant="dialog"` — see [Tasks_Map.md](./Tasks_Map.md) § Task modal), so every action behaves the same in both.
 
 ## Route
 
@@ -23,6 +23,7 @@ A separate page, not a modal, so the URL is shareable — an agent can paste `/t
 | Component | Role on this page |
 | --------- | ----------------- |
 | `PageHeader` (`src/components/`) | Back link to the remembered list/map view (preserving its query string), reference + title, Edit/Delete actions |
+| `StatusCourse` (`features/tasks/`) | Under the header, in both the page and the map modal: a small river strip in the Map's four regions (headwaters → the reach → the lagoon → the mouth), ten station markers, and the task as a bead in its status colour with a ripple. One `role="img"` with a sentence label ("On the river: Doing, the reach — at Needs QA."); the status select stays the control. Non-current region captions hide below `sm` |
 | `StatusSelect` (`src/features/tasks/`) | Inline status control — reports the pick; the page decides whether to post the transition immediately or open `TransitionDialog` |
 | `StatusNotePanel` | The "why" of the current status — `statusNote` — framed by heading + icon specific to that status ("Blocked because…", "What you need to do", "QA summary", …) |
 | `DecisionAnswer` | The open `needs_user_decision` question, its options, and the answer controls — shown above both columns when present |
@@ -44,6 +45,7 @@ A separate page, not a modal, so the URL is shareable — an agent can paste `/t
 | Call | Method | Endpoint |
 | ---- | ------ | -------- |
 | `getTask(taskId)` | `GET` | `/api/v1/tasks/:taskId` — includes comments, parent, children, dependencies, dependents, decisions, open decision |
+| `updateTask(taskId, { needsTriage: false })` | `PATCH` | `/api/v1/tasks/:taskId` — the "Suggested by an agent" line's **Accept** button only; other edits go through [Task_Edit.md](./Task_Edit.md) |
 | `transitionTask(taskId, input)` | `POST` | `/api/v1/tasks/:taskId/transition` — every status change |
 | `claimTask(taskId, {})` | `POST` | `/api/v1/tasks/:taskId/claim` — take an unclaimed `in_progress` task |
 | `releaseTask(taskId, {})` | `POST` | `/api/v1/tasks/:taskId/release` — give up a claim; task returns to `todo` |
@@ -61,7 +63,7 @@ Query key: `queryKeys.tasks.detail(taskId)`, polled every 15s. Workflow writes (
 
 1. **Header** — `TASK-000042` as small muted text above the title; title as `<h1>`. Right side: "Edit" (→ `/tasks/:id/edit`) and "Delete" (destructive variant).
 2. **Back link** returns to the view the user came from (list or map), carrying its previous search params. The path comes from `stores/taskView` (whichever view screen the user last had open); the query string comes from `location.state.from`, which the row/card the user clicked attaches. `useBackToListPath()` combines the two; the delete redirect uses the same value.
-3. **Status note and open decision** sit above both columns — on mobile, above everything else, since that's what someone opening a task from the inbox came for. `StatusNotePanel` renders whenever `statusNote` is set (every status has one once a transition has set it); `DecisionAnswer` renders additionally when the status is `needs_user_decision` and an open decision exists.
+3. **Status note and open decision** sit above both columns — on mobile, above everything else, since that's what someone opening a task from the inbox came for. `StatusNotePanel` renders whenever `statusNote` is set (every status has one once a transition has set it); `DecisionAnswer` renders additionally when the status is `needs_user_decision` and an open decision exists. When `concerns` is set (only possible at `needs_qa`), it renders right beside the status note — what the agent flagged for a close look, not buried in the summary. When `needsTriage` is set, a "Suggested by an agent — not reviewed yet" line sits above both, with an **Accept** button (`PATCH { needsTriage: false }`) — the same action the inbox's Suggested group offers, for anyone who opened the task directly instead. See [../features/Attention_Queue.md](../features/Attention_Queue.md).
 4. **Inline status change** — picking a new value in `StatusSelect` either transitions immediately (`backlog`, `in_progress`, `done`, and `todo` when the task already has acceptance criteria — all of whose payload is an optional reason) or opens `TransitionDialog` for a target whose payload needs something from the user (`needs_refinement`, `blocked`, `needs_user_decision`, `needs_user_action`, `needs_qa`, `deferred`, or `todo` without criteria yet). See [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) for exactly what each target requires. A direct transition is optimistic on the detail cache and rolls back on failure; the failure (e.g. `TASK_ALREADY_CLAIMED` naming the claim holder) renders inline next to the control via `statusChangeErrorMessage`, and a `VALIDATION_ERROR` (the task's acceptance criteria were cleared by someone else a moment ago) reopens the dialog instead of just refusing.
 5. **Claim panel.** While the task holds a live claim, the panel names the holder (agent icon for `agent:…`, lock for `human:…`) and its lease expiry, with a **Release** button (any human may release anyone's claim — the common case is an agent that went quiet). When the task is `in_progress` with no live claim (a crashed agent's lease ran out), the panel offers **Claim it** instead. Otherwise the panel renders nothing.
 6. **Summary aside** — priority, project (or "No project"), assignee (or "Unassigned"), labels (`LabelChips`, when any), created by (`ActorBadge`), parent link when set — with its own project noted in parens when it differs from this task's — created/updated/started/completed timestamps (the last two only when set). Status is above it, on `StatusSelect` — there is no separate status row.
@@ -102,6 +104,7 @@ Query key: `queryKeys.tasks.detail(taskId)`, polled every 15s. Workflow writes (
 
 ## Related
 
+- [../features/Attention_Queue.md](../features/Attention_Queue.md) — `concerns`, `needsTriage`
 - [../features/Tasks.md](../features/Tasks.md), [../features/Comments.md](../features/Comments.md)
 - [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md), [../features/Task_Workflow_API.md](../features/Task_Workflow_API.md) — claims, decisions, dependencies, events
 - [Task_Edit.md](./Task_Edit.md), [Tasks_List.md](./Tasks_List.md), [Inbox.md](./Inbox.md)

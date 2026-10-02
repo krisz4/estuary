@@ -1,4 +1,4 @@
-import { ACTOR_HEADER, apiErrorResponseSchema, type ApiErrorCode } from "@helpdesk/contracts";
+import { ACTOR_HEADER, apiErrorResponseSchema, type ApiErrorCode } from "@estuary/contracts";
 
 import type { Config } from "./config.js";
 

@@ -21,7 +21,7 @@ import {
   titleInputSchema,
   type TaskPriority,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { prisma } from "../lib/prisma.js";

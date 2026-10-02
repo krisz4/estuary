@@ -46,7 +46,7 @@ const renderBar = (props: Partial<TaskFilterBarProps> = {}) => {
       params={params()}
       facets={{
         assignees: ["Alice Chen", "Marcus Feld"],
-        projects: ["helpdesk", "mcp-server"],
+        projects: ["estuary", "mcp-server"],
         labels: ["bug", "web"],
         creators: ["agent:claude-code", "human:krisz"],
       }}
@@ -146,9 +146,9 @@ describe("TaskFilterBar chip groups", () => {
   });
 
   it("has no project control — the header's project switcher owns it", () => {
-    renderBar({ params: params({ project: ["helpdesk"] }) });
+    renderBar({ params: params({ project: ["estuary"] }) });
     expect(screen.queryByRole("group", { name: "Project" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: "helpdesk" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "estuary" })).not.toBeInTheDocument();
   });
 
   it("offers the labels the facets report", () => {
@@ -346,7 +346,7 @@ describe("activeFilterChips", () => {
         q: "printer",
         status: ["todo", "done"],
         priority: ["urgent"],
-        project: ["helpdesk"],
+        project: ["estuary"],
         createdBy: "agent:claude-code",
       }),
     );

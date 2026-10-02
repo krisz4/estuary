@@ -1,4 +1,4 @@
-import { actorKindOf, SYSTEM_ACTOR, type TaskStatus } from "@helpdesk/contracts";
+import { actorKindOf, SYSTEM_ACTOR, type TaskStatus } from "@estuary/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { env } from "../lib/env.js";

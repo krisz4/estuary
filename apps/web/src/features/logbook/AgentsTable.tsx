@@ -1,4 +1,4 @@
-import { type AgentHistory } from "@helpdesk/contracts";
+import { type AgentHistory } from "@estuary/contracts";
 import { ActorBadge } from "@/features/tasks/ActorBadge";
 import { formatCount } from "@/lib/formatting";
 
@@ -58,7 +58,10 @@ export const AgentsTable = ({ agents }: AgentsTableProps) => {
       {/* Below `md`: stacked cards, same data. */}
       <ul className="flex flex-col gap-2 md:hidden">
         {agents.map((agent) => (
-          <li key={agent.actor} className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-raised">
+          <li
+            key={agent.actor}
+            className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-raised"
+          >
             <ActorBadge actor={agent.actor} />
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
               <Stat label="Submitted" value={agent.submitted} />

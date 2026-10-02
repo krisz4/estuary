@@ -67,7 +67,6 @@ e2e
 docs
 README.md
 CLAUDE.md
-instructions.md
 .editorconfig
 .prettierrc.json
 .prettierignore

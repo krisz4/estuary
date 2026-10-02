@@ -1,4 +1,4 @@
-import { ACTOR_HEADER, ANONYMOUS_ACTOR, actorSchema } from "@helpdesk/contracts";
+import { ACTOR_HEADER, ANONYMOUS_ACTOR, actorSchema } from "@estuary/contracts";
 import type { NextFunction, Request, Response } from "express";
 
 import { validationError } from "../lib/errors.js";

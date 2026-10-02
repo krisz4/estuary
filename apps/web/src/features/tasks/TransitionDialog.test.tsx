@@ -1,4 +1,4 @@
-import { type TaskStatus, type TransitionInput } from "@helpdesk/contracts";
+import { type TaskStatus, type TransitionInput } from "@estuary/contracts";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";

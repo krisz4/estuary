@@ -92,8 +92,8 @@ describe("historyQuerySchema", () => {
   });
 
   it("accepts repeatable project", () => {
-    expect(historyQuerySchema.parse({ project: ["helpdesk", "billing"] }).project).toEqual([
-      "helpdesk",
+    expect(historyQuerySchema.parse({ project: ["estuary", "billing"] }).project).toEqual([
+      "estuary",
       "billing",
     ]);
   });

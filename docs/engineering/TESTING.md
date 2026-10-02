@@ -29,11 +29,11 @@ pnpm test:coverage
 
 `DATABASE_URL` is set in **`apps/api/vitest.setup.ts`, registered as a `setupFiles` entry** — not in a `beforeAll`. `lib/prisma.ts` instantiates the client at *import* time, and test modules are imported before any hook runs, so a `beforeAll` assignment lands too late and the suite quietly runs against the developer's real database.
 
-Each vitest worker gets its own file at `${os.tmpdir()}/helpdesk-test-${process.env.VITEST_WORKER_ID}.db`, and every one of them is removed at teardown. Per-worker rather than per-file, because vitest runs files in parallel across workers and a shared file would deadlock on SQLite's single writer. `beforeEach` truncates every table — `TaskEvent` included, which nothing cascades into.
+Each vitest worker gets its own file at `${os.tmpdir()}/estuary-test-${process.env.VITEST_WORKER_ID}.db`, and every one of them is removed at teardown. Per-worker rather than per-file, because vitest runs files in parallel across workers and a shared file would deadlock on SQLite's single writer. `beforeEach` truncates every table — `TaskEvent` included, which nothing cascades into.
 
-The schema comes from `prisma migrate deploy`, run **once** in `globalSetup` against a template file (`helpdesk-test-template.db`) that each worker then copies. `globalSetup` has no way to know how many workers vitest will spawn, and the CLI costs ~0.6 s per invocation against a ~1 ms file copy — so the migration runs once and fans out by copying.
+The schema comes from `prisma migrate deploy`, run **once** in `globalSetup` against a template file (`estuary-test-template.db`) that each worker then copies. `globalSetup` has no way to know how many workers vitest will spawn, and the CLI costs ~0.6 s per invocation against a ~1 ms file copy — so the migration runs once and fans out by copying.
 
-Non-negotiable: **tests never touch `apps/api/prisma/data/helpdesk.db`** and never use the seed. A developer losing local data to a test run is unacceptable, and a suite coupled to seed output breaks whenever the seed changes.
+Non-negotiable: **tests never touch `apps/api/prisma/data/estuary.db`** and never use the seed. A developer losing local data to a test run is unacceptable, and a suite coupled to seed output breaks whenever the seed changes.
 
 Fixtures are explicit builders — `makeTask({ status: "blocked", priority: "urgent" })`, `makeTask(claimedBy("agent:a"))`, `makeTaskAwaitingDecision()`, `makeDependency(a, b)` — so each test declares exactly the data its assertion depends on. They derive the rank columns through `applyTaskRanks()`; no test writes a rank number by hand.
 
@@ -138,7 +138,7 @@ This section carries the most weight.
 - List page: renders loading skeleton → rows; renders the correct empty variant for "no tasks" vs "no matches"; error panel retry refetches.
 - Task detail page: inline status change is optimistic and rolls back on failure; claim panel renders Release / Claim only when a live claim or an unclaimed `in_progress` task calls for it; delete confirms first.
 - Edit page: only changed fields are sent (`diffTaskPatch`); a `VERSION_CONFLICT` shows the reload notice without discarding typed values.
-- Inbox page: groups by status in lifecycle order; a decision, action, and QA item each expose their own clearing controls without navigating away.
+- Inbox page: groups by attention kind in `ATTENTION_KINDS` order (decide/act/review/refine/suggested/blocked outside), empty groups omitted; a decision, action, QA, refine, suggested, and outside-blocked item each expose their own clearing controls without navigating away; a routine (no `concerns`) QA item is batchable, one carrying `concerns` is not.
 - `ConfirmDialog`: cancel does not fire the mutation.
 
 There is no client-side transition table to assert against — any status may move to any other — so the `TransitionDialog`/`StatusSelect` tests above are about the payload a target needs, not about which moves are "allowed".
@@ -147,7 +147,7 @@ MSW intercepts at the network layer so the real query hooks and fetch client are
 
 ### E2E (user-level flows)
 
-**Data strategy.** `e2e/prepareDatabase.ts` deletes `e2e/helpdesk-e2e.db`, runs `migrate deploy` against it, and seeds it with `ALLOW_SEED=true` — the suite needs enough rows for filtering and paging to be meaningful, which is the one place seed data is legitimate. It is a **third** database: not the dev file, not the vitest temp files.
+**Data strategy.** `e2e/prepareDatabase.ts` deletes `e2e/estuary-e2e.db`, runs `migrate deploy` against it, and seeds it with `ALLOW_SEED=true` — the suite needs enough rows for filtering and paging to be meaningful, which is the one place seed data is legitimate. It is a **third** database: not the dev file, not the vitest temp files.
 
 **The database is built by the API's `webServer` command, not by `globalSetup`.** Playwright starts the web servers *before* `globalSetup`, and the API opens its SQLite file at boot (`enableWal()` in `server.ts`, which also creates an empty file if none exists). So the command is `tsx e2e/prepareDatabase.ts && tsx src/server.ts`: the file exists before the process does. Replacing it afterwards — which is what `globalSetup` used to do, back when the API touched no database until the first request — leaves the server on an unlinked inode and every request answers `The table main.Task does not exist`. `globalSetup` now only asks the *API* for a task count, so a regression fails at setup with a sentence naming the cause.
 
@@ -168,7 +168,7 @@ Because the suite shares one database across specs, **every test that mutates cr
 | "You": set a name → comments and transitions are recorded as `human:<slug>` (checked via the API), and the name survives a reload | `e2e/session-actor.spec.ts` |
 | Edit form open, agent PATCHes the task → human's save is refused with the version-conflict notice, typed values kept → reload → save carries the agent's change forward | `e2e/edit-conflict.spec.ts` |
 
-**Its own ports, and `reuseExistingServer: false`.** The API runs on `4010` and the web app on `5183`, never `4000`/`5173`. On the development ports, `reuseExistingServer` would hand the suite a developer's `pnpm dev` servers — pointed at `apps/api/prisma/data/helpdesk.db` — and the specs create, transition, and *delete* tasks. That is the same rule as § Database isolation above, applied to the E2E layer: a test run must not be able to touch local data. A busy port is therefore an error rather than a substitution. Everything is spelled `127.0.0.1` and never `localhost`, and Vite is started with `--host 127.0.0.1`: told `localhost`, it binds whichever loopback the resolver prefers, which on some machines is `::1` only — and the run then fails as a bare "Timed out waiting 60000ms from config.webServer".
+**Its own ports, and `reuseExistingServer: false`.** The API runs on `4010` and the web app on `5183`, never `4000`/`5173`. On the development ports, `reuseExistingServer` would hand the suite a developer's `pnpm dev` servers — pointed at `apps/api/prisma/data/estuary.db` — and the specs create, transition, and *delete* tasks. That is the same rule as § Database isolation above, applied to the E2E layer: a test run must not be able to touch local data. A busy port is therefore an error rather than a substitution. Everything is spelled `127.0.0.1` and never `localhost`, and Vite is started with `--host 127.0.0.1`: told `localhost`, it binds whichever loopback the resolver prefers, which on some machines is `::1` only — and the run then fails as a bare "Timed out waiting 60000ms from config.webServer".
 
 **One worker, no retries.** The suite shares one SQLite database. The create spec asserts a just-created task is at the *top* of a list sorted newest-first, and the inbox spec compares the header badge with `GET /tasks/stats` — both global facts a second worker would race. Retries are off, in CI too: an intermittent failure that a retry turns green is exactly the signal the suite exists to produce.
 

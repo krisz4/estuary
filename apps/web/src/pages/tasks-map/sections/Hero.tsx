@@ -178,14 +178,24 @@ export const Hero = ({
        * `scrollIntoView()` jump hadn't landed yet by the time the nav
        * needed to be visible.
        */}
-      <div id="hero-end" aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-40 h-px" />
+      <div
+        id="hero-end"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-40 h-px"
+      />
 
       <Briefing {...briefingProps} />
 
       <div className="flex flex-col gap-3 xl:min-h-0 xl:flex-1 xl:flex-row">
         {mapCard}
         {hasRail ? (
-          <NeedsYouRail project={project} cap={RAIL_CAP_DESKTOP} hoveredTaskId={hoveredTaskId} onHoverTask={onHoverTask} onOpenTask={onOpenTask} />
+          <NeedsYouRail
+            project={project}
+            cap={RAIL_CAP_DESKTOP}
+            hoveredTaskId={hoveredTaskId}
+            onHoverTask={onHoverTask}
+            onOpenTask={onOpenTask}
+          />
         ) : null}
       </div>
 
@@ -240,10 +250,17 @@ const NeedsYouRail = ({
   return (
     <aside
       aria-label="Needs you"
-      className={horizontal ? "flex shrink-0 flex-col gap-2" : "flex min-h-0 w-full flex-col gap-2 xl:w-72 xl:shrink-0"}
+      className={
+        horizontal
+          ? "flex shrink-0 flex-col gap-2"
+          : "flex min-h-0 w-full flex-col gap-2 xl:w-72 xl:shrink-0"
+      }
     >
       <h2 className="flex shrink-0 items-center gap-2 text-sm font-semibold text-foreground">
-        <span aria-hidden="true" className="size-2 rounded-full bg-attention shadow-[0_0_0_3px_var(--attention-subtle)]" />
+        <span
+          aria-hidden="true"
+          className="size-2 rounded-full bg-attention shadow-[0_0_0_3px_var(--attention-subtle)]"
+        />
         Needs you
         {total > 0 ? (
           <span className="rounded-full bg-attention-subtle px-1.5 font-mono text-xs text-attention-subtle-foreground tabular-nums">
@@ -252,7 +269,7 @@ const NeedsYouRail = ({
         ) : null}
       </h2>
       {tasks.length === 0 ? (
-        <EmptyState title="Nothing needs you." description="Agents are on it." />
+        <EmptyState art="still-water" title="Nothing needs you." description="Slack water. Agents are on it." />
       ) : (
         <div
           className={

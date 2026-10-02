@@ -1,8 +1,8 @@
 {
-  "name": "@helpdesk/tsconfig",
-  "version": "0.0.0",
+  "name": "@estuary/tsconfig",
+  "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "files": [
     "base.json",
     "node.json",

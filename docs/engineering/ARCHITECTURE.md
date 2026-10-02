@@ -5,13 +5,13 @@ Monorepo layout, layer boundaries, request lifecycle, and the decisions behind t
 ## Workspace layout
 
 ```
-helpdesk/
+estuary/
 ├── apps/
-│   ├── api/                  @helpdesk/api    — Node 24 + Express 5 + Prisma (SQLite)
+│   ├── api/                  @estuary/api    — Node 24 + Express 5 + Prisma (SQLite)
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma          schema + migrations only — the seed lives under src/
 │   │   │   ├── migrations/
-│   │   │   └── data/helpdesk.db      (gitignored)
+│   │   │   └── data/estuary.db      (gitignored)
 │   │   ├── src/
 │   │   │   ├── routes/       HTTP layer — validate, call service, respond
 │   │   │   ├── services/     Business logic + all Prisma access (task, task-workflow, task-query,
@@ -24,7 +24,7 @@ helpdesk/
 │   │   │   ├── app.ts        Express app factory (no listen — tests import this)
 │   │   │   └── server.ts     Binds the port
 │   │   └── openapi.json      Generated, committed
-│   ├── web/                  @helpdesk/web    — React 19 + Vite + TS
+│   ├── web/                  @estuary/web    — React 19 + Vite + TS
 │   │   └── src/
 │   │       ├── pages/        One folder per route (docs/pages/)
 │   │       ├── features/     Task-domain components
@@ -32,17 +32,17 @@ helpdesk/
 │   │       ├── api/          Typed fetch client + query hooks + queryKeys
 │   │       ├── stores/       zustand — client-only preferences (taskView, projectScope, session)
 │   │       └── lib/          formatting, cn(), url helpers
-│   └── mcp/                  @helpdesk/mcp    — stdio MCP server, thin client over the REST API
+│   └── mcp/                  estuary-mcp     — stdio MCP server, thin client over the REST API (published to npm)
 │       └── src/
 │           ├── tools.ts      Tool surface (task_list, task_next, task_transition, …)
 │           ├── api-client.ts HTTP client (X-Actor, bearer token)
 │           ├── format.ts     Text formatting for tool results
 │           └── config.ts     Env parsing (TASKS_*)
 ├── integrations/
-│   └── claude-code/          Claude Code plugin: marketplace, `task-workflow` skill,
+│   └── claude-code/          Claude Code plugin (listed by the root .claude-plugin/marketplace.json): `task-workflow` skill,
 │                             SessionStart hook — wraps apps/mcp for use in other repos
 ├── packages/
-│   ├── contracts/            @helpdesk/contracts — zod schemas + types
+│   ├── contracts/            @estuary/contracts — zod schemas + types
 │   └── tsconfig/             shared tsconfig bases
 ├── e2e/                      Playwright specs
 ├── .mcp.json                 Registers apps/mcp as a project MCP server for this repo

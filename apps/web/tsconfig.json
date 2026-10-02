@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@helpdesk/tsconfig/react-app.json",
+  "extends": "@estuary/tsconfig/react-app.json",
   "compilerOptions": {
     "rootDir": ".",
     "tsBuildInfoFile": "./node_modules/.cache/tsc/typecheck.tsbuildinfo",

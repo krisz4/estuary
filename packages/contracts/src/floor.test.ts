@@ -15,7 +15,7 @@ const task = {
   status: "in_progress",
   statusNote: null,
   priority: "high",
-  project: "helpdesk",
+  project: "estuary",
   assignee: "agent:claude-code",
   labels: ["api"],
   parentId: null,
@@ -61,10 +61,14 @@ describe("floorQuerySchema", () => {
   });
 
   it("accepts the task filter fields, same as the list query", () => {
-    const parsed = floorQuerySchema.parse({ status: "blocked", priority: "urgent", project: "helpdesk" });
+    const parsed = floorQuerySchema.parse({
+      status: "blocked",
+      priority: "urgent",
+      project: "estuary",
+    });
     expect(parsed.status).toEqual(["blocked"]);
     expect(parsed.priority).toEqual(["urgent"]);
-    expect(parsed.project).toEqual(["helpdesk"]);
+    expect(parsed.project).toEqual(["estuary"]);
   });
 
   it("accepts shipped=7d", () => {
@@ -101,7 +105,9 @@ describe("FLOOR_FILTER_KEYS", () => {
   });
 
   it("is exactly the shared task filter fields, minus project", () => {
-    const expected = Object.keys(taskFilterFields).filter((key) => key !== "project").sort();
+    const expected = Object.keys(taskFilterFields)
+      .filter((key) => key !== "project")
+      .sort();
     expect([...FLOOR_FILTER_KEYS].sort()).toEqual(expected);
   });
 });
@@ -116,7 +122,15 @@ describe("floorSnapshotSchema", () => {
     const snapshot = {
       tasks: [task],
       edges: [{ blockerId: 7, dependentId: 42, satisfied: false }],
-      refs: [{ id: 7, reference: "TASK-000007", title: "Upstream work", status: "todo", project: "helpdesk" }],
+      refs: [
+        {
+          id: 7,
+          reference: "TASK-000007",
+          title: "Upstream work",
+          status: "todo",
+          project: "estuary",
+        },
+      ],
       meta,
     };
     expect(floorSnapshotSchema.safeParse(snapshot).success).toBe(true);
@@ -124,12 +138,17 @@ describe("floorSnapshotSchema", () => {
 
   it("requires every statusCounts key", () => {
     const { done: _done, ...incomplete } = meta.statusCounts;
-    const snapshot = { tasks: [], edges: [], refs: [], meta: { ...meta, statusCounts: incomplete } };
+    const snapshot = {
+      tasks: [],
+      edges: [],
+      refs: [],
+      meta: { ...meta, statusCounts: incomplete },
+    };
     expect(floorSnapshotSchema.safeParse(snapshot).success).toBe(false);
   });
 
   it("rejects an extra field on a task row", () => {
-    const snapshot = { tasks: [{ ...task, belt: "helpdesk" }], edges: [], refs: [], meta };
+    const snapshot = { tasks: [{ ...task, belt: "estuary" }], edges: [], refs: [], meta };
     expect(floorSnapshotSchema.safeParse(snapshot).success).toBe(false);
   });
 });

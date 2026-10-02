@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest something Estuary should do.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some things are deliberately out of scope: user accounts, roles or per-user permissions, real authentication beyond the shared API_TOKEN, websockets or push, file attachments, email notifications, and multi-tenancy. See CONTRIBUTING.md. For anything big, starting a Discussion first is often quicker.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today? Say whether you're a human user, running agents, or self-hosting.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: How it could work, in the UI, the API, or the MCP tools.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd be willing to open a PR for this.

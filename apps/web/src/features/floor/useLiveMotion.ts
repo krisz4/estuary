@@ -28,7 +28,13 @@ export type UseLiveMotionOptions = {
  * the refetch it triggers — see `liveMotion.ts`'s module doc for why the
  * actual canvas animation is a tracked follow-up, not built here.
  */
-export const useLiveMotion = ({ lastEventId, project, enabled, reducedMotion, onPlan }: UseLiveMotionOptions) => {
+export const useLiveMotion = ({
+  lastEventId,
+  project,
+  enabled,
+  reducedMotion,
+  onPlan,
+}: UseLiveMotionOptions) => {
   const queryClient = useQueryClient();
   const cursorRef = useRef(lastEventId);
   const [syncedAt, setSyncedAt] = useState(() => Date.now());

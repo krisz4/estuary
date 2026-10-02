@@ -1,5 +1,6 @@
 import { type LucideIcon } from "lucide-react";
 import { type ReactNode } from "react";
+import { StillWater } from "@/components/StillWater";
 import { cn } from "@/lib/cn";
 
 /**
@@ -13,6 +14,11 @@ import { cn } from "@/lib/cn";
  */
 export type EmptyStateProps = {
   icon?: LucideIcon;
+  /**
+   * The calm-water illustration instead of an icon — for the "all clear"
+   * states (nothing waits on you), where empty is good news, not a problem.
+   */
+  art?: "still-water";
   title: string;
   description: string;
   /** The next action. Optional only because not every empty state has one. */
@@ -22,6 +28,7 @@ export type EmptyStateProps = {
 
 export const EmptyState = ({
   icon: Icon,
+  art,
   title,
   description,
   action,
@@ -34,7 +41,9 @@ export const EmptyState = ({
       className,
     )}
   >
-    {Icon === undefined ? null : (
+    {art === "still-water" ? (
+      <StillWater />
+    ) : Icon === undefined ? null : (
       <Icon className="size-8 text-muted-foreground" aria-hidden="true" />
     )}
     <div className="flex flex-col gap-1">

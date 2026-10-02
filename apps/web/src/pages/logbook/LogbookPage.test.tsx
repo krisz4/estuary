@@ -3,12 +3,19 @@ import {
   type HistoryBucketRow,
   type HistoryResponse,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { LogbookPage } from "@/pages/logbook/LogbookPage";
-import { emptyEvents, makePage, makeSummary, mockApi, renderRoute, type RouteHandler } from "@/test/harness";
+import {
+  emptyEvents,
+  makePage,
+  makeSummary,
+  mockApi,
+  renderRoute,
+  type RouteHandler,
+} from "@/test/harness";
 
 /**
  * `/logbook`. Each section shares `GET /stats/history`'s one loading/error/empty
@@ -17,7 +24,9 @@ import { emptyEvents, makePage, makeSummary, mockApi, renderRoute, type RouteHan
  * requests.
  */
 
-const statusCounts = (overrides: Partial<Record<TaskStatus, number>> = {}): Record<TaskStatus, number> =>
+const statusCounts = (
+  overrides: Partial<Record<TaskStatus, number>> = {},
+): Record<TaskStatus, number> =>
   Object.fromEntries(TASK_STATUSES.map((status) => [status, overrides[status] ?? 0])) as Record<
     TaskStatus,
     number
@@ -76,7 +85,10 @@ describe("LogbookPage", () => {
       "GET /stats/history": () => {
         attempts += 1;
         return attempts === 1
-          ? { status: 500, body: { error: { code: "INTERNAL_ERROR", message: "x", requestId: "r" } } }
+          ? {
+              status: 500,
+              body: { error: { code: "INTERNAL_ERROR", message: "x", requestId: "r" } },
+            }
           : { body: makeHistory() };
       },
     });
@@ -105,7 +117,13 @@ describe("LogbookPage", () => {
       "GET /stats/history": () =>
         ({
           body: makeHistory({
-            buckets: [makeBucket({ created: 3, completed: 2, statusCounts: statusCounts({ done: 2, todo: 1 }) })],
+            buckets: [
+              makeBucket({
+                created: 3,
+                completed: 2,
+                statusCounts: statusCounts({ done: 2, todo: 1 }),
+              }),
+            ],
             agents: [
               {
                 actor: "agent:claude-code",
@@ -131,10 +149,14 @@ describe("LogbookPage", () => {
   it("shows the archive empty state, then a result once the request resolves", async () => {
     renderLogbook({
       "GET /stats/history": () => ({ body: makeHistory() }),
-      "GET /tasks": () => ({ body: makePage([makeSummary({ id: 9, title: "Ship the docs", status: "done" })]) }),
+      "GET /tasks": () => ({
+        body: makePage([makeSummary({ id: 9, title: "Ship the docs", status: "done" })]),
+      }),
     });
 
-    expect((await screen.findAllByRole("link", { name: /Ship the docs/ })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("link", { name: /Ship the docs/ })).length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("greets a first-time visitor in Since you left", async () => {
@@ -156,7 +178,8 @@ describe("LogbookPage", () => {
       expect(
         requests.some(
           (request) =>
-            request.url.pathname.endsWith("/stats/history") && request.url.searchParams.get("bucket") === "day",
+            request.url.pathname.endsWith("/stats/history") &&
+            request.url.searchParams.get("bucket") === "day",
         ),
       ).toBe(true),
     );

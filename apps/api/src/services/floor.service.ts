@@ -13,13 +13,18 @@ import {
   FLOOR_TASK_CAP,
   type TaskRef,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 import type { Prisma } from "@prisma/client";
 
 import { parseLinksColumn } from "../lib/serialize.js";
 import { prisma } from "../lib/prisma.js";
-import { buildWhere, needsEscapedSearch, resolveTextSearch, type TaskWhereQuery } from "./task-query.js";
+import {
+  buildWhere,
+  needsEscapedSearch,
+  resolveTextSearch,
+  type TaskWhereQuery,
+} from "./task-query.js";
 import { PRIORITY_RANK } from "./task-status.js";
 
 /**
@@ -219,7 +224,9 @@ interface DependencyGraph {
 }
 
 async function loadDependencyGraph(): Promise<DependencyGraph> {
-  const edges = await prisma.taskDependency.findMany({ select: { taskId: true, dependsOnId: true } });
+  const edges = await prisma.taskDependency.findMany({
+    select: { taskId: true, dependsOnId: true },
+  });
 
   const dependsOnOf = new Map<number, Set<number>>();
   const dependentsOf = new Map<number, Set<number>>();
@@ -297,7 +304,12 @@ const taskSelect = {
 
 type FloorRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>;
 
-const toTaskRef = (row: { id: number; title: string; status: string; project: string | null }): TaskRef => ({
+const toTaskRef = (row: {
+  id: number;
+  title: string;
+  status: string;
+  project: string | null;
+}): TaskRef => ({
   id: row.id,
   reference: formatReference(row.id),
   title: row.title,
@@ -328,7 +340,9 @@ export async function getFloorSnapshot(query: FloorQuery): Promise<FloorSnapshot
   const replayIds = [...new Set([...rows.map((row) => row.id), ...graph.nodeIds])];
 
   const { status: replayedStatus, statusAt: replayedStatusAt } =
-    at === null ? { status: currentStatus, statusAt: new Map<number, Date>() } : await replayStatuses(replayIds, at, currentStatus);
+    at === null
+      ? { status: currentStatus, statusAt: new Map<number, Date>() }
+      : await replayStatuses(replayIds, at, currentStatus);
 
   // A task created after T never existed at T.
   const visibleRows = rows.filter((row) => at === null || replayedStatus.has(row.id));
@@ -370,7 +384,10 @@ export async function getFloorSnapshot(query: FloorQuery): Promise<FloorSnapshot
       continue;
     }
 
-    const closedAt = at === null ? (row.completedAt ?? row.updatedAt) : (replayedStatusAt.get(row.id) ?? row.updatedAt);
+    const closedAt =
+      at === null
+        ? (row.completedAt ?? row.updatedAt)
+        : (replayedStatusAt.get(row.id) ?? row.updatedAt);
     if (closedAt >= shippedSince) recentClosedRows.push(row);
     else olderClosedCount += 1;
   }
@@ -409,7 +426,10 @@ export async function getFloorSnapshot(query: FloorQuery): Promise<FloorSnapshot
       links.find((link) => parseGithubUrl(link.url)?.kind === "pull")?.url ?? null;
 
     const claim =
-      at !== null || row.claimedBy === null || row.claimExpiresAt === null || row.claimExpiresAt <= now
+      at !== null ||
+      row.claimedBy === null ||
+      row.claimExpiresAt === null ||
+      row.claimExpiresAt <= now
         ? null
         : { actor: row.claimedBy, expiresAt: row.claimExpiresAt.toISOString() };
 
@@ -469,7 +489,10 @@ export async function getFloorSnapshot(query: FloorQuery): Promise<FloorSnapshot
         });
   const refs: TaskRef[] = refRows.map(toTaskRef);
 
-  const lastEvent = await prisma.taskEvent.findFirst({ orderBy: { id: "desc" }, select: { id: true } });
+  const lastEvent = await prisma.taskEvent.findFirst({
+    orderBy: { id: "desc" },
+    select: { id: true },
+  });
 
   return {
     tasks,

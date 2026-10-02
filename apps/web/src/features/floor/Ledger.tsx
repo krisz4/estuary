@@ -1,4 +1,4 @@
-import { HUMAN_ATTENTION_STATUSES, type FloorTask, type TaskStatus } from "@helpdesk/contracts";
+import { HUMAN_ATTENTION_STATUSES, type FloorTask, type TaskStatus } from "@estuary/contracts";
 import { ChevronDown } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/cn";
@@ -33,8 +33,7 @@ const GROUPS: Group[] = [
  * assignee/claim · deps · age. Exported so `AllTasksSection`'s sticky column
  * header uses the exact same column widths as the rows underneath it.
  */
-export const LEDGER_DENSE_GRID_COLS =
-  "lg:grid-cols-[4rem_minmax(0,1fr)_7rem_5rem_8rem_9rem_4rem]";
+export const LEDGER_DENSE_GRID_COLS = "lg:grid-cols-[4rem_minmax(0,1fr)_7rem_5rem_8rem_9rem_4rem]";
 
 export type LedgerProps = {
   tasks: readonly FloorTask[];
@@ -78,7 +77,9 @@ export const Ledger = ({
     if (rows.length === 0) return;
     const activeIndex = rows.indexOf(document.activeElement as HTMLButtonElement);
     const nextIndex =
-      activeIndex === -1 ? 0 : Math.min(rows.length - 1, Math.max(0, activeIndex + (event.key === "j" ? 1 : -1)));
+      activeIndex === -1
+        ? 0
+        : Math.min(rows.length - 1, Math.max(0, activeIndex + (event.key === "j" ? 1 : -1)));
     event.preventDefault();
     rows[nextIndex]?.focus();
   };
@@ -96,7 +97,10 @@ export const Ledger = ({
       {dense ? null : (
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">
-            Ledger <span className="font-mono text-xs text-muted-foreground">({visible.length}/{total})</span>
+            Ledger{" "}
+            <span className="font-mono text-xs text-muted-foreground">
+              ({visible.length}/{total})
+            </span>
           </h2>
         </div>
       )}
@@ -104,7 +108,11 @@ export const Ledger = ({
       <div
         ref={listRef}
         onKeyDown={handleListKeyDown}
-        className={dense ? "flex flex-col" : "flex min-h-0 flex-1 flex-col divide-y divide-border overflow-y-auto"}
+        className={
+          dense
+            ? "flex flex-col"
+            : "flex min-h-0 flex-1 flex-col divide-y divide-border overflow-y-auto"
+        }
       >
         {GROUPS.map((group) => {
           const groupTasks = visible
@@ -117,7 +125,10 @@ export const Ledger = ({
           const shown = isExpanded ? groupTasks : groupTasks.slice(0, GROUP_CAP);
 
           return (
-            <div key={group.key} className={cn("py-2", dense && "border-b border-border last:border-b-0")}>
+            <div
+              key={group.key}
+              className={cn("py-2", dense && "border-b border-border last:border-b-0")}
+            >
               <button
                 type="button"
                 onClick={() =>
@@ -138,7 +149,9 @@ export const Ledger = ({
                   />
                   {group.label}
                 </span>
-                <span className="font-mono text-[11px] font-normal normal-case">{groupTasks.length}</span>
+                <span className="font-mono text-[11px] font-normal normal-case">
+                  {groupTasks.length}
+                </span>
               </button>
               {isCollapsed ? null : (
                 <>
@@ -223,11 +236,17 @@ const LedgerRow = ({
             hovered && !selected && "bg-map-panel-2",
           )}
         >
-          <span className="mt-1 size-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+          <span
+            className="mt-1 size-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: color }}
+            aria-hidden="true"
+          />
           <span className="flex min-w-0 flex-col gap-0.5">
             <span className="flex items-baseline gap-1.5">
               <span className="font-mono text-[11px] text-muted-foreground">{task.reference}</span>
-              {!task.matches ? <span className="text-[10px] text-muted-foreground italic">dimmed</span> : null}
+              {!task.matches ? (
+                <span className="text-[10px] text-muted-foreground italic">dimmed</span>
+              ) : null}
             </span>
             <span className="line-clamp-2 leading-snug font-medium">{task.title}</span>
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -268,16 +287,27 @@ const LedgerRow = ({
         )}
       >
         <span className="col-start-1 row-start-1 flex items-center gap-1.5">
-          <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-          <span className="hidden font-mono text-xs text-muted-foreground lg:inline" title={task.reference}>
+          <span
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: color }}
+            aria-hidden="true"
+          />
+          <span
+            className="hidden font-mono text-xs text-muted-foreground lg:inline"
+            title={task.reference}
+          >
             #{task.id}
           </span>
         </span>
 
         <span className="col-start-2 row-start-1 flex min-w-0 flex-col gap-0.5 lg:col-auto lg:row-auto lg:flex-row lg:items-center lg:gap-2">
-          <span className="line-clamp-2 leading-snug font-medium lg:line-clamp-1 lg:truncate">{task.title}</span>
+          <span className="line-clamp-2 leading-snug font-medium lg:line-clamp-1 lg:truncate">
+            {task.title}
+          </span>
           <LabelChips labels={task.labels} className="lg:shrink-0" />
-          <span className="font-mono text-[11px] text-muted-foreground lg:hidden">{task.reference}</span>
+          <span className="font-mono text-[11px] text-muted-foreground lg:hidden">
+            {task.reference}
+          </span>
         </span>
 
         <span className="hidden lg:block">

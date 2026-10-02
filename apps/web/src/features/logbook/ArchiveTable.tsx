@@ -1,4 +1,4 @@
-import { formatReference, type PaginatedTasks, type TaskSummary } from "@helpdesk/contracts";
+import { formatReference, type PaginatedTasks, type TaskSummary } from "@estuary/contracts";
 import { type UseQueryResult } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
@@ -48,7 +48,11 @@ export const ArchiveTable = ({
       {query.isPending ? (
         <ArchiveSkeleton />
       ) : query.error !== null && query.data === undefined ? (
-        <ErrorPanel error={query.error} onRetry={() => void query.refetch()} isRetrying={query.isFetching} />
+        <ErrorPanel
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          isRetrying={query.isFetching}
+        />
       ) : tasks.length === 0 ? (
         <EmptyState
           title={q.trim() === "" ? "Nothing shipped yet" : "No matches"}
@@ -64,7 +68,9 @@ export const ArchiveTable = ({
           className={cn(query.isPlaceholderData && "opacity-60")}
         >
           <table className="hidden w-full text-sm md:table">
-            <caption className="sr-only">Archived tasks — done and deferred, most recently completed first</caption>
+            <caption className="sr-only">
+              Archived tasks — done and deferred, most recently completed first
+            </caption>
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
                 <th scope="col" className="py-2 pr-2 font-medium">
@@ -93,8 +99,14 @@ export const ArchiveTable = ({
 
           <ul className="flex flex-col gap-2 md:hidden">
             {tasks.map((task) => (
-              <li key={task.id} className="flex flex-col gap-1 rounded-lg border border-border bg-card p-3 shadow-raised">
-                <Link to={`/tasks/${task.id}`} className="font-medium text-foreground hover:underline">
+              <li
+                key={task.id}
+                className="flex flex-col gap-1 rounded-lg border border-border bg-card p-3 shadow-raised"
+              >
+                <Link
+                  to={`/tasks/${task.id}`}
+                  className="font-medium text-foreground hover:underline"
+                >
                   {task.reference} {task.title}
                 </Link>
                 <div className="flex flex-wrap items-center gap-2">
@@ -109,7 +121,11 @@ export const ArchiveTable = ({
           </ul>
 
           {query.data !== undefined ? (
-            <Pagination meta={query.data.meta} onPageChange={onPageChange} onPageSizeChange={onPageSizeChange} />
+            <Pagination
+              meta={query.data.meta}
+              onPageChange={onPageChange}
+              onPageSizeChange={onPageSizeChange}
+            />
           ) : null}
         </div>
       )}
@@ -139,7 +155,10 @@ const ArchiveRow = ({ task }: { task: TaskSummary }) => (
       {task.completedAt === null ? (
         "—"
       ) : (
-        <time dateTime={toDateTimeAttribute(task.completedAt)} title={formatAbsolute(task.completedAt)}>
+        <time
+          dateTime={toDateTimeAttribute(task.completedAt)}
+          title={formatAbsolute(task.completedAt)}
+        >
           {formatDate(task.completedAt)}
         </time>
       )}

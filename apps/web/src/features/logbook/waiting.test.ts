@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatWaitDuration, isStillWaiting, waitingMax, waitingSeries } from "@/features/logbook/waiting";
+import {
+  formatWaitDuration,
+  isStillWaiting,
+  waitingMax,
+  waitingSeries,
+} from "@/features/logbook/waiting";
 
 const bucket = (medianMinutes: number | null, p90Minutes: number | null) => ({
   start: "2026-09-01T00:00:00.000Z",

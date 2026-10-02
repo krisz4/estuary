@@ -1,4 +1,4 @@
-import { type HistoryResponse } from "@helpdesk/contracts";
+import { type HistoryResponse } from "@estuary/contracts";
 import { buildKpiTiles, type KpiKey } from "@/features/logbook/kpis";
 import { Sparkline } from "@/features/logbook/Sparkline";
 import { Skeleton } from "@/components/ui";
@@ -24,7 +24,11 @@ export type KpiRowProps = {
 export const KpiRow = ({ data, isPending }: KpiRowProps) => {
   if (isPending) {
     return (
-      <div className="grid grid-cols-2 gap-3 min-[560px]:grid-cols-4" aria-busy="true" aria-label="Loading">
+      <div
+        className="grid grid-cols-2 gap-3 min-[560px]:grid-cols-4"
+        aria-busy="true"
+        aria-label="Loading"
+      >
         {Array.from({ length: 4 }, (_, i) => (
           <Skeleton key={i} className="h-20 w-full rounded-lg" />
         ))}
@@ -46,8 +50,12 @@ export const KpiRow = ({ data, isPending }: KpiRowProps) => {
           )}
           style={{ borderLeftColor: TILE_COLOR[tile.key] }}
         >
-          <dt className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{tile.label}</dt>
-          <dd className="font-mono text-xl leading-none font-bold tabular-nums text-foreground">{tile.value}</dd>
+          <dt className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            {tile.label}
+          </dt>
+          <dd className="font-mono text-xl leading-none font-bold tabular-nums text-foreground">
+            {tile.value}
+          </dd>
           <Sparkline points={tile.sparkline} color={TILE_COLOR[tile.key]} />
         </div>
       ))}

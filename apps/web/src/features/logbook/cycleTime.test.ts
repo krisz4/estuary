@@ -1,4 +1,4 @@
-import { type CycleTime } from "@helpdesk/contracts";
+import { type CycleTime } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 import { cycleTimeScaleMax, groupCycleTimesByAgent } from "@/features/logbook/cycleTime";
 
@@ -42,7 +42,10 @@ describe("groupCycleTimesByAgent", () => {
 
 describe("cycleTimeScaleMax", () => {
   it("is the largest max across lanes, zero when there are none", () => {
-    const lanes = groupCycleTimesByAgent([pass({ minutes: 15 }), pass({ actor: "agent:b", minutes: 45 })]);
+    const lanes = groupCycleTimesByAgent([
+      pass({ minutes: 15 }),
+      pass({ actor: "agent:b", minutes: 45 }),
+    ]);
     expect(cycleTimeScaleMax(lanes)).toBe(45);
     expect(cycleTimeScaleMax([])).toBe(0);
   });

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@helpdesk/tsconfig/node.json",
+  "extends": "@estuary/tsconfig/node.json",
   "compilerOptions": {
     "rootDir": ".",
     "noEmit": true,

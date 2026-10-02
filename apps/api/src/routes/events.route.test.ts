@@ -1,4 +1,4 @@
-import { eventsResponseSchema } from "@helpdesk/contracts";
+import { eventsResponseSchema } from "@estuary/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -24,7 +24,10 @@ describe("GET /api/v1/events", () => {
     const res = await request(app).get(FEED);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ data: [], meta: { nextAfter: 0, nextBefore: null, hasMore: false } });
+    expect(res.body).toEqual({
+      data: [],
+      meta: { nextAfter: 0, nextBefore: null, hasMore: false },
+    });
   });
 
   it("records real writes, oldest first, attributed to their X-Actor", async () => {
@@ -48,7 +51,8 @@ describe("GET /api/v1/events", () => {
       "human:krisz",
       "human:anonymous",
     ]);
-    expect(res.body.data[1].payload).toEqual({ fields: ["priority"] });
+    // A person editing an agent's task has seen it, so it leaves the triage pile.
+    expect(res.body.data[1].payload).toEqual({ fields: ["priority", "needsTriage"] });
     expect(res.body.data.map((event: { taskTitle: string | null }) => event.taskTitle)).toEqual([
       "Add retries to the sender",
       "Add retries to the sender",
@@ -106,7 +110,10 @@ describe("GET /api/v1/events", () => {
 
     const res = await request(app).get(FEED).query({ after: "1" });
 
-    expect(res.body).toEqual({ data: [], meta: { nextAfter: 1, nextBefore: null, hasMore: false } });
+    expect(res.body).toEqual({
+      data: [],
+      meta: { nextAfter: 1, nextBefore: null, hasMore: false },
+    });
   });
 
   it("treats empty values as absent", async () => {
@@ -152,7 +159,10 @@ describe("GET /api/v1/events", () => {
     for (let i = 0; i < 3; i += 1) {
       await request(app)
         .post(TASKS)
-        .send({ title: `Task number ${i}`, description: "Long enough description for the schema." });
+        .send({
+          title: `Task number ${i}`,
+          description: "Long enough description for the schema.",
+        });
     }
 
     const first = await request(app).get(FEED).query({ order: "desc", limit: "2" });

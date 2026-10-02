@@ -1,13 +1,15 @@
 import {
   actorKindOf,
+  TERMINAL_TASK_STATUSES,
   type AnswerDecisionInput,
+  type FollowUpInput,
   type NextTaskInput,
   type ReleaseTaskInput,
   type Task,
   type TaskLink,
   type TaskStatus,
   type TransitionInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { env } from "../lib/env.js";
@@ -32,6 +34,7 @@ import {
   writeTask,
 } from "./task-guards.js";
 import { loadTask } from "./task-read.js";
+import { insertTask } from "./task.service.js";
 import {
   applyStatusSideEffects,
   applyTaskRanks,
@@ -57,6 +60,8 @@ const workflowSelect = {
   acceptanceCriteria: true,
   links: true,
   startedAt: true,
+  project: true,
+  labels: { select: { label: true }, orderBy: { label: "asc" } },
   decisions: { where: { status: "open" }, select: { id: true } },
 } satisfies Prisma.TaskSelect;
 
@@ -77,6 +82,67 @@ async function withdrawOpenDecisions(db: Db, task: WorkflowTask, actor: string):
       actor,
       payload: { decisionId: decision.id },
     });
+  }
+}
+
+/**
+ * Whether a write takes the task out of the "suggested" pile. A person's write
+ * means a person has seen it; a claim or a close means it is being — or has
+ * been — dealt with, by whoever. An agent merely moving its own suggestion
+ * around (refining it into `todo`) leaves it in front of people.
+ */
+const clearsTriage = (actor: string, to: TaskStatus): boolean =>
+  actorKindOf(actor) !== "agent" || to === "in_progress" || to === "done" || to === "deferred";
+
+/**
+ * Files the follow-ups an agent attached to its hand-off as subtasks of `task`
+ * — see `followUpInputSchema`. A title that is already an open subtask is
+ * skipped, so a retried hand-off does not file it twice.
+ */
+async function fileFollowUps(
+  db: Db,
+  task: WorkflowTask,
+  followUps: FollowUpInput[] | undefined,
+  actor: string,
+): Promise<void> {
+  if (followUps === undefined || followUps.length === 0) return;
+
+  const open = await db.task.findMany({
+    where: { parentId: task.id, status: { notIn: [...TERMINAL_TASK_STATUSES] } },
+    select: { title: true },
+  });
+  const taken = new Set(open.map((row) => row.title.toLowerCase()));
+
+  for (const followUp of followUps) {
+    const key = followUp.title.toLowerCase();
+    if (taken.has(key)) continue;
+    taken.add(key);
+
+    const ready = Boolean(followUp.acceptanceCriteria);
+    await insertTask(
+      db,
+      {
+        title: followUp.title,
+        description: followUp.description,
+        status: ready ? "todo" : "needs_refinement",
+        priority: followUp.priority ?? "medium",
+        project: task.project,
+        acceptanceCriteria: followUp.acceptanceCriteria ?? null,
+        labels: task.labels.map((row) => row.label),
+        parentId: task.id,
+      },
+      actor,
+      {
+        followUpOf: task.id,
+        ...(ready
+          ? {}
+          : {
+              statusNote:
+                followUp.missing ??
+                "Filed as a follow-up without acceptance criteria — say what done looks like.",
+            }),
+      },
+    );
   }
 }
 
@@ -126,7 +192,10 @@ export async function transitionTask(
     const data: Prisma.TaskUncheckedUpdateManyInput = {
       ...applyTaskRanks({ status: to }),
       statusNote: statusNoteFor(input),
+      // Only a needs_qa hand-off carries concerns; any other move drops them.
+      concerns: input.to === "needs_qa" ? (input.concerns ?? null) : null,
       ...applyStatusSideEffects(from, to, task, now),
+      ...(clearsTriage(actor, to) ? { needsTriage: false } : {}),
     };
 
     if (input.to === "todo") {
@@ -214,6 +283,7 @@ export async function transitionTask(
     }
 
     if (to === "done") await unblockDependentsOf(tx, id);
+    if (input.to === "needs_qa") await fileFollowUps(tx, task, input.followUps, actor);
 
     return loadTask(tx, id);
   });
@@ -297,7 +367,9 @@ export async function releaseTask(
       statusNote: note,
       claimedBy: null,
       claimExpiresAt: null,
+      ...(clearsTriage(actor, to) ? { needsTriage: false } : {}),
     });
+    await fileFollowUps(tx, task, input.followUps, actor);
     await recordEvent(tx, {
       taskId: id,
       type: "task.released",
@@ -441,6 +513,7 @@ async function claimCandidate(
         statusNote: note,
         claimedBy: actor,
         claimExpiresAt: expiresAt,
+        needsTriage: false,
         version: candidate.version + 1,
       },
     });
@@ -504,7 +577,12 @@ export async function answerDecision(
     const to: TaskStatus = "todo";
     const note = `Decision: ${[input.choice, input.note].filter(Boolean).join(" — ")}`;
 
-    await writeTask(tx, task, { ...applyTaskRanks({ status: to }), statusNote: note });
+    // The answer is a person's, even when an agent records it from chat.
+    await writeTask(tx, task, {
+      ...applyTaskRanks({ status: to }),
+      statusNote: note,
+      needsTriage: false,
+    });
     await recordEvent(tx, {
       taskId: id,
       type: "decision.answered",

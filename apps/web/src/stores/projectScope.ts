@@ -28,7 +28,7 @@ import { safeStorage } from "@/stores/safeStorage";
  * URL and never drives it.
  */
 
-export const PROJECT_SCOPE_STORAGE_KEY = "helpdesk.projectScope";
+export const PROJECT_SCOPE_STORAGE_KEY = "estuary.projectScope";
 
 /** The pathnames whose `project` param *is* the scope. */
 export const PROJECT_SCOPED_PATHS = ["/tasks", "/tasks/map", "/inbox", "/logbook"] as const;

@@ -29,7 +29,9 @@ describe("colorWithAlpha", () => {
   });
 
   it("rounds to two decimal places of percent", () => {
-    expect(colorWithAlpha("#000000", 1 / 3)).toBe("color-mix(in srgb, #000000 33.33%, transparent)");
+    expect(colorWithAlpha("#000000", 1 / 3)).toBe(
+      "color-mix(in srgb, #000000 33.33%, transparent)",
+    );
   });
 
   it("caches by colour and alpha, returning the same string instance", () => {

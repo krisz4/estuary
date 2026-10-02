@@ -1,10 +1,83 @@
-# Helpdesk → AI task manager
+<div align="center">
 
-A task manager built for coding agents and the humans working alongside them. Tasks move through a ten-status lifecycle (`backlog` → … → `done`/`deferred`), carry a claim/lease so two agents never grab the same work, and support dependencies, decisions ("ask a human, then keep going"), and an append-only event feed. Agents drive it through an MCP server (`apps/mcp`) that wraps the same REST API the web app calls — see [docs/features/Agent_Integration.md](docs/features/Agent_Integration.md). There is still no authentication in the accounts sense: actors self-declare who they are (`X-Actor: agent:claude-code` / `human:dana`), and an optional shared `API_TOKEN` gates a self-hosted instance — see [docs/features/Actors.md](docs/features/Actors.md).
+<img src="apps/web/public/favicon.svg" width="72" height="72" alt="">
+
+# Estuary
+
+**A task manager for AI coding agents and the humans working alongside them.**
+
+Agents claim work, ask questions, and hand finished work back for review. You answer from one inbox.
+
+[![CI](https://github.com/krisz4/estuary/actions/workflows/ci.yml/badge.svg)](https://github.com/krisz4/estuary/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/estuary-mcp?label=estuary-mcp)](https://www.npmjs.com/package/estuary-mcp)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
+
+</div>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/map-dark.png">
+  <img alt="The Estuary map: every task drawn as a bead on a river that flows from backlog to done, with the queue of things waiting on you beside it" src="docs/assets/map-light.png">
+</picture>
+
+## Why
+
+Coding agents can now work for hours, and several can run at once. What they're missing is a shared place to keep track of work:
+
+- **Two agents never take the same task.** Claiming a task takes a lease that the agent keeps alive with heartbeats; if the agent dies, the lease runs out and another agent can pick the task up.
+- **Agents ask instead of guessing.** An agent stuck on a product call opens a *decision* with options and its recommendation, parks the task, and carries on once you've answered. If it needs a human to *do* something (grant access, test on a device), it asks for that the same way.
+- **Humans stay the gate.** By default agents stop at `needs_qa`: they can't mark their own work done.
+- **Everything is on the record.** Every change is an event with an actor, so you can see what each agent did and how long work waited on you.
+
+Estuary is self-hosted, runs on one SQLite file, and has no accounts. Agents connect over [MCP](https://modelcontextprotocol.io); humans use the web UI.
+
+## Quick start
+
+### Try it (Docker, seeded with demo data)
+
+```bash
+git clone https://github.com/krisz4/estuary.git && cd estuary
+docker compose up --build
+```
+
+Open http://localhost:5173. The database is seeded with 62 demo tasks across three projects, so every screen has something to show. To run the published images without cloning (starts empty, meant for real use), see [docs/operations/DOCKER.md](docs/operations/DOCKER.md).
+
+### Connect your agent
+
+With an Estuary API running (the Docker setup above serves it at `http://localhost:4000/api/v1`):
+
+```bash
+# Claude Code: the plugin (MCP tools + the task-workflow skill + a SessionStart hook)
+claude plugin marketplace add krisz4/estuary
+claude plugin install estuary@estuary --config api_url=http://localhost:4000/api/v1
+
+# Any other MCP client: the server alone, from npm
+npx -y estuary-mcp          # reads TASKS_API_URL, TASKS_ACTOR, TASKS_API_TOKEN
+```
+
+Unless you set an actor, each agent acts as `agent:claude-code@<project>`, or `agent:claude-code@<project>/<worktree>` in a linked worktree. That way a resumed session keeps its claims, and parallel worktrees don't take over each other's tasks. Working inside this repo instead? `pnpm --filter estuary-mcp build` and approve the `tasks` server from the repo's `.mcp.json`.
+
+Your agent then has tools like `task_next`, `task_claim`, `task_request_decision`, and `task_submit_for_qa`, and the plugin's `task-workflow` skill teaches it when to use each one. Other MCP clients, self-hosted servers, and every option: [docs/features/Agent_Integration.md](docs/features/Agent_Integration.md).
+
+### Develop
+
+**Requires Node ^22.18 or ≥ 24.11** (24 LTS recommended), which is what the root `engines` field says. Two independent floors produce that range: pnpm 11, pinned via `packageManager`, imports `node:sqlite`, which does not exist before Node 22.5 — on Node 20 the install fails with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`. And `@babel/core` 8, which the web build pulls in for the React Compiler, requires `^22.18.0 || >=24.11.0`. Enable the pinned pnpm with `corepack enable`.
+
+```bash
+corepack enable
+pnpm install
+
+cp apps/api/env.example apps/api/.env
+cp apps/web/env.example apps/web/.env
+
+pnpm --filter @estuary/api db:migrate   # creates the SQLite database and seeds it
+pnpm dev                                 # API on :4000, web on :5173
+```
+
+On a fresh database `db:migrate` runs the seed itself (you should see `Seed complete … "tasks":62`). `pnpm --filter @estuary/api db:seed` wipes the tasks and re-seeds. Every `db:*` script is listed in [docs/engineering/DATABASE.md](docs/engineering/DATABASE.md#migrations). Before opening a PR, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What's in the app
 
-The web UI goes by **Estuary**: work flows downstream from backlog to done, and anything that waits on a human is shown in amber.
+Tasks move through ten statuses, from `backlog` to `done` or `deferred`. Anything that waits on a human is shown in amber.
 
 | Screen | Route | What it's for |
 | ------ | ----- | ------------- |
@@ -16,63 +89,10 @@ The web UI goes by **Estuary**: work flows downstream from backlog to done, and 
 
 The header's project switcher scopes every screen to a single project (or to all of them). Labels narrow work within a project, for example a monorepo workspace like `web` or `api`. Per-screen docs are in [docs/pages/](docs/pages/README.md).
 
-## History
-
-This started as a helpdesk-ticketing code challenge (see [instructions.md](instructions.md), kept unedited) and was rebuilt into an AI task manager afterward. Some historical docs (`docs/engineering/IMPLEMENTATION_PLAN.md`, `docs/engineering/BUILD_LOG.md`) still describe that original build; they say so at the top and link forward to the current docs.
-
-## Stack
-
-| Part | Tech |
-| ---- | ---- |
-| API | Node 24 (see below for the floor), Express 5, TypeScript, Prisma, SQLite |
-| Web | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind |
-| MCP server | `apps/mcp` — stdio server for Claude Code and other MCP clients, thin HTTP client over the API |
-| Shared | zod contracts (`packages/contracts`) consumed by all three |
-| Tooling | pnpm workspaces, Turborepo, vitest, Playwright, Docker |
-
-## Run with Docker (one command)
-
-```bash
-docker compose up --build
-```
-
-- Web → http://localhost:5173
-- API → http://localhost:4000
-- API docs (Swagger UI) → http://localhost:4000/docs — also proxied at http://localhost:5173/docs
-
-The database is migrated and seeded with 62 demo tasks across three projects automatically on a clean volume (`SEED_ON_START: "true"` in `docker-compose.yml`). Set it to `"false"` to start with an empty instance. The web container serves the app *and* proxies `/api/` to the API on the same origin, so nothing the browser does is cross-origin.
-
-```bash
-docker compose down       # stop, keep the database (it lives on a named volume)
-docker compose down -v    # stop and wipe the database
-```
-
-Details, caveats, and how to self-host this for agents on other machines (set `API_TOKEN`, put it behind HTTPS): [docs/operations/DOCKER.md](docs/operations/DOCKER.md).
-
-## Run locally
-
-**Requires Node ^22.18 or ≥ 24.11** (24 LTS recommended), which is what the root `engines` field says. Two independent floors produce that range: pnpm 11, pinned via `packageManager`, imports `node:sqlite`, which does not exist before Node 22.5 — on Node 20 the install fails with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`. And `@babel/core` 8, which the web build pulls in for the React Compiler, requires `^22.18.0 || >=24.11.0`. Enable the pinned pnpm with `corepack enable`.
-
-```bash
-pnpm install
-
-cp apps/api/env.example apps/api/.env
-cp apps/web/env.example apps/web/.env
-
-pnpm --filter @helpdesk/api db:migrate   # creates the SQLite database and seeds it
-
-pnpm dev                                 # API on :4000, web on :5173
-```
-
-Open http://localhost:5173.
-
-On a fresh database `db:migrate` runs the seed itself, through Prisma's `seed` hook — you should see `Seed complete … "tasks":62`. To re-seed later (it wipes tasks, comments, decisions, dependencies, and events first, then recreates the same 62 deterministically):
-
-```bash
-pnpm --filter @helpdesk/api db:seed
-```
-
-Run one side at a time with `pnpm dev:api` or `pnpm dev:web`. Every `db:*` script is invoked as `pnpm --filter @helpdesk/api db:<script>` from the repo root; the full list is in [docs/engineering/DATABASE.md](docs/engineering/DATABASE.md#migrations).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/inbox-dark.png">
+  <img alt="The inbox: an agent's decision with three options, its recommended one highlighted, and a box to answer in your own words" src="docs/assets/inbox-light.png">
+</picture>
 
 ## Tests
 
@@ -129,16 +149,6 @@ Every write is attributed to an `X-Actor` (`agent:<name>` / `human:<name>`, defa
 
 This is off by default. Set `GITHUB_TOKEN` on the API to show the live state of PR and issue links and to import issues as tasks. Set `GITHUB_WEBHOOK_SECRET` so that PRs mentioning `TASK-42` in their title, body, or branch get linked and commented on the task automatically. The webhook never changes a task's status. The same variables work with Docker Compose. Details are in [docs/features/GitHub_Integration.md](docs/features/GitHub_Integration.md).
 
-## Connecting Claude Code (or another MCP client)
-
-```bash
-pnpm --filter @helpdesk/mcp build
-pnpm dev:api
-claude   # approve the "tasks" server from the repo's .mcp.json when prompted
-```
-
-That gives Claude Code tools like `task_next`, `task_transition`, `task_submit_for_qa`, and `task_import_github_issue` against this repo's API. Unless you set `TASKS_ACTOR`, the agent acts as `agent:claude-code@<project>`, or `agent:claude-code@<project>/<worktree>` in a linked worktree. That way a resumed session keeps its claims, and parallel worktrees don't take over each other's tasks. For other repositories, a self-hosted server, or the Claude Code plugin (skill + SessionStart hook): [docs/features/Agent_Integration.md](docs/features/Agent_Integration.md).
-
 ## Layout
 
 ```
@@ -156,43 +166,27 @@ docs/                  see below
 
 ## Documentation
 
-- **[docs/](docs/README.md)** — index
-- **[docs/AGENTS.md](docs/AGENTS.md)** — entry point for AI agents; routing table and conventions
-- **[docs/pages/](docs/pages/README.md)** — one doc per screen
-- **[docs/features/](docs/features/README.md)** — one doc per domain behavior
-- **[CLAUDE.md](CLAUDE.md)** — working rules for Claude Code in this repo
+- **[docs/](docs/README.md):** the index
+- **[docs/AGENTS.md](docs/AGENTS.md):** the entry point for AI agents, with a routing table and the conventions
+- **[docs/pages/](docs/pages/README.md):** one doc per screen
+- **[docs/features/](docs/features/README.md):** one doc per domain behavior
+- **[docs/operations/](docs/README.md#operations):** Docker, CI, releasing
+- **[CLAUDE.md](CLAUDE.md):** working rules for Claude Code in this repo
 
-## Scope
+## Scope and security
 
-No accounts, roles, or logins. Who did what is a self-declared `X-Actor` header (`agent:claude-code`, `human:dana`), and a self-hosted instance can require a shared `Authorization: Bearer <API_TOKEN>` on top of that — see [docs/features/Actors.md](docs/features/Actors.md). Attachments, notifications, and real-time updates are out of scope — see [docs/features/Attachments.md](docs/features/Attachments.md) for the reasoning on the most conspicuous omission.
+There are no accounts, roles, or logins. Who did what is a self-declared `X-Actor` header (`agent:claude-code`, `human:dana`), and a self-hosted instance can require a shared `Authorization: Bearer <API_TOKEN>` on top of that ([docs/features/Actors.md](docs/features/Actors.md)). That's the right model for one team that trusts each other, and the wrong one for anything else. **Read [SECURITY.md](SECURITY.md) before exposing an instance to a network**, and report vulnerabilities privately as it describes.
 
-## Implementation and key decisions
+Attachments, notifications, and real-time push are deliberately out of scope. [docs/features/Attachments.md](docs/features/Attachments.md) explains the reasoning for the most conspicuous one.
 
-**1. Plan architecture**
+## Contributing
 
-- I choose to create a separate nodejs app and react app instead of a nextjs solution. It was closer to the task description. To make development and sharing easier I choose to put these two apps into one monorepo. Similarly to make it easier to share and run the project I went with SQLite for db.
-- All the request and response shapes live in `packages/contracts` as zod schemas, and both apps get their types from there. The OpenAPI spec is generated from the same schemas. This is what kept the API and the web app in sync, they were built in different stages by different agent sessions and never drifted apart.
-- Using AI I created the plan for architecture and set up AGENTS.md and CLAUDE.md files. I used a similar set of instructions and structure as I do with my own projects. That also means a routing table for agents in `docs/AGENTS.md`, one doc per screen and per feature, and scoped subagents in `.claude/agents/`. The implementation might be slightly more serious than what this test expects but it's closer to how I work on a real project.
+Issues, discussions, and PRs are welcome, including AI-assisted ones. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the rules every change follows, and what's out of scope. This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
-**2. I created and refined an implementation plan with AI**
+## History
 
-It ended up as 16 stages in [docs/engineering/IMPLEMENTATION_PLAN.md](docs/engineering/IMPLEMENTATION_PLAN.md), each one with a pass/fail gate written before the stage ran.
+Estuary started as a helpdesk-ticketing code challenge and was rebuilt into an AI task manager afterward. The original brief, the 16-stage build plan, its log, and the author's write-up of building it with agents are kept in [docs/history/](docs/README.md#history).
 
-**3. Building the application**
+## License
 
-- I gave the following prompt to AI: Build the docs/engineering/IMPLEMENTATION_PLAN.md in the following way: You are an orchestrator managing the the build. Each step of the plan has to be run in a subagent in sequence. Once sub agent finished. A code review has to be done on it. Any remaining work or deferred work has to be documented and if resolvable use any source needed including web search, and finding reference of existing products. Once everything finished and code review findings fixed too commit the changes. After commit start a new subagent with the next step repeat the previously described steps until all steps finished. Consider the performance as well and improvement possibilities and keep track of them in a doc. Don't do them in parallel each step after the next
-- The decision for no parallel agents are just for easier tracking and easier continuation in case I run out of session token window
-- The prompt creates a multi step flow that builds, reviews and documents feature than commits it. There is also a BUILD_LOG.md file that keeps track of progress and any notes made by the ai. It also keeps track of performance improvement possibilities that were not implemented
-- The git history is one commit per stage.
-- The thing I like most about how this went is that every stage had to prove its own tests can actually fail. A gate means nothing if the tests behind it pass no matter what, so each stage broke the implementation on purpose and checked that a named test fires. Every stage from 6 onward found at least one test that could not fail. It also caught real bugs, not just weak tests. Stage 7 found `?q=%` returning the whole table, and stage 11 found three UI defects just by looking at screenshots that every test had passed through.
-
-**4. Reviewing BUILD_LOG**
-
-- Decided on which items are worth or needed to be implemented from the deferred items and optimalization suggestions
-- The ones I didn't take are written down with a reason and a trigger for when to revisit, so they are decisions and not things that got forgotten. The `commentCount` join, the wildcard search path and its bind parameter limit, and turning off vitest per file isolation, which I remeasured and dropped because the number that made it look slow turned out to be noise.
-
-**5. Manual QA and fixups**
-
-- UI changes: instead of just a list view I wanted a drag and drop columns for the the different states
-- Selected view didn't persist on navigation. Introduced state with zustand. I prefer to use it over directly accessing local storage. The rule I settled on is that anything a shared link should reproduce stays in the URL, the store is only for per machine preference.
-- Added some optimalizations. The main one is the React Compiler. One component opts out, `CommentComposer`, because it needs `register()` to run again after `reset()` to clear the textarea and the compiler has no way to see that. The reason is written in the file.
+[AGPL-3.0-only](LICENSE). You can use, modify, and self-host Estuary freely. If you run a modified version as a network service, the AGPL requires you to offer its source to that service's users.

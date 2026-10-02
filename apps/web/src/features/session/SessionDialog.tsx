@@ -1,4 +1,4 @@
-import { ACTOR_NAME_MAX } from "@helpdesk/contracts";
+import { ACTOR_NAME_MAX } from "@estuary/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { toast } from "sonner";

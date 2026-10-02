@@ -3,8 +3,9 @@ import {
   type TaskSort,
   type TaskSortField,
   type TaskSummary,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { type MouseEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Skeleton } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -70,15 +71,41 @@ const COLUMNS: Column[] = [
 
 const DIRECTION_LABEL = { asc: "ascending", desc: "descending" } as const;
 
+/**
+ * A row link's click, when the list can open a task in place (the map's
+ * `TaskWorkspaceDialog` shows it in place). Only a plain primary click is taken
+ * over — cmd/ctrl/shift/middle-click still follow the real `href` to the full
+ * page, which is why rows stay `<a>`s rather than becoming buttons.
+ */
+export const openTaskInPlace = (
+  event: MouseEvent<HTMLAnchorElement>,
+  taskId: number,
+  onOpenTask: ((taskId: number) => void) | undefined,
+): void => {
+  if (onOpenTask === undefined) return;
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+    return;
+  event.preventDefault();
+  onOpenTask(taskId);
+};
+
 export type TaskTableProps = {
   tasks: TaskSummary[];
   sort: TaskSort;
   onSortChange: (sort: TaskSort) => void;
   /** The active search, for highlighting matched terms in the title column. */
   searchQuery?: string | undefined;
+  /** Open a task in place instead of navigating to `/tasks/:id` — see `openTaskInPlace`. */
+  onOpenTask?: (taskId: number) => void;
 };
 
-export const TaskTable = ({ tasks, sort, onSortChange, searchQuery }: TaskTableProps) => {
+export const TaskTable = ({
+  tasks,
+  sort,
+  onSortChange,
+  searchQuery,
+  onOpenTask,
+}: TaskTableProps) => {
   /*
     The search string this list is rendered under, carried into the detail page's
     history state so its "Back to tasks" link returns to *this* filtered,
@@ -134,6 +161,7 @@ export const TaskTable = ({ tasks, sort, onSortChange, searchQuery }: TaskTableP
                 <Link
                   to={`/tasks/${task.id}`}
                   state={{ from: search }}
+                  onClick={(event) => openTaskInPlace(event, task.id, onOpenTask)}
                   className="font-mono text-xs text-primary hover:underline"
                 >
                   {formatReference(task.id)}
@@ -144,6 +172,7 @@ export const TaskTable = ({ tasks, sort, onSortChange, searchQuery }: TaskTableP
                 <Link
                   to={`/tasks/${task.id}`}
                   state={{ from: search }}
+                  onClick={(event) => openTaskInPlace(event, task.id, onOpenTask)}
                   className="text-foreground hover:underline"
                 >
                   <span className="line-clamp-2">

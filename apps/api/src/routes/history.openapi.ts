@@ -1,4 +1,4 @@
-import { HISTORY_BUCKETS, HISTORY_MAX_BUCKETS, historyQuerySchema } from "@helpdesk/contracts";
+import { HISTORY_BUCKETS, HISTORY_MAX_BUCKETS, historyQuerySchema } from "@estuary/contracts";
 import type { z } from "zod";
 
 import {
@@ -19,7 +19,8 @@ import {
  */
 
 export const HISTORY_QUERY_DESCRIPTIONS: Record<string, string> = {
-  project: "Repeatable. Scope to these projects, as recorded on each event; omit for every project.",
+  project:
+    "Repeatable. Scope to these projects, as recorded on each event; omit for every project.",
   from: `Range start (instant, inclusive). Defaults to 7 days before \`to\`. Floored to the start of its bucket boundary — the response echoes back the aligned value.`,
   to: "Range end (instant, exclusive). Defaults to now. Ceiled to the next bucket boundary.",
   bucket: `hour, day, or week (Monday-starting), default day. The aligned range must not produce more than ${HISTORY_MAX_BUCKETS} buckets.`,

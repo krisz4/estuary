@@ -4,7 +4,7 @@ import {
   transitionInputSchema,
   type TaskStatus,
   type TransitionInputRaw,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

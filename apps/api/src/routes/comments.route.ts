@@ -1,4 +1,4 @@
-import { createCommentInputSchema } from "@helpdesk/contracts";
+import { createCommentInputSchema } from "@estuary/contracts";
 import { Router } from "express";
 
 import { asyncHandler } from "../lib/asyncHandler.js";

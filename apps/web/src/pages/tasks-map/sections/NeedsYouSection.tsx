@@ -1,4 +1,4 @@
-import { HUMAN_ATTENTION_STATUSES, type TaskStatus, type TaskSummary } from "@helpdesk/contracts";
+import { type TaskSummary } from "@estuary/contracts";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useInboxQuery } from "@/api/tasks";
@@ -10,6 +10,7 @@ import { formatRelative } from "@/lib/formatting";
 import { laneColor, readFloorColors } from "@/features/floor/scene";
 import { projectColorIndex } from "@/features/floor/layout";
 import { InboxItem } from "@/pages/inbox/InboxItem";
+import { groupByAttentionKind } from "@/pages/inbox/attentionGroups";
 import { SectionHeader } from "@/pages/tasks-map/sections/SectionHeader";
 import { KindPill } from "@/pages/tasks-map/sections/KindPill";
 import { useNeedsYouActions } from "@/pages/tasks-map/sections/useNeedsYouActions";
@@ -25,13 +26,14 @@ import { useNeedsYouActions } from "@/pages/tasks-map/sections/useNeedsYouAction
  * are the same code, not a copy). Only one row is expanded at a time.
  *
  * `docs/pages/Inbox.md` documents that this section is a second consumer.
+ *
+ * Grouped by `attentionKindOf` (`groupByAttentionKind`), the same partition
+ * `/inbox` uses — six possible groups, not three: a question, a manual step,
+ * or work to review are still the most common, but a task stuck in
+ * `needs_refinement`, an agent-filed suggestion nobody triaged, or a `blocked`
+ * task with no open dependency show up here too, so nothing an agent leaves
+ * behind is invisible from the map.
  */
-
-const GROUPS: { status: TaskStatus; title: string; hint: string }[] = [
-  { status: "needs_user_decision", title: "Decide", hint: "An agent asked a question." },
-  { status: "needs_user_action", title: "Act", hint: "A manual step only a human can do." },
-  { status: "needs_qa", title: "Review", hint: "The work is done — check it." },
-];
 
 export const NeedsYouSection = ({
   project,
@@ -45,10 +47,7 @@ export const NeedsYouSection = ({
   const total = data?.meta.total ?? 0;
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const groups = GROUPS.map((group) => ({
-    ...group,
-    tasks: tasks.filter((task) => task.status === group.status),
-  })).filter((group) => group.tasks.length > 0);
+  const groups = groupByAttentionKind(tasks);
 
   return (
     <section id="needs-you" className="scroll-mt-28">
@@ -63,12 +62,12 @@ export const NeedsYouSection = ({
       ) : error !== null && data === undefined ? (
         <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />
       ) : groups.length === 0 ? (
-        <EmptyState title="Nothing needs you." description="Agents are on it." />
+        <EmptyState art="still-water" title="Nothing needs you." description="Slack water. Agents are on it." />
       ) : (
         <div className="mt-4 flex flex-col gap-6">
           {groups.map((group) => (
             <NeedsYouGroup
-              key={group.status}
+              key={group.kind}
               title={group.title}
               hint={group.hint}
               tasks={group.tasks}
@@ -148,14 +147,21 @@ const NeedsYouRow = ({
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted"
         >
           <ChevronRight
-            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-90")}
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-90",
+            )}
             aria-hidden="true"
           />
           {kind === null ? null : <KindPill kind={kind} />}
           <span className="shrink-0 font-mono text-xs text-muted-foreground">{task.reference}</span>
           <span className="min-w-0 flex-1 truncate font-medium text-foreground">{task.title}</span>
           <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:flex">
-            <span className="size-1.5 rounded-full" style={{ backgroundColor: dotColor }} aria-hidden="true" />
+            <span
+              className="size-1.5 rounded-full"
+              style={{ backgroundColor: dotColor }}
+              aria-hidden="true"
+            />
             {task.project ?? "no project"}
           </span>
           <time className="hidden shrink-0 text-xs text-muted-foreground md:inline">
@@ -190,6 +196,3 @@ const NeedsYouSkeleton = () => (
     ))}
   </div>
 );
-
-/** `HUMAN_ATTENTION_STATUSES` re-exported for the hero rail's own filter. */
-export const NEEDS_YOU_STATUSES = HUMAN_ATTENTION_STATUSES;

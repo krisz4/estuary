@@ -1,0 +1,4 @@
+# Every change needs a review from the maintainer. Add owners per path as the
+# project gains regular contributors, e.g.:
+#   /apps/web/  @someone
+*       @krisz4

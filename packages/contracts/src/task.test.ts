@@ -21,6 +21,9 @@ import {
   taskSummarySchema,
   TERMINAL_TASK_STATUSES,
   updateTaskInputSchema,
+  ATTENTION_KINDS,
+  attentionKindOf,
+  type TaskStatus,
 } from "./task.js";
 import { parseReference } from "./reference.js";
 
@@ -29,7 +32,7 @@ const validCreate = {
   description: "Expose list, next, transition and comment as MCP tools for Claude Code.",
 };
 
-const link = { label: "PR #12", url: "https://github.com/acme/helpdesk/pull/12" };
+const link = { label: "PR #12", url: "https://github.com/acme/estuary/pull/12" };
 
 describe("enums", () => {
   it("declares statuses in lifecycle order (the index is statusRank)", () => {
@@ -200,10 +203,10 @@ describe("createTaskInputSchema", () => {
   // --- project --------------------------------------------------------------
 
   it("lowercases and trims project in the schema, not the service", () => {
-    // An exact-match filter on a case-sensitive column: `Helpdesk` and
-    // `helpdesk` must not become two projects.
-    expect(createTaskInputSchema.parse({ ...validCreate, project: "  Helpdesk " }).project).toBe(
-      "helpdesk",
+    // An exact-match filter on a case-sensitive column: `Estuary` and
+    // `estuary` must not become two projects.
+    expect(createTaskInputSchema.parse({ ...validCreate, project: "  Estuary " }).project).toBe(
+      "estuary",
     );
   });
 
@@ -218,7 +221,7 @@ describe("createTaskInputSchema", () => {
     "my project",
     "-leading-dash",
     ".hidden",
-    "acme/helpdesk",
+    "acme/estuary",
     "café",
     "x".repeat(TASK_PROJECT_MAX + 1),
   ])("rejects the project %j, naming the field", (project) => {
@@ -322,9 +325,9 @@ describe("createTaskInputSchema", () => {
 
   it("accepts and trims an idempotency key", () => {
     expect(
-      createTaskInputSchema.parse({ ...validCreate, idempotencyKey: " claude-code:helpdesk:mcp " })
+      createTaskInputSchema.parse({ ...validCreate, idempotencyKey: " claude-code:estuary:mcp " })
         .idempotencyKey,
-    ).toBe("claude-code:helpdesk:mcp");
+    ).toBe("claude-code:estuary:mcp");
   });
 
   it(`bounds the idempotency key to 1..${TASK_IDEMPOTENCY_KEY_MAX} characters`, () => {
@@ -402,7 +405,7 @@ describe("updateTaskInputSchema", () => {
   );
 
   it("lowercases project on edit exactly as on create", () => {
-    expect(updateTaskInputSchema.parse({ project: "Helpdesk" }).project).toBe("helpdesk");
+    expect(updateTaskInputSchema.parse({ project: "Estuary" }).project).toBe("estuary");
   });
 
   it("accepts parentId, including null to detach a subtask", () => {
@@ -491,8 +494,10 @@ describe("task response schemas", () => {
     description: "Expose list, next, transition and comment as MCP tools.",
     status: "needs_user_decision",
     statusNote: null,
+    concerns: null,
+    needsTriage: false,
     priority: "high",
-    project: "helpdesk",
+    project: "estuary",
     assignee: null,
     acceptanceCriteria: "All five tools callable from Claude Code.",
     links: [link],
@@ -516,7 +521,7 @@ describe("task response schemas", () => {
     reference: "TASK-000043",
     title: "Write the tool schemas",
     status: "todo",
-    project: "helpdesk",
+    project: "estuary",
   };
 
   const task = {
@@ -574,7 +579,7 @@ describe("task response schemas", () => {
       { priorityRank: 2 },
       { claimedBy: "agent:claude-code" },
       { claimExpiresAt: "2026-09-20T10:30:00.000Z" },
-      { idempotencyKey: "claude-code:helpdesk:mcp" },
+      { idempotencyKey: "claude-code:estuary:mcp" },
     ]) {
       expect(taskSchema.safeParse({ ...task, ...extra }).success, Object.keys(extra)[0]).toBe(
         false,
@@ -638,7 +643,7 @@ describe("taskFacetsSchema", () => {
   it("accepts distinct assignees, projects, and creators", () => {
     const facets = {
       assignees: ["agent:claude-code", "human:krisz"],
-      projects: ["helpdesk", "infra"],
+      projects: ["estuary", "infra"],
       labels: ["api", "web"],
       creators: ["human:krisz", "system:taskmanager"],
     };
@@ -651,5 +656,42 @@ describe("taskFacetsSchema", () => {
       taskFacetsSchema.safeParse({ assignees: [], projects: [], creators: [], categories: [] })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("attentionKindOf", () => {
+  const kind = (status: TaskStatus, needsTriage = false, openDependencyCount = 0) =>
+    attentionKindOf({ status, needsTriage, openDependencyCount });
+
+  it("names why each waiting task is in front of a person", () => {
+    expect(kind("needs_user_decision")).toBe("decide");
+    expect(kind("needs_user_action")).toBe("act");
+    expect(kind("needs_qa")).toBe("review");
+    expect(kind("needs_refinement")).toBe("refine");
+    expect(kind("todo", true)).toBe("suggested");
+    expect(kind("backlog", true)).toBe("suggested");
+    expect(kind("blocked")).toBe("blocked");
+  });
+
+  it("leaves out work nobody needs to look at", () => {
+    expect(kind("todo")).toBeNull();
+    expect(kind("backlog")).toBeNull();
+    // Waiting on an unfinished task: the server unblocks it by itself.
+    expect(kind("blocked", false, 1)).toBeNull();
+    // Being worked, or closed: untriaged no longer matters.
+    expect(kind("in_progress", true)).toBeNull();
+    expect(kind("deferred", true)).toBeNull();
+    expect(kind("done", true)).toBeNull();
+  });
+
+  it("orders the kinds the way the inbox shows them", () => {
+    expect([...ATTENTION_KINDS]).toEqual([
+      "decide",
+      "act",
+      "review",
+      "refine",
+      "suggested",
+      "blocked",
+    ]);
   });
 });

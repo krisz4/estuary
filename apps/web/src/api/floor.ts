@@ -1,6 +1,11 @@
 import { useCallback } from "react";
-import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { type FloorSnapshot } from "@helpdesk/contracts";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
+import { type FloorSnapshot } from "@estuary/contracts";
 import { api, type QueryInput } from "@/api/http";
 import { POLL_INTERVAL_MS } from "@/api/polling";
 import { queryKeys } from "@/api/queryKeys";
@@ -34,7 +39,7 @@ export const toFloorQuery = (params: FloorParams): QueryInput => ({
  * `GET /floor` — one compact snapshot for the floor view. Spec:
  * `docs/pages/Floor_And_Logbook_Plan.md`.
  *
- * Response types come straight from `@helpdesk/contracts`; no re-parsing here,
+ * Response types come straight from `@estuary/contracts`; no re-parsing here,
  * same rule as `api/tasks.ts`.
  */
 export const getFloor = (query: QueryInput, signal?: AbortSignal): Promise<FloorSnapshot> =>

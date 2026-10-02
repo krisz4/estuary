@@ -15,6 +15,24 @@
     -->
     <script>
       (function () {
+        // One-time carry-over from before the project was renamed to Estuary:
+        // preferences were stored under `helpdesk.*`. Runs here, ahead of the
+        // theme read below and of every store's hydration in the module bundle,
+        // so no code path ever sees the old keys. Delete once nobody upgrades
+        // from a pre-rename build.
+        try {
+          ["theme", "session", "projectScope", "taskView", "mapVisit", "logbookVisit"].forEach(
+            function (name) {
+              var legacy = localStorage.getItem("helpdesk." + name);
+              if (legacy === null) return;
+              if (localStorage.getItem("estuary." + name) === null) {
+                localStorage.setItem("estuary." + name, legacy);
+              }
+              localStorage.removeItem("helpdesk." + name);
+            },
+          );
+        } catch (_) {}
+
         // Only `getItem` is guarded. localStorage throws in Safari private mode
         // and in sandboxed iframes — and wrapping the *whole* resolution in the
         // try meant that in exactly those browsers the matchMedia fallback and
@@ -23,7 +41,7 @@
         // which guards the same single call.
         var stored = null;
         try {
-          stored = localStorage.getItem("helpdesk.theme");
+          stored = localStorage.getItem("estuary.theme");
         } catch (_) {}
 
         var mode =

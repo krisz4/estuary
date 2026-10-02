@@ -35,7 +35,7 @@ The array order is the persisted `statusRank`, so "sort by status" follows this 
 | 8 | `done` | closed | Verified complete. **Agents cannot move here** unless `AGENTS_MAY_COMPLETE=true` | human |
 | 9 | `deferred` | closed | Parked on purpose — the fallback when no other status applies, always with a reason | anyone |
 
-`needs_user_decision`, `needs_user_action`, and `needs_qa` make up the **inbox** (`HUMAN_ATTENTION_STATUSES`); `GET /tasks/stats` reports their total as `needsAttention`.
+`needs_user_decision`, `needs_user_action`, and `needs_qa` (`HUMAN_ATTENTION_STATUSES`) are the three statuses where an agent explicitly stopped and asked. They are a subset of the broader **attention queue** — `needs_refinement`, an un-triaged `backlog`/`todo` suggestion, and a `blocked` task with no unfinished dependency also sit in front of a person, for reasons nothing about their status alone declares. `GET /tasks/stats`'s `needsAttention` counts the whole attention set, not just these three. See [Attention_Queue.md](./Attention_Queue.md) for the six kinds, `needsTriage`, and `concerns`.
 
 ## Transitions
 
@@ -50,7 +50,7 @@ The array order is the persisted `statusRank`, so "sort by status" follows this 
 | `blocked` | `reason` and/or **`blockedBy: taskId[]`** (at least one) | each `blockedBy` is added as a dependency: must exist, not self, no cycle |
 | `needs_user_decision` | **`decision`**: `question`, `options` (2–6 unique labels), `recommendedOption?` (one of the labels), `context?` | creates a `Decision`; withdraws any older open one |
 | `needs_user_action` | **`instructions`** | — |
-| `needs_qa` | **`summary`**, `links?` | links are appended to the task's links, de-duplicated by URL |
+| `needs_qa` | **`summary`**, `links?`, `concerns?`, `followUps?` | links are appended to the task's links, de-duplicated by URL. `concerns`: what a reviewer must not miss (omit for a routine hand-off). `followUps` (max 10): work found but not done, filed as subtasks — see [Attention_Queue.md](./Attention_Queue.md) |
 | `done` | `reason?` | agent actors → `ACTOR_NOT_PERMITTED` (403) unless `AGENTS_MAY_COMPLETE` |
 | `deferred` | **`reason`** | — |
 
@@ -78,6 +78,9 @@ Applied in the same write as the status:
 | Effect | When |
 | ------ | ---- |
 | `statusNote` replaced | Every transition: `reason` / `instructions` / `summary` / the decision's question, or `null` |
+| `concerns` set or cleared | Set only by a `needs_qa` transition (from its optional `concerns`); **any** other transition clears it, including `needs_qa → needs_qa` with no `concerns` sent |
+| `needsTriage` cleared | A human actor's transition; an agent transitioning to `in_progress`, `done`, or `deferred`. An agent moving its own suggestion to any other status (e.g. refining it into `todo`) leaves it set — see [Attention_Queue.md](./Attention_Queue.md) |
+| follow-ups filed | `needs_qa` transition and `release`, from their optional `followUps` — each a subtask, see [Attention_Queue.md](./Attention_Queue.md) |
 | `statusRank` recomputed | Every status write, via `applyTaskRanks()` — the only writer |
 | `startedAt = now` | First entry into `in_progress` only; never cleared |
 | `completedAt = now` | → `done` |
@@ -108,6 +111,7 @@ No client keeps its own copy of these rules beyond the shared contract: the web 
 
 ## Related
 
+- [Attention_Queue.md](./Attention_Queue.md) — the six attention kinds, `needsTriage`, `concerns`, follow-ups
 - [Task_Workflow_API.md](./Task_Workflow_API.md) — every endpoint and the cross-cutting rules
 - [Actors.md](./Actors.md) — who counts as an agent
 - [../pages/Tasks_Map.md](../pages/Tasks_Map.md), [../pages/Inbox.md](../pages/Inbox.md)

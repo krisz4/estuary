@@ -4,7 +4,7 @@ import type {
   TaskLink,
   TaskPriority,
   TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 /**
  * Fixture content for `./index.ts`.
@@ -53,7 +53,7 @@ export const DEFAULT_REVIEWER = HUMANS.krisz;
  * Projects
  * ------------------------------------------------------------------ */
 
-export const PROJECTS = ["helpdesk", "billing-service", "mobile-app"] as const;
+export const PROJECTS = ["estuary", "billing-service", "mobile-app"] as const;
 export type SeedProject = (typeof PROJECTS)[number];
 
 /** Where generated PR / branch links point. */
@@ -64,7 +64,7 @@ export const GITHUB_ORG_URL = "https://github.com/example-org";
  * so numbers are stable across runs and never collide within a repository.
  */
 export const PR_NUMBER_BASE: Record<SeedProject, number> = {
-  helpdesk: 180,
+  estuary: 180,
   "billing-service": 612,
   "mobile-app": 347,
 };
@@ -123,6 +123,8 @@ export interface SeedTaskTemplate {
    * optional for `done`. (`needs_user_decision` uses the decision's question.)
    */
   statusNote?: string;
+  /** `needs_qa` only: what the reviewer must not miss. Omitted = a routine hand-off. */
+  concerns?: string;
   /** `done` only: the summary it was handed to QA with. */
   qaSummary?: string;
   /** `done` only: sent back from QA once with this `qa_feedback` comment… */
@@ -144,7 +146,7 @@ export interface SeedTaskTemplate {
   /**
    * Free-form tags, lowercase slugs (`labelSchema`). Not every task needs one —
    * this seed reaches for a workspace label (`web`, `api`, `contracts`, `mcp`,
-   * `db`, `docs`) on `helpdesk`-project tasks, since that project mirrors this
+   * `db`, `docs`) on `estuary`-project tasks, since that project mirrors this
    * very monorepo, and a kind label (`bug`, `flaky-test`, `perf`) wherever the
    * title says so, on any project.
    */
@@ -161,19 +163,19 @@ export interface SeedTaskTemplate {
  * index feeds its PR number, so appending is safe and reordering renumbers PRs.
  */
 export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
-  /* ---------------------------- helpdesk ---------------------------- */
+  /* ---------------------------- estuary ---------------------------- */
   {
     key: "mcp-server",
     title: "Expose the task API as an MCP server",
     description:
       "Claude Code sessions should drive the board through MCP tools instead of hand-written curl calls. New workspace `apps/mcp` wrapping the REST API; the subtasks split the tool groups so they can be picked up in parallel.",
-    project: "helpdesk",
+    project: "estuary",
     status: "in_progress",
     priority: "high",
     createdBy: HUMANS.krisz,
     daysAgo: 34,
     acceptanceCriteria:
-      "- `apps/mcp` builds and starts with `pnpm --filter @helpdesk/mcp start`\n- Every tool maps to exactly one REST endpoint and forwards X-Actor\n- Errors come back as the API's `error.code`, not a stack trace\n- Subtasks are done or explicitly deferred",
+      "- `apps/mcp` builds and starts with `pnpm --filter estuary-mcp start`\n- Every tool maps to exactly one REST endpoint and forwards X-Actor\n- Errors come back as the API's `error.code`, not a stack trace\n- Subtasks are done or explicitly deferred",
     comments: [
       {
         author: HUMANS.krisz,
@@ -189,7 +191,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "MCP: tasks_next, claim, heartbeat and release tools",
     description:
       "The four tools an agent needs to take work off the queue and hold it. The heartbeat belongs in the agent loop, not in each tool call.",
-    project: "helpdesk",
+    project: "estuary",
     status: "done",
     priority: "high",
     createdBy: AGENTS.claudeCode,
@@ -208,7 +210,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "MCP: request_decision and answer_decision tools",
     description:
       "Agents need to park a task on a question with options instead of burying it in a comment. `answer_decision` is mostly for tests; humans answer in the web app.",
-    project: "helpdesk",
+    project: "estuary",
     status: "needs_qa",
     priority: "medium",
     createdBy: AGENTS.claudeCode,
@@ -217,7 +219,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     acceptanceCriteria:
       "- `request_decision` validates options with the contracts schema before calling the API\n- `recommendedOption` must be one of the labels\n- Answering moves the task back to todo",
     statusNote:
-      "Both tools added, reusing `decisionRequestSchema` from contracts so validation errors match the API's. To verify: run `pnpm --filter @helpdesk/mcp test`, then request a decision from a Claude Code session and answer it on the board.",
+      "Both tools added, reusing `decisionRequestSchema` from contracts so validation errors match the API's. To verify: run `pnpm --filter estuary-mcp test`, then request a decision from a Claude Code session and answer it on the board.",
     comments: [
       {
         author: HUMANS.dana,
@@ -232,7 +234,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Document the Claude Code MCP setup in Agent_Integration.md",
     description:
       "Once the decision tools land, write the setup page: registering the server in `.mcp.json`, the X-Actor naming convention, and the recommended agent loop (next → heartbeat → needs_qa).",
-    project: "helpdesk",
+    project: "estuary",
     status: "todo",
     priority: "low",
     createdBy: AGENTS.claudeCode,
@@ -248,7 +250,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Accept a project filter on GET /tasks/stats",
     description:
       "The lane counts on the board ignore the project picker, so the header says 14 in progress while the filtered board shows 3.",
-    project: "helpdesk",
+    project: "estuary",
     status: "in_progress",
     priority: "medium",
     createdBy: HUMANS.dana,
@@ -270,7 +272,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Board drag-and-drop drops the card on slow networks",
     description:
       "On a throttled connection (Chrome 'Slow 4G') dragging a card to another lane makes it vanish until the next refetch. Looks like the optimistic update is rolled back before the server answers.",
-    project: "helpdesk",
+    project: "estuary",
     status: "in_progress",
     claim: "expired",
     priority: "high",
@@ -292,7 +294,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Events feed skips rows when two writes share a millisecond",
     description:
       "The CI agent's poller missed a status change: the cursor was built from `createdAt`, and two events written in the same transaction share a timestamp.",
-    project: "helpdesk",
+    project: "estuary",
     status: "done",
     priority: "urgent",
     createdBy: AGENTS.ci,
@@ -330,7 +332,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Inbox badge count ignores needs_qa tasks",
     description:
       "The badge counts decisions and user actions but not tasks waiting for QA, so finished agent work sits unnoticed for days.",
-    project: "helpdesk",
+    project: "estuary",
     status: "done",
     priority: "medium",
     createdBy: HUMANS.dana,
@@ -348,7 +350,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Reject malformed X-Actor headers with VALIDATION_ERROR",
     description:
       "A header like `Claude Code` (space, capitals, no kind) was stored verbatim and then never matched the createdBy filter.",
-    project: "helpdesk",
+    project: "estuary",
     status: "done",
     priority: "high",
     createdBy: AGENTS.claudeCode,
@@ -364,7 +366,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Optional bearer token gate for self-hosted deployments",
     description:
       "The demo server on the VPS is reachable from the internet. Add an optional shared token (API_TOKEN) checked on every /api/v1 route; /health and /docs stay open.",
-    project: "helpdesk",
+    project: "estuary",
     status: "needs_user_action",
     priority: "high",
     createdBy: HUMANS.krisz,
@@ -372,8 +374,8 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     acceptanceCriteria:
       "- No API_TOKEN set → behaviour unchanged\n- Wrong or missing token → 401 UNAUTHORIZED in the standard envelope\n- Documented in ENVIRONMENT_VARIABLES.md",
     statusNote:
-      "The code is merged. The last step needs someone with access to the VPS: generate a token with `openssl rand -hex 32`, add `API_TOKEN=<value>` to /etc/helpdesk/api.env, restart with `systemctl restart helpdesk-api`, and put the same value in the MCP server's env. I have no access to that host from this sandbox.",
-    links: [{ label: "PR #189", url: `${GITHUB_ORG_URL}/helpdesk/pull/189` }],
+      "The code is merged. The last step needs someone with access to the VPS: generate a token with `openssl rand -hex 32`, add `API_TOKEN=<value>` to /etc/estuary/api.env, restart with `systemctl restart estuary-api`, and put the same value in the MCP server's env. I have no access to that host from this sandbox.",
+    links: [{ label: "PR #189", url: `${GITHUB_ORG_URL}/estuary/pull/189` }],
     labels: ["api"],
   },
   {
@@ -381,7 +383,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Verify the ticket-to-task migration on a copy of production data",
     description:
       "The rename migration rewrites statuses and backfills createdBy from requester emails. It passes on seed data; it has not run against the real database.",
-    project: "helpdesk",
+    project: "estuary",
     status: "needs_user_action",
     priority: "urgent",
     createdBy: AGENTS.claudeCode,
@@ -389,7 +391,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     acceptanceCriteria:
       "- Row counts match before and after for Task and Comment\n- No task ends up with a status outside TASK_STATUSES\n- Every migrated task has a task.created event",
     statusNote:
-      "Please restore last night's backup to a scratch file, run `DATABASE_URL=file:/tmp/prod-copy.db pnpm --filter @helpdesk/api db:deploy`, then paste the output of `sqlite3 /tmp/prod-copy.db \"SELECT status, count(*) FROM Task GROUP BY status\"` here. I can't read production backups.",
+      "Please restore last night's backup to a scratch file, run `DATABASE_URL=file:/tmp/prod-copy.db pnpm --filter @estuary/api db:deploy`, then paste the output of `sqlite3 /tmp/prod-copy.db \"SELECT status, count(*) FROM Task GROUP BY status\"` here. I can't read production backups.",
     labels: ["db"],
   },
   {
@@ -397,7 +399,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Show withdrawn decisions in the task timeline",
     description:
       "When a task is dragged out of needs_user_decision the open question is withdrawn, and the detail page no longer shows it was ever asked.",
-    project: "helpdesk",
+    project: "estuary",
     status: "backlog",
     priority: "low",
     createdBy: HUMANS.dana,
@@ -409,7 +411,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Board columns are unreadable in dark mode",
     description:
       "Lane headers use slate-100 text on slate-50 in dark mode. The waiting lane is the worst — the amber tint makes the counts invisible.",
-    project: "helpdesk",
+    project: "estuary",
     status: "todo",
     priority: "medium",
     createdBy: HUMANS.marco,
@@ -442,7 +444,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Let the CI agent close dependency-bump tasks without QA",
     description:
       "Dependency bumps pile up in needs_qa. The CI agent already runs the full suite; a human clicking done adds nothing for patch releases.",
-    project: "helpdesk",
+    project: "estuary",
     status: "needs_user_decision",
     priority: "medium",
     createdBy: AGENTS.claudeCode,
@@ -476,7 +478,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Add request examples to every workflow endpoint in the OpenAPI spec",
     description:
       "Agents reading /docs guess payload shapes for /transition. One example per target status would save a round of VALIDATION_ERRORs.",
-    project: "helpdesk",
+    project: "estuary",
     status: "backlog",
     priority: "low",
     createdBy: AGENTS.claudeCode,
@@ -488,7 +490,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Decide on a retention policy for the events table",
     description:
       "Events are never deleted. At current volume that is fine; at some point it won't be.",
-    project: "helpdesk",
+    project: "estuary",
     status: "deferred",
     priority: "low",
     createdBy: HUMANS.krisz,
@@ -502,7 +504,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Search should match acceptance criteria as well as title and description",
     description:
       "Searching for 'VIES' misses the checkout task because the word only appears in its acceptance criteria.",
-    project: "helpdesk",
+    project: "estuary",
     status: "needs_refinement",
     priority: "medium",
     createdBy: HUMANS.dana,
@@ -516,7 +518,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Playwright: board drag test flakes on CI about 1 run in 15",
     description:
       "`board.spec.ts › moves a card between lanes` fails intermittently with the card missing from the target lane. Same symptom as the slow-network drag-and-drop bug.",
-    project: "helpdesk",
+    project: "estuary",
     status: "blocked",
     priority: "high",
     createdBy: AGENTS.ci,
@@ -533,7 +535,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Release claims when an agent session exits cleanly",
     description:
       "A session that ends normally leaves its claim to expire on its own, so the task sits idle for the rest of the lease. The MCP server could release on shutdown.",
-    project: "helpdesk",
+    project: "estuary",
     status: "backlog",
     priority: "medium",
     createdBy: AGENTS.claudeCode,
@@ -545,7 +547,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Heartbeat interval guidance for long-running agents",
     description:
       "Document how often an agent should heartbeat and what to do when a heartbeat returns NOT_CLAIM_HOLDER.",
-    project: "helpdesk",
+    project: "estuary",
     status: "done",
     priority: "low",
     createdBy: HUMANS.krisz,
@@ -561,7 +563,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Task templates for recurring chores",
     description:
       "Weekly dependency bumps, monthly secret-rotation reminders. A template would pre-fill title, project and acceptance criteria.",
-    project: "helpdesk",
+    project: "estuary",
     status: "backlog",
     priority: "low",
     createdBy: HUMANS.marco,
@@ -573,7 +575,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     title: "Filter the thread by comment kind",
     description:
       "Agent progress notes drown out the human discussion on long tasks. A toggle to hide `progress` comments would make threads readable again.",
-    project: "helpdesk",
+    project: "estuary",
     status: "todo",
     priority: "medium",
     createdBy: HUMANS.dana,
@@ -863,6 +865,8 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
       "- Times out at 3 s with a typed error\n- Valid results cached 24 h, invalid ones 1 h\n- Contract test against the VIES test endpoint",
     statusNote:
       "Client, cache and typed errors are done. The contract test hits VIES's test service and is skipped in CI unless VIES_CONTRACT=1. To verify: run it once with the flag and check for a cache hit on the second call.",
+    concerns:
+      "The contract test is skipped in CI (VIES_CONTRACT=1 to run it), so CI never exercises the real endpoint — I ran it once locally. Invalid numbers are cached for 1 h, which delays a customer who fixes a typo.",
     comments: [
       {
         author: HUMANS.dana,

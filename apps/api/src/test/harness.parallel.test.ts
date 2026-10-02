@@ -21,7 +21,7 @@ import { makeComment, makeTasks } from "./factories.js";
 const traceWorker = (file: string): void => {
   if (process.env.HARNESS_WORKER_TRACE !== "true") return;
   appendFileSync(
-    path.join(os.tmpdir(), "helpdesk-harness-trace.log"),
+    path.join(os.tmpdir(), "estuary-harness-trace.log"),
     `${JSON.stringify({
       file,
       pid: process.pid,

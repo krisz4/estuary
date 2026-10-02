@@ -1,8 +1,4 @@
-import {
-  isApiErrorCode,
-  type ApiErrorCode,
-  type ValidationErrorDetails,
-} from "@helpdesk/contracts";
+import { isApiErrorCode, type ApiErrorCode, type ValidationErrorDetails } from "@estuary/contracts";
 import { sessionHeaders, useSessionStore } from "@/stores/session";
 
 /* ------------------------------------------------------------------ *
@@ -99,7 +95,7 @@ export const isApiClientError = (value: unknown): value is ApiClientError =>
  * true in every realm.
  *
  * Same reasoning as the API's `errorHandler`, which detects `ZodError`
- * structurally for the same class of reason (`docs/engineering/BUILD_LOG.md`).
+ * structurally for the same class of reason (`docs/history/BUILD_LOG.md`).
  */
 const isAbortError = (cause: unknown): boolean =>
   typeof cause === "object" &&

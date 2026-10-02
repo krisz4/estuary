@@ -1,4 +1,4 @@
-import { commentIdParamSchema, taskIdParamSchema } from "@helpdesk/contracts";
+import { commentIdParamSchema, taskIdParamSchema } from "@estuary/contracts";
 
 import { commentNotFound, taskNotFound } from "./errors.js";
 

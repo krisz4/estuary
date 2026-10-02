@@ -1,4 +1,4 @@
-import { type GithubLinkStatus, type TaskLink } from "@helpdesk/contracts";
+import { type GithubLinkStatus, type TaskLink } from "@estuary/contracts";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { useGithubIntegrationQuery, useTaskGithubQuery } from "@/api/github";
 import { Skeleton } from "@/components/ui";

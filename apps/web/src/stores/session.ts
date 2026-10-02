@@ -1,4 +1,4 @@
-import { ACTOR_HEADER, ANONYMOUS_ACTOR, slugifyActorName } from "@helpdesk/contracts";
+import { ACTOR_HEADER, ANONYMOUS_ACTOR, slugifyActorName } from "@estuary/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { safeStorage } from "@/stores/safeStorage";
@@ -29,7 +29,7 @@ import { safeStorage } from "@/stores/safeStorage";
  * banner.
  */
 
-export const SESSION_STORAGE_KEY = "helpdesk.session";
+export const SESSION_STORAGE_KEY = "estuary.session";
 
 export type SessionState = {
   displayName: string;

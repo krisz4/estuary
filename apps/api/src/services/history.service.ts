@@ -13,7 +13,7 @@ import {
   type HistoryResponse,
   type HumanWait,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 import { validationError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
@@ -53,7 +53,9 @@ function floorToBoundary(date: Date, bucket: HistoryBucket): Date {
 /** The first boundary at or after `date` — `date` itself when already aligned. */
 function ceilToBoundary(date: Date, bucket: HistoryBucket): Date {
   const floored = floorToBoundary(date, bucket);
-  return floored.getTime() === date.getTime() ? floored : new Date(floored.getTime() + BUCKET_MS[bucket]);
+  return floored.getTime() === date.getTime()
+    ? floored
+    : new Date(floored.getTime() + BUCKET_MS[bucket]);
 }
 
 const HUMAN_WAIT_SET = new Set<string>(HUMAN_WAIT_STATUSES);
@@ -67,11 +69,13 @@ function minutesStats(values: number[]): {
 } {
   if (values.length === 0) return { count: 0, medianMinutes: null, p90Minutes: null };
   const sorted = [...values].sort((a, b) => a - b);
-  const pick = (p: number): number => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
+  const pick = (p: number): number =>
+    sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
   return { count: sorted.length, medianMinutes: pick(0.5), p90Minutes: pick(0.9) };
 }
 
-const minutesBetween = (start: Date, end: Date): number => (end.getTime() - start.getTime()) / 60_000;
+const minutesBetween = (start: Date, end: Date): number =>
+  (end.getTime() - start.getTime()) / 60_000;
 
 /* ------------------------------------------------------------------ *
  * Event loading
@@ -96,10 +100,7 @@ interface HistoryEvent {
   payload: { from?: unknown; to?: unknown; status?: unknown };
 }
 
-async function loadEvents(
-  project: string[] | undefined,
-  until: Date,
-): Promise<HistoryEvent[]> {
+async function loadEvents(project: string[] | undefined, until: Date): Promise<HistoryEvent[]> {
   const rows = await prisma.taskEvent.findMany({
     where: {
       type: { in: [...HISTORY_EVENT_TYPES] },
@@ -124,7 +125,10 @@ async function loadEvents(
 async function titlesFor(ids: Iterable<number>): Promise<Map<number, string>> {
   const list = [...new Set(ids)];
   if (list.length === 0) return new Map();
-  const rows = await prisma.task.findMany({ where: { id: { in: list } }, select: { id: true, title: true } });
+  const rows = await prisma.task.findMany({
+    where: { id: { in: list } },
+    select: { id: true, title: true },
+  });
   return new Map(rows.map((row) => [row.id, row.title]));
 }
 
@@ -134,13 +138,17 @@ async function titlesFor(ids: Iterable<number>): Promise<Map<number, string>> {
 
 export async function getTaskHistory(query: HistoryQuery): Promise<HistoryResponse> {
   const rawTo = query.to === undefined ? new Date() : new Date(query.to);
-  const rawFrom = query.from === undefined ? new Date(rawTo.getTime() - 7 * DAY_MS) : new Date(query.from);
+  const rawFrom =
+    query.from === undefined ? new Date(rawTo.getTime() - 7 * DAY_MS) : new Date(query.from);
   const bucket = query.bucket;
 
   const alignedStart = floorToBoundary(rawFrom, bucket);
   const alignedEnd = ceilToBoundary(rawTo, bucket);
   const bucketMs = BUCKET_MS[bucket];
-  const numBuckets = Math.max(1, Math.round((alignedEnd.getTime() - alignedStart.getTime()) / bucketMs));
+  const numBuckets = Math.max(
+    1,
+    Math.round((alignedEnd.getTime() - alignedStart.getTime()) / bucketMs),
+  );
 
   if (numBuckets > HISTORY_MAX_BUCKETS) {
     throw validationError({
@@ -151,7 +159,8 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
   }
 
   const boundaries: Date[] = [];
-  for (let i = 0; i <= numBuckets; i += 1) boundaries.push(new Date(alignedStart.getTime() + i * bucketMs));
+  for (let i = 0; i <= numBuckets; i += 1)
+    boundaries.push(new Date(alignedStart.getTime() + i * bucketMs));
 
   const events = await loadEvents(query.project, boundaries[numBuckets]!);
   const generatedAt = new Date();
@@ -166,7 +175,12 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
 
   /* ---- per-bucket sweep ---- */
   const buckets: HistoryBucketRow[] = [];
-  const humanWaitStints: { taskId: number; status: TaskStatus; startedAt: Date; endedAt: Date | null }[] = [];
+  const humanWaitStints: {
+    taskId: number;
+    status: TaskStatus;
+    startedAt: Date;
+    endedAt: Date | null;
+  }[] = [];
   const openHumanWait = new Map<number, { status: TaskStatus; startedAt: Date }>();
   const cycleStart = new Map<number, Date>();
   const cycleTimes: CycleTime[] = [];
@@ -176,7 +190,15 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
   const touchAgent = (actor: string): AgentHistory => {
     let row = agents.get(actor);
     if (row === undefined) {
-      row = { actor, submitted: 0, approved: 0, sentBack: 0, decisionsRequested: 0, claims: 0, releases: 0 };
+      row = {
+        actor,
+        submitted: 0,
+        approved: 0,
+        sentBack: 0,
+        decisionsRequested: 0,
+        claims: 0,
+        releases: 0,
+      };
       agents.set(actor, row);
     }
     return row;
@@ -285,8 +307,8 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
     >;
     for (const status of statusOf.values()) statusCounts[status] += 1;
 
-    const bucketMinutes = humanWaitEndedThisBucket.map(
-      (index) => minutesBetween(humanWaitStints[index]!.startedAt, humanWaitStints[index]!.endedAt!),
+    const bucketMinutes = humanWaitEndedThisBucket.map((index) =>
+      minutesBetween(humanWaitStints[index]!.startedAt, humanWaitStints[index]!.endedAt!),
     );
 
     buckets.push({
@@ -303,7 +325,12 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
 
   // Stints still open at the end of the sweep are still waiting, as of now.
   for (const [taskId, waiting] of openHumanWait) {
-    humanWaitStints.push({ taskId, status: waiting.status, startedAt: waiting.startedAt, endedAt: null });
+    humanWaitStints.push({
+      taskId,
+      status: waiting.status,
+      startedAt: waiting.startedAt,
+      endedAt: null,
+    });
   }
 
   const titleFor = await titlesFor([
@@ -314,22 +341,20 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
   for (const cycle of cycleTimes) cycle.title = titleFor.get(cycle.taskId) ?? null;
 
   const longestWaits: HumanWait[] = humanWaitStints
-    .map(
-      (stint): HumanWait => ({
-        taskId: stint.taskId,
-        reference: formatReference(stint.taskId),
-        title: titleFor.get(stint.taskId) ?? null,
-        status: stint.status,
-        minutes: minutesBetween(stint.startedAt, stint.endedAt ?? generatedAt),
-        startedAt: stint.startedAt.toISOString(),
-        endedAt: stint.endedAt === null ? null : stint.endedAt.toISOString(),
-      }),
-    )
+    .map((stint): HumanWait => ({
+      taskId: stint.taskId,
+      reference: formatReference(stint.taskId),
+      title: titleFor.get(stint.taskId) ?? null,
+      status: stint.status,
+      minutes: minutesBetween(stint.startedAt, stint.endedAt ?? generatedAt),
+      startedAt: stint.startedAt.toISOString(),
+      endedAt: stint.endedAt === null ? null : stint.endedAt.toISOString(),
+    }))
     .sort((a, b) => b.minutes - a.minutes)
     .slice(0, HISTORY_LONGEST_WAITS);
 
-  const humanWaitTotalMinutes = humanWaitEndedInRange.map(
-    (index) => minutesBetween(humanWaitStints[index]!.startedAt, humanWaitStints[index]!.endedAt!),
+  const humanWaitTotalMinutes = humanWaitEndedInRange.map((index) =>
+    minutesBetween(humanWaitStints[index]!.startedAt, humanWaitStints[index]!.endedAt!),
   );
 
   const agentList = [...agents.values()]

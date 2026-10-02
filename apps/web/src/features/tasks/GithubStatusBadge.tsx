@@ -1,4 +1,4 @@
-import { type GITHUB_CHECK_STATES, type GithubItemState } from "@helpdesk/contracts";
+import { type GITHUB_CHECK_STATES, type GithubItemState } from "@estuary/contracts";
 import { Badge, type BadgeTone } from "@/components/ui";
 import { cn } from "@/lib/cn";
 

@@ -1,0 +1,24 @@
+# Weekly, grouped update PRs, so review stays manageable.
+# Minor and patch npm updates arrive as one PR; each major gets its own, since
+# majors in this stack (Prisma, React, Vite, zod) tend to need code changes.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/web]
+    schedule:
+      interval: weekly

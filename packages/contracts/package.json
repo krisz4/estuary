@@ -1,8 +1,8 @@
 {
-  "name": "@helpdesk/contracts",
-  "version": "0.0.0",
+  "name": "@estuary/contracts",
+  "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "description": "Shared zod schemas, enums, and inferred types — the single source of truth for the API surface",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,7 +31,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@helpdesk/tsconfig": "workspace:*",
+    "@estuary/tsconfig": "workspace:*",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }

@@ -4,7 +4,7 @@ import {
   TASK_STATUSES,
   taskSchema,
   taskStatsSchema,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -129,9 +129,9 @@ describe("POST /api/v1/tasks", () => {
   it("lowercases the project", async () => {
     const res = await request(app)
       .post(BASE)
-      .send({ ...validTask, project: "HelpDesk" });
+      .send({ ...validTask, project: "Estuary" });
 
-    expect(res.body.project).toBe("helpdesk");
+    expect(res.body.project).toBe("estuary");
   });
 
   it("stores empty assignee, project, and acceptanceCriteria as null", async () => {
@@ -184,13 +184,13 @@ describe("POST /api/v1/tasks", () => {
       const first = await request(app)
         .post(BASE)
         .set("X-Actor", AGENT)
-        .send({ ...validTask, idempotencyKey: "cc:helpdesk:webhook-retries" });
+        .send({ ...validTask, idempotencyKey: "cc:estuary:webhook-retries" });
 
       const replay = await request(app).post(BASE).set("X-Actor", AGENT).send({
         title: "Something else entirely",
         description: "A different body under the same key.",
         priority: "urgent",
-        idempotencyKey: "cc:helpdesk:webhook-retries",
+        idempotencyKey: "cc:estuary:webhook-retries",
       });
 
       expect(first.status).toBe(201);
@@ -712,5 +712,58 @@ describe("GET /api/v1/tasks", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.meta).toMatchObject({ page: 1, pageSize: 20, total: 2 });
+  });
+});
+
+describe("POST /tasks/cleanup", () => {
+  it("deletes done tasks and returns the count and ids", async () => {
+    const done = await makeTask({ status: "done" });
+    const open = await makeTask({ status: "todo" });
+
+    const res = await request(app).post(`${BASE}/cleanup`).set("X-Actor", HUMAN).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: 1, taskIds: [done.id], dryRun: false });
+    expect(await prisma.task.findMany({ select: { id: true } })).toEqual([{ id: open.id }]);
+  });
+
+  it("accepts no body at all", async () => {
+    await makeTask({ status: "done" });
+
+    const res = await request(app).post(`${BASE}/cleanup`).set("X-Actor", HUMAN);
+
+    expect(res.status).toBe(200);
+    expect(res.body.deleted).toBe(1);
+  });
+
+  it("dry run leaves the tasks in place", async () => {
+    await makeTask({ status: "done" });
+
+    const res = await request(app)
+      .post(`${BASE}/cleanup`)
+      .set("X-Actor", HUMAN)
+      .send({ dryRun: true, project: ["Estuary"] });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: 0, taskIds: [], dryRun: true });
+    expect(await prisma.task.count()).toBe(1);
+  });
+
+  it("is ACTOR_NOT_PERMITTED for an agent", async () => {
+    await makeTask({ status: "done" });
+
+    const res = await request(app).post(`${BASE}/cleanup`).set("X-Actor", AGENT).send({});
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("ACTOR_NOT_PERMITTED");
+    expect(await prisma.task.count()).toBe(1);
+  });
+
+  it("rejects unknown fields and out-of-range olderThanDays", async () => {
+    for (const body of [{ status: "todo" }, { olderThanDays: -1 }, { olderThanDays: 4000 }]) {
+      const res = await request(app).post(`${BASE}/cleanup`).set("X-Actor", HUMAN).send(body);
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe("VALIDATION_ERROR");
+    }
   });
 });

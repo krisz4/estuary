@@ -1,4 +1,4 @@
-import type { EventsQuery, EventsResponse, TaskEventType } from "@helpdesk/contracts";
+import type { EventsQuery, EventsResponse, TaskEventType } from "@estuary/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
@@ -105,7 +105,9 @@ export async function listEvents(query: EventsQuery): Promise<EventsResponse> {
   const titleFor = await titlesForTasks(page.map((row) => row.taskId));
 
   return {
-    data: page.map((row) => serializeEvent({ ...row, taskTitle: titleFor.get(row.taskId) ?? null })),
+    data: page.map((row) =>
+      serializeEvent({ ...row, taskTitle: titleFor.get(row.taskId) ?? null }),
+    ),
     meta: { nextAfter, nextBefore, hasMore },
   };
 }

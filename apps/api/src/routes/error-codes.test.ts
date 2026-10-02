@@ -1,4 +1,4 @@
-import { API_ERROR_CODES, API_ERROR_STATUS, apiErrorResponseSchema } from "@helpdesk/contracts";
+import { API_ERROR_CODES, API_ERROR_STATUS, apiErrorResponseSchema } from "@estuary/contracts";
 import type { Express } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";

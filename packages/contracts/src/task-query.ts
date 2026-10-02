@@ -217,6 +217,11 @@ export const taskFilterFields = {
   // check `claim` on the rows when only live claims matter.
   claimedBy: z.string().trim().toLowerCase().pipe(storedActorSchema.max(80)).optional(),
 
+  // `true` = everything waiting on a person (see `ATTENTION_KINDS`): the three
+  // human statuses, needs_refinement, un-triaged agent suggestions, and tasks
+  // blocked on an outside reason only. ANDs with the other filters.
+  attention: queryBoolean.optional(),
+
   // Subtasks of one parent.
   // Digits only, like `:taskId` — `z.coerce` would accept `0x2a` and `1e3`.
   parentId: taskIdQuerySchema.optional(),

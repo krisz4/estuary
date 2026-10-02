@@ -15,7 +15,7 @@ The specs in `docs/` describe the **finished** system; this file describes the *
 ## Principles behind the ordering
 
 1. **Contracts before consumers.** `packages/contracts` is the only place a shape is defined, so it is built before anything that would otherwise hand-write a duplicate. This is checklist rule #1 in [../../CLAUDE.md](../../CLAUDE.md).
-2. **Test harness before the code it tests.** The `setupFiles` detail in [TESTING.md](./TESTING.md) means a late-added harness runs the entire suite against the developer's real database exactly once, and you discover it by losing that database.
+2. **Test harness before the code it tests.** The `setupFiles` detail in [TESTING.md](../engineering/TESTING.md) means a late-added harness runs the entire suite against the developer's real database exactly once, and you discover it by losing that database.
 3. **Highest-risk logic early, while there is time to get it wrong.** The list query (stage 7) carries the most graded weight and the most known traps; it lands before any UI exists to distract from it.
 4. **Each stage ends at something demonstrable.** A gate is a command that passes or a screen that renders — never "the files are written".
 5. **Docs are edited in the stage that changes behavior**, not swept up at the end. The exception is stage 16, which reconciles what implementation actually settled.
@@ -59,7 +59,7 @@ Build these four behaviors here, not later — every one of them is a downstream
 
 Contracts stay runtime-agnostic: zod and nothing else. No `node:*`, no Express, no Prisma, no React — it is bundled into browser code, and a stray `node:crypto` surfaces as a Vite error pointing at a transitive file.
 
-The `ApiErrorCode` union must match [API_ERROR_CONTRACT.md](./API_ERROR_CONTRACT.md) exactly, including the deliberate absence of `METHOD_NOT_ALLOWED` and `CONFLICT`.
+The `ApiErrorCode` union must match [API_ERROR_CONTRACT.md](../engineering/API_ERROR_CONTRACT.md) exactly, including the deliberate absence of `METHOD_NOT_ALLOWED` and `CONFLICT`.
 
 ---
 
@@ -73,7 +73,7 @@ The `ApiErrorCode` union must match [API_ERROR_CONTRACT.md](./API_ERROR_CONTRACT
 | **Depends on** | 2 |
 | **Gate** | `db:migrate` applies to an empty file; `prisma generate` succeeds; a scratch script writes and reads a task |
 
-Schema exactly as [DATABASE.md](./DATABASE.md) specifies — both rank columns and all seven indexes in the first migration, so no follow-up migration is needed to make sorting work.
+Schema exactly as [DATABASE.md](../engineering/DATABASE.md) specifies — both rank columns and all seven indexes in the first migration, so no follow-up migration is needed to make sorting work.
 
 `lib/prisma.ts` instantiates the client **at import time** from `DATABASE_URL`. That is deliberate and it is what stage 5 has to work around; do not lazily initialise it to "fix" the test problem.
 
@@ -104,7 +104,7 @@ Handle the two body-parser failures **now**. They arrive as `entity.parse.failed
 | **Depends on** | 4 |
 | **Gate** | A throwaway service test passes **and** `apps/api/prisma/data/helpdesk.db` has an unchanged mtime afterwards. Two test files running in parallel do not deadlock |
 
-Non-negotiable per [TESTING.md](./TESTING.md): `DATABASE_URL` is assigned in a `setupFiles` entry, **never** in `beforeAll`. Test modules import `lib/prisma.ts` before any hook runs, so a `beforeAll` assignment lands after the client has already bound to the dev database.
+Non-negotiable per [TESTING.md](../engineering/TESTING.md): `DATABASE_URL` is assigned in a `setupFiles` entry, **never** in `beforeAll`. Test modules import `lib/prisma.ts` before any hook runs, so a `beforeAll` assignment lands after the client has already bound to the dev database.
 
 Each worker gets `${os.tmpdir()}/helpdesk-test-${VITEST_WORKER_ID}.db`, migrated with `prisma migrate deploy` in `globalSetup`, truncated in `beforeEach`, removed at teardown. Per-worker rather than per-file — vitest parallelises across workers and SQLite has one writer.
 
@@ -116,7 +116,7 @@ Verify the mtime assertion by hand once. It is the only check that proves the is
 | --- | --- |
 | **Deliverables** | `services/task-status.ts` (`STATUS_RANK`, `PRIORITY_RANK`, `applyTaskRanks`, `assertTransition`, `applyStatusSideEffects`), `services/task.service.ts` (get / create / update / delete / facets), unit tests |
 | **Depends on** | 5 |
-| **Gate** | Every task + lifecycle case in [TESTING.md](./TESTING.md) passes at the service level |
+| **Gate** | Every task + lifecycle case in [TESTING.md](../engineering/TESTING.md) passes at the service level |
 
 The invariants that need tests written alongside the code, not after:
 
@@ -132,7 +132,7 @@ The invariants that need tests written alongside the code, not after:
 | --- | --- |
 | **Deliverables** | `services/task-query.ts` (`buildWhere`, `buildOrderBy`, `parseReference`), paging via `prisma.$transaction([findMany, count])`, `lib/pagination.ts` |
 | **Depends on** | 6 |
-| **Gate** | The full "List query" section of [TESTING.md](./TESTING.md) passes — it is the longest list in that document for a reason |
+| **Gate** | The full "List query" section of [TESTING.md](../engineering/TESTING.md) passes — it is the longest list in that document for a reason |
 
 **This is the highest-risk stage in the project.** Task 3 of the brief, the most-graded surface, and the home of four known traps:
 
@@ -153,7 +153,7 @@ The `q` clause is **one `OR` group nested inside the top-level `AND`**. `created
 | --- | --- |
 | **Deliverables** | `routes/tasks.route.ts`, `routes/comments.route.ts`, `services/comment.service.ts`, router mounting under `/api/v1`, integration tests |
 | **Depends on** | 7 |
-| **Gate** | Every error code in [API_ERROR_CONTRACT.md](./API_ERROR_CONTRACT.md) has a test that produces it. Routes contain no Prisma import; services contain no `req`/`res` |
+| **Gate** | Every error code in [API_ERROR_CONTRACT.md](../engineering/API_ERROR_CONTRACT.md) has a test that produces it. Routes contain no Prisma import; services contain no `req`/`res` |
 
 Two ordering rules that fail confusingly if missed:
 
@@ -260,7 +260,7 @@ The clean-volume test is the one that matters. It is what catches a schema chang
 
 | | |
 | --- | --- |
-| **Deliverables** | `playwright.config.ts` (with `webServer`), `e2e/globalSetup.ts`, the five specs from [TESTING.md](./TESTING.md) |
+| **Deliverables** | `playwright.config.ts` (with `webServer`), `e2e/globalSetup.ts`, the five specs from [TESTING.md](../engineering/TESTING.md) |
 | **Depends on** | 12 |
 | **Gate** | `pnpm test:e2e` green twice in a row from a cold start, and green when specs are shuffled |
 
@@ -274,7 +274,7 @@ Spec 5 loads the list at 375px and asserts the card layout — the brief grades 
 
 | | |
 | --- | --- |
-| **Deliverables** | Root `README.md` (run instructions for both apps, per brief task 5), corrections across `docs/pages/` and `docs/features/`, both `env.example` files verified against [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md), CI workflow |
+| **Deliverables** | Root `README.md` (run instructions for both apps, per brief task 5), corrections across `docs/pages/` and `docs/features/`, both `env.example` files verified against [ENVIRONMENT_VARIABLES.md](../engineering/ENVIRONMENT_VARIABLES.md), CI workflow |
 | **Depends on** | 15 |
 | **Gate** | A reader following only the README, on a clean clone, gets a running app both ways (local and Docker). CI runs `typecheck` → `lint` → `test` → `test:e2e` green |
 
@@ -312,8 +312,8 @@ Do not add these mid-build; if a stage seems to need one, say so and stop rather
 
 ## Related
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — the layer boundaries every stage must respect
-- [TESTING.md](./TESTING.md) — the required-coverage lists the gates refer to
-- [DATABASE.md](./DATABASE.md) — schema, indexes, SQLite caveats
+- [ARCHITECTURE.md](../engineering/ARCHITECTURE.md) — the layer boundaries every stage must respect
+- [TESTING.md](../engineering/TESTING.md) — the required-coverage lists the gates refer to
+- [DATABASE.md](../engineering/DATABASE.md) — schema, indexes, SQLite caveats
 - [../AGENTS.md](../AGENTS.md) — doc routing and required practices
-- [../../instructions.md](../../instructions.md) — the original brief
+- [../../instructions.md](./instructions.md) — the original brief

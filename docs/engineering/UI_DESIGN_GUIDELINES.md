@@ -42,6 +42,8 @@ The palette follows a few well-established rules for long-session, glanceable to
 - **Dark-mode accents are lighter and slightly desaturated** than their light twins, so they don't vibrate against the dark ground.
 - **Map lanes (project colours) avoid amber and red**, because on the map those hues mean "waits on you" and "blocked".
 
+- **The estuary carries past the map, in water hues only.** Every page sits on the map's contour paper (`.estuary-ground`, `--ground-contour`), and the header's bottom edge is a drifting waterline (`--waterline`, `--waterline-soft`). Page eyebrows speak the map's region voice (`ReachEyebrow`: "THE POOLS *where work waits on you*"), and all-clear empty states use `EmptyState art="still-water"`. Keep these decorative, faint, and out of cards: they frame the page and never compete with content. Motion is ambient and slow, and `prefers-reduced-motion` stops it.
+
 **Color never carries meaning alone.** Every badge renders its text label; every error has text, not just a red border.
 
 ## Type and spacing

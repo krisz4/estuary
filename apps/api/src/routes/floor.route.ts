@@ -1,4 +1,4 @@
-import { floorQuerySchema } from "@helpdesk/contracts";
+import { floorQuerySchema } from "@estuary/contracts";
 import { Router } from "express";
 
 import { asyncHandler } from "../lib/asyncHandler.js";

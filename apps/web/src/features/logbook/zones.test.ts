@@ -1,6 +1,11 @@
-import { TASK_STATUSES } from "@helpdesk/contracts";
+import { TASK_STATUSES } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
-import { LOGBOOK_ZONES, ZONE_STACK_ORDER, ZONE_STATUSES, zoneOfStatus } from "@/features/logbook/zones";
+import {
+  LOGBOOK_ZONES,
+  ZONE_STACK_ORDER,
+  ZONE_STATUSES,
+  zoneOfStatus,
+} from "@/features/logbook/zones";
 
 describe("Logbook zones", () => {
   it("partitions every status into exactly one zone", () => {

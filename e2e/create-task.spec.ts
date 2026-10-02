@@ -109,18 +109,16 @@ test("creates a To do task with a project and criteria, then finds it by project
   /* -------------------------- Filter by project ------------------------ */
 
   /*
-    The project chips are the facets, so the new project being offered at all
-    is the create mutation's invalidation of `facets` at work. The chip's own
-    checkbox is `sr-only` under a styled span; clicking the text is what a user
-    does and what actually toggles it.
+    Project is a scope, picked in the header's switcher; the filter bar has no
+    project control of its own. The switcher's options are the facets, so the
+    new project being offered at all is the create mutation's invalidation of
+    `facets` at work.
   */
-  const projectFilter = page.getByRole("group", { name: "Project" });
-  await projectFilter.getByText(project, { exact: true }).click();
+  const projectSwitcher = page.getByRole("combobox", { name: "Current project" });
+  await pickOption(page, projectSwitcher, project);
 
   await expect(page).toHaveURL(new RegExp(`[?&]project=${project}(&|$)`));
-  await expect(
-    page.getByRole("button", { name: `Remove filter: Project: ${project}` }),
-  ).toBeVisible();
+  await expect(projectSwitcher).toHaveText(project);
   await expect.poll(() => tableRows(page).count()).toBe(1);
   await expect(tableRows(page).first()).toContainText(reference);
 

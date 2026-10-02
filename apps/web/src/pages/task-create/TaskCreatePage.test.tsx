@@ -17,7 +17,7 @@ import {
 const mockApi = (handlers: Record<string, RouteHandler>) =>
   mockHandlers({
     "GET /tasks/facets": () => ({
-      body: { assignees: [], projects: ["helpdesk", "mcp-server"], creators: [] },
+      body: { assignees: [], projects: ["estuary", "mcp-server"], creators: [] },
     }),
     ...handlers,
   });
@@ -357,7 +357,7 @@ describe("TaskCreatePage", () => {
     await waitFor(() => {
       expect(
         [...container.querySelectorAll("datalist option")].map((o) => o.getAttribute("value")),
-      ).toEqual(["helpdesk", "mcp-server"]);
+      ).toEqual(["estuary", "mcp-server"]);
     });
     const project = screen.getByLabelText(/^project/i);
     expect(
@@ -415,9 +415,13 @@ describe("TaskCreatePage", () => {
     expect(screen.getByLabelText(/^title/i)).toHaveValue("Half a thought");
   });
 
-  it("prefills status and project from the Map's quick-add query string", async () => {
+  it("prefills status and project from a prefilled create link's query string", async () => {
     mockApi({});
-    renderRoute({ routes, initialEntries: ["/tasks/new?status=todo&project=mobile-app"], queryClient: makeQueryClient() });
+    renderRoute({
+      routes,
+      initialEntries: ["/tasks/new?status=todo&project=mobile-app"],
+      queryClient: makeQueryClient(),
+    });
 
     // `Select` is a Radix combobox (a button showing the chosen label), not a
     // native `<select>` — assert on the rendered label, not `.value`.
@@ -427,7 +431,11 @@ describe("TaskCreatePage", () => {
 
   it("ignores a status the create schema doesn't allow, and falls back to the project scope when the URL has none", async () => {
     mockApi({});
-    renderRoute({ routes, initialEntries: ["/tasks/new?status=done"], queryClient: makeQueryClient() });
+    renderRoute({
+      routes,
+      initialEntries: ["/tasks/new?status=done"],
+      queryClient: makeQueryClient(),
+    });
 
     expect(await screen.findByLabelText(/starting status/i)).toHaveTextContent("Backlog");
   });
@@ -435,15 +443,23 @@ describe("TaskCreatePage", () => {
 
 describe("parseCreatePrefill", () => {
   it("reads a creatable status and a trimmed project", () => {
-    expect(parseCreatePrefill(new URLSearchParams("status=todo&project=%20mobile-app%20"))).toEqual({
-      status: "todo",
-      project: "mobile-app",
-    });
+    expect(parseCreatePrefill(new URLSearchParams("status=todo&project=%20mobile-app%20"))).toEqual(
+      {
+        status: "todo",
+        project: "mobile-app",
+      },
+    );
   });
 
   it("drops an uncreatable or missing status rather than passing it through", () => {
-    expect(parseCreatePrefill(new URLSearchParams("status=done"))).toEqual({ status: undefined, project: undefined });
-    expect(parseCreatePrefill(new URLSearchParams(""))).toEqual({ status: undefined, project: undefined });
+    expect(parseCreatePrefill(new URLSearchParams("status=done"))).toEqual({
+      status: undefined,
+      project: undefined,
+    });
+    expect(parseCreatePrefill(new URLSearchParams(""))).toEqual({
+      status: undefined,
+      project: undefined,
+    });
   });
 
   it("treats an empty project param as absent, not as 'clear the field'", () => {

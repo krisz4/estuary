@@ -1,4 +1,4 @@
-import { type TaskStatus } from "@helpdesk/contracts";
+import { type TaskStatus } from "@estuary/contracts";
 import {
   Ban,
   CircleHelp,

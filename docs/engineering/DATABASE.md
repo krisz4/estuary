@@ -21,12 +21,14 @@ model Task {
   status             String    @default("backlog")   // TaskStatus (contracts)
   statusRank         Int       @default(0)            // derived, for ordering
   statusNote         String?
+  concerns           String?                          // needs_qa only: what a reviewer must not miss; null = routine
   priority           String    @default("medium")     // TaskPriority (contracts)
   priorityRank       Int       @default(1)            // derived, for ordering
 
   project            String?                          // lowercase slug
   assignee           String?
   createdBy          String                           // actor, e.g. "agent:claude-code"
+  needsTriage        Boolean   @default(false)        // agent-filed, unseen by a person — see Attention_Queue.md
   links              String    @default("[]")         // JSON TaskLink[]
 
   claimedBy          String?
@@ -58,6 +60,7 @@ model Task {
   @@index([assignee])
   @@index([createdBy])
   @@index([parentId])
+  @@index([needsTriage, status])
 }
 
 model Comment {
@@ -102,6 +105,8 @@ model TaskLabel {
 `TaskEvent.project` is denormalised for the same reason `taskId` is not a foreign key: the events feed must still be filterable by project after the task that produced an event is deleted or moved to another project. It is written once, at event-insert time, from the task's *current* project — never updated retroactively if the task later moves.
 
 `TaskLabel` is a composite-key join table (`taskId`, `label`), not a JSON array on `Task`: SQLite has no array type, and `?label=` has to be an indexed exact match, not a `LIKE` scan over an encoded string. Labels are lowercase slugs (`labelSchema` in `packages/contracts`), replace-not-merge on write (`labelsInputSchema`), capped at `TASK_LABELS_MAX` (10) per task.
+
+`needsTriage` and `concerns` back the attention queue — who the inbox shows a task to and why, including work an agent filed or finished without a human asking for it. `(needsTriage, status)` is indexed because `attentionWhere` filters on both. See [../features/Attention_Queue.md](../features/Attention_Queue.md).
 
 ## Integer primary keys (not cuid)
 
@@ -203,11 +208,11 @@ Every create and update path calls it, including the seed. A `prisma.task.update
 ## Migrations
 
 ```bash
-pnpm --filter @helpdesk/api db:migrate --name descriptive_snake_case   # create + apply
-pnpm --filter @helpdesk/api db:deploy                                  # apply only (Docker, CI)
-pnpm --filter @helpdesk/api db:studio                                  # browse
-pnpm --filter @helpdesk/api db:seed                                    # wipe and re-seed 62 tasks
-pnpm --filter @helpdesk/api db:reset                                   # drop, migrate, seed (destructive)
+pnpm --filter @estuary/api db:migrate --name descriptive_snake_case   # create + apply
+pnpm --filter @estuary/api db:deploy                                  # apply only (Docker, CI)
+pnpm --filter @estuary/api db:studio                                  # browse
+pnpm --filter @estuary/api db:seed                                    # wipe and re-seed 62 tasks
+pnpm --filter @estuary/api db:reset                                   # drop, migrate, seed (destructive)
 ```
 
 Rules:
@@ -220,7 +225,7 @@ Rules:
 
 ## The database file
 
-`apps/api/prisma/data/helpdesk.db`, set by `DATABASE_URL="file:./data/helpdesk.db"`. Gitignored, including `-wal` and `-shm` siblings. In Docker it lives on a named volume so it survives `docker compose down` — see [../operations/DOCKER.md](../operations/DOCKER.md).
+`apps/api/prisma/data/estuary.db`, set by `DATABASE_URL="file:./data/estuary.db"`. Gitignored, including `-wal` and `-shm` siblings. In Docker it lives on a named volume so it survives `docker compose down` — see [../operations/DOCKER.md](../operations/DOCKER.md).
 
 Tests never touch it: each worker gets its own temp file, and E2E gets a third, separate database. See [TESTING.md](./TESTING.md).
 

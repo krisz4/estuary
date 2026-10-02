@@ -1,4 +1,4 @@
-import { actorKindOf, type ActorKind } from "@helpdesk/contracts";
+import { actorKindOf, type ActorKind } from "@estuary/contracts";
 import { Bot, Cog, User, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ACTOR_KIND_LABELS, actorDisplayName } from "@/lib/formatting";

@@ -64,7 +64,7 @@ else
   if [ "$status" -eq 2 ]; then
     log "FATAL: the database does not match prisma/schema.prisma."
     log "A schema change shipped without its migration. Run:"
-    log "  pnpm --filter @helpdesk/api db:migrate --name <descriptive_snake_case>"
+    log "  pnpm --filter @estuary/api db:migrate --name <descriptive_snake_case>"
     log "and commit the generated SQL. The difference:"
     sed 's/^/  /' /tmp/drift.txt
   else

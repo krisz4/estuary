@@ -1,8 +1,14 @@
-import { formatReference, type TaskSummary } from "@helpdesk/contracts";
+import { formatReference, type TaskSummary } from "@estuary/contracts";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeSummary, makeTask, mockApi, renderInProviders, type MockRequest } from "@/test/harness";
+import {
+  makeSummary,
+  makeTask,
+  mockApi,
+  renderInProviders,
+  type MockRequest,
+} from "@/test/harness";
 import { NeedsYouCard } from "@/pages/tasks-map/sections/NeedsYouCard";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
@@ -12,7 +18,12 @@ const posted = (requests: MockRequest[], suffix: string) =>
   requests.filter((request) => request.method === "POST" && request.url.pathname.endsWith(suffix));
 
 const task = (overrides: Partial<TaskSummary>): TaskSummary =>
-  makeSummary({ id: 9, reference: formatReference(9), title: "Ship the export throttle", ...overrides });
+  makeSummary({
+    id: 9,
+    reference: formatReference(9),
+    title: "Ship the export throttle",
+    ...overrides,
+  });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,7 +80,10 @@ describe("NeedsYouCard", () => {
       "POST /tasks/9/transition": () => ({ body: makeTask({ id: 9, status: "done" }) }),
     });
     renderInProviders(
-      <NeedsYouCard task={task({ status: "needs_qa", statusNote: "Tested locally." })} onOpen={vi.fn()} />,
+      <NeedsYouCard
+        task={task({ status: "needs_qa", statusNote: "Tested locally." })}
+        onOpen={vi.fn()}
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "Approve" }));
@@ -83,7 +97,10 @@ describe("NeedsYouCard", () => {
       "POST /tasks/9/transition": () => ({ body: makeTask({ id: 9, status: "todo" }) }),
     });
     renderInProviders(
-      <NeedsYouCard task={task({ status: "needs_user_action", statusNote: "Rotate the key." })} onOpen={vi.fn()} />,
+      <NeedsYouCard
+        task={task({ status: "needs_user_action", statusNote: "Rotate the key." })}
+        onOpen={vi.fn()}
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "Done, hand back" }));

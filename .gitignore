@@ -29,7 +29,7 @@ blob-report/
 e2e/*.db
 e2e/*.db-shm
 e2e/*.db-wal
-e2e/helpdesk-e2e.db
+e2e/estuary-e2e.db
 
 # Editor / OS
 .DS_Store

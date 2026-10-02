@@ -2,6 +2,7 @@ import { createApp } from "./app.js";
 import { env } from "./lib/env.js";
 import { logger } from "./lib/logger.js";
 import { enableWal } from "./lib/prisma.js";
+import { startRetentionSweep } from "./services/task-cleanup.service.js";
 
 /**
  * The listen entrypoint. The only file in `src/` that binds a port — `app.ts`
@@ -39,6 +40,10 @@ const server = app.listen(env.PORT, env.HOST, () => {
   });
 });
 
+// Deletes tasks that have been done for longer than DONE_RETENTION_DAYS. Lives
+// here rather than in `createApp()` so tests and the seed never start a timer.
+const stopRetentionSweep = startRetentionSweep();
+
 /**
  * Docker sends `SIGTERM` and waits ~10s before `SIGKILL`. Stop accepting
  * connections, let in-flight requests finish, then exit — otherwise a deploy
@@ -57,6 +62,7 @@ const shutdown = (signal: NodeJS.Signals): void => {
   shuttingDown = true;
 
   logger.info("Shutting down", { signal });
+  stopRetentionSweep();
 
   const forceExit = setTimeout(() => {
     logger.warn("Forcing exit — connections did not close in time");

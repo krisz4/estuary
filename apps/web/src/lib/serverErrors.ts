@@ -7,7 +7,7 @@ import { splitValidationErrors } from "@/lib/errorMessages";
  * **This is the one place a form is allowed to touch `details`.** Mapping the
  * object straight onto fields is the documented trap: the server files a
  * pathless zod issue under the key `_` (stage 8 constraint in
- * `docs/engineering/BUILD_LOG.md`), and any key that is not a field this form
+ * `docs/history/BUILD_LOG.md`), and any key that is not a field this form
  * renders — a query parameter, a field added API-side later — has exactly the
  * same shape. `setError("_", …)` on an unregistered name is dropped by
  * react-hook-form **silently**, so the user gets a rejected submit with nothing

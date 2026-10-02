@@ -1,4 +1,4 @@
-import { type TaskStatus } from "@helpdesk/contracts";
+import { type TaskStatus } from "@estuary/contracts";
 import { Field, Select } from "@/components/ui";
 import { isTaskStatus, statusChangeErrorMessage } from "@/lib/statusTransition";
 import { statusOptions } from "@/lib/formatting";

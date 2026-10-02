@@ -1,4 +1,4 @@
-import { taskSchema, taskSummarySchema, type Task, type TaskSummary } from "@helpdesk/contracts";
+import { taskSchema, taskSummarySchema, type Task, type TaskSummary } from "@estuary/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
@@ -95,8 +95,10 @@ export const makeTask = (overrides: Partial<Task> = {}): Task =>
     description: "Users land on a blank page after signing in.",
     status: "backlog",
     statusNote: null,
+    concerns: null,
+    needsTriage: false,
     priority: "medium",
-    project: "helpdesk",
+    project: "estuary",
     assignee: null,
     acceptanceCriteria: null,
     links: [],

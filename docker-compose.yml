@@ -1,4 +1,4 @@
-# Helpdesk — one command to a running, seeded app.
+# Estuary — one command to a running, seeded app.
 #
 #   docker compose up --build
 #
@@ -13,14 +13,14 @@
 # access control, so the default all-interfaces binding would hand task CRUD to
 # the LAN.
 
-name: helpdesk
+name: estuary
 
 services:
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    image: helpdesk-api:local
+    image: estuary-api:local
     ports:
       # **Bound to loopback, not to every interface.** Without API_TOKEN this
       # API has no access control, which is why `apps/api/env.example` ships
@@ -33,7 +33,7 @@ services:
     environment:
       # Absolute path on the volume. A relative `file:./…` would resolve from
       # prisma/ inside the image and land on a layer the volume then shadows.
-      DATABASE_URL: file:/data/helpdesk.db
+      DATABASE_URL: file:/data/estuary.db
       # Required in a container: the default 127.0.0.1 would bind the loopback
       # interface *inside* the namespace, and the published port would connect
       # to nothing.
@@ -61,19 +61,21 @@ services:
       #   API_TOKEN            optional bearer gate on /api/v1 (min 16 chars)
       #   AGENTS_MAY_COMPLETE  let agent: actors move tasks to done (default false)
       #   CLAIM_LEASE_MINUTES  claim lease length (default 30)
+      #   DONE_RETENTION_DAYS  delete tasks done longer than this (default 90, 0 = off)
       #   GITHUB_TOKEN / GITHUB_WEBHOOK_SECRET / GITHUB_API_URL
       #                        the optional GitHub integration; off while both of
       #                        the first two are blank (docs/features/GitHub_Integration.md)
       API_TOKEN: ${API_TOKEN:-}
       AGENTS_MAY_COMPLETE: ${AGENTS_MAY_COMPLETE:-}
       CLAIM_LEASE_MINUTES: ${CLAIM_LEASE_MINUTES:-}
+      DONE_RETENTION_DAYS: ${DONE_RETENTION_DAYS:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       GITHUB_API_URL: ${GITHUB_API_URL:-}
     volumes:
       # Named, so the database survives `docker compose down`. `down -v` is the
       # documented way to start over.
-      - helpdesk-db:/data
+      - estuary-db:/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
       interval: 5s
@@ -97,7 +99,7 @@ services:
         # Relative → same origin → no preflights. See apps/web/Dockerfile for
         # why this is a build arg and not an environment variable.
         VITE_API_BASE_URL: /api/v1
-    image: helpdesk-web:local
+    image: estuary-web:local
     ports:
       # Loopback, for the reason spelled out under the api service above.
       - "127.0.0.1:5173:80"
@@ -110,4 +112,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  helpdesk-db:
+  estuary-db:

@@ -1,4 +1,4 @@
-import { type TaskSummary } from "@helpdesk/contracts";
+import { type TaskSummary } from "@estuary/contracts";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatRelative } from "@/lib/formatting";
@@ -20,7 +20,8 @@ export const NeedsYouCard = ({
   onOpen: (taskId: number) => void;
   className?: string;
 }) => {
-  const { kind, contextLine, primaryLabel, runPrimary, isPrimaryPending, secondaryLabel } = useNeedsYouActions(task);
+  const { kind, contextLine, primaryLabel, runPrimary, isPrimaryPending, secondaryLabel } =
+    useNeedsYouActions(task);
 
   return (
     <article
@@ -34,7 +35,9 @@ export const NeedsYouCard = ({
     >
       <div className="flex items-center justify-between gap-2">
         {kind === null ? null : <KindPill kind={kind} />}
-        <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground">{task.reference}</span>
+        <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground">
+          {task.reference}
+        </span>
       </div>
       <button
         type="button"
@@ -45,7 +48,9 @@ export const NeedsYouCard = ({
       </button>
       <p className="line-clamp-1 text-xs text-muted-foreground">{contextLine}</p>
       <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-        <time className="shrink-0 text-[11px] text-muted-foreground">{formatRelative(task.updatedAt)}</time>
+        <time className="shrink-0 text-[11px] text-muted-foreground">
+          {formatRelative(task.updatedAt)}
+        </time>
         <div className="flex shrink-0 items-center gap-1">
           <Button
             type="button"

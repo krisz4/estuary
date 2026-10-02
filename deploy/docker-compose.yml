@@ -1,0 +1,58 @@
+# Estuary from the published images: no clone, no build.
+#
+#   curl -fsSLO https://raw.githubusercontent.com/krisz4/estuary/main/deploy/docker-compose.yml
+#   API_TOKEN="$(openssl rand -hex 32)" docker compose up -d
+#
+# Open http://localhost:5173. The web container serves the UI and proxies /api/
+# to the api service, so a reverse proxy only needs to reach port 5173.
+#
+# Pin a version with ESTUARY_VERSION=0.1.0 (default: latest). Every setting is
+# explained in docs/operations/DOCKER.md, and building from source instead is the
+# repo-root docker-compose.yml.
+#
+# Differences from the repo-root compose file, on purpose:
+#   - SEED_ON_START is off: a real instance starts empty (set it to "true" for a demo).
+#   - DOCS_ENABLED is off: Swagger UI stays opt-in on a deployed instance.
+#   - Set API_TOKEN before anyone else can reach it. See SECURITY.md.
+name: estuary
+
+services:
+  api:
+    image: ghcr.io/krisz4/estuary-api:${ESTUARY_VERSION:-latest}
+    environment:
+      DATABASE_URL: file:/data/estuary.db
+      HOST: 0.0.0.0
+      PORT: "4000"
+      NODE_ENV: production
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      SEED_ON_START: ${SEED_ON_START:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DOCS_ENABLED: ${DOCS_ENABLED:-false}
+      API_TOKEN: ${API_TOKEN:-}
+      AGENTS_MAY_COMPLETE: ${AGENTS_MAY_COMPLETE:-}
+      CLAIM_LEASE_MINUTES: ${CLAIM_LEASE_MINUTES:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-}
+    volumes:
+      - estuary-db:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/krisz4/estuary-web:${ESTUARY_VERSION:-latest}
+    ports:
+      - "${ESTUARY_BIND:-127.0.0.1}:${ESTUARY_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  estuary-db:

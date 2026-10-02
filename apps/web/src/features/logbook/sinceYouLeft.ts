@@ -1,4 +1,4 @@
-import { actorKindOf, type TaskEvent } from "@helpdesk/contracts";
+import { actorKindOf, type TaskEvent } from "@estuary/contracts";
 import { formatCount, formatRelative } from "@/lib/formatting";
 
 /**
@@ -74,7 +74,8 @@ export const sinceYouLeftSummary = (
       } else if (to === "needs_qa") qaRequested += 1;
       // Same definition `GET /stats/history` uses for a bucket's `sentBack`:
       // out of `needs_qa` to anything but `done`/`deferred`.
-      if (from === "needs_qa" && to !== "done" && to !== "deferred" && to !== undefined) sentBack += 1;
+      if (from === "needs_qa" && to !== "done" && to !== "deferred" && to !== undefined)
+        sentBack += 1;
     } else if (event.type === "decision.requested") {
       decisionsRequested += 1;
       if (actorKindOf(event.actor) === "agent") bumpAsked(event.actor);
@@ -120,7 +121,10 @@ export const sinceYouLeftSummary = (
  * (first visit, or a visit with no qualifying events) — the caller falls back
  * to its own first-visit/"nothing new" copy in that case.
  */
-export const sinceYouLeftSentence = (summary: SinceYouLeftSummary, lastVisitAt: string | null): string | null => {
+export const sinceYouLeftSentence = (
+  summary: SinceYouLeftSummary,
+  lastVisitAt: string | null,
+): string | null => {
   if (summary.firstVisit || lastVisitAt === null) return null;
 
   const questions = summary.decisionsRequested + summary.actionsRequested;
@@ -128,10 +132,15 @@ export const sinceYouLeftSentence = (summary: SinceYouLeftSummary, lastVisitAt: 
   if (summary.shipped > 0) parts.push(`${summary.shipped} shipped`);
   if (summary.sentBack > 0) parts.push(`${summary.sentBack} sent back`);
   if (questions > 0) {
-    const who = summary.topAskingAgent !== null && summary.topAskingAgent.count === questions
-      ? bareActorName(summary.topAskingAgent.actor)
-      : null;
-    parts.push(who !== null ? `${who} asked ${formatCount(questions, "question")}` : `${formatCount(questions, "question")} asked`);
+    const who =
+      summary.topAskingAgent !== null && summary.topAskingAgent.count === questions
+        ? bareActorName(summary.topAskingAgent.actor)
+        : null;
+    parts.push(
+      who !== null
+        ? `${who} asked ${formatCount(questions, "question")}`
+        : `${formatCount(questions, "question")} asked`,
+    );
   }
 
   if (parts.length === 0) return null;

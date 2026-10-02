@@ -167,6 +167,15 @@
   --map-lane-6: oklch(0.58 0.15 125);
   --map-lane-7: oklch(0.5 0.14 280);
   --map-lane-8: oklch(0.55 0.05 60);
+
+  /*
+   * Estuary identity outside the map — the contour "map paper" behind every
+   * page (`.estuary-ground`), the header's waterline, and the course strip on
+   * task detail. Water hues only: amber stays "waits on you".
+   */
+  --ground-contour: oklch(0.45 0.04 215 / 0.085);
+  --waterline: oklch(0.62 0.07 215 / 0.75);
+  --waterline-soft: oklch(0.7 0.05 205 / 0.4);
 }
 
 .dark {
@@ -261,6 +270,11 @@
   --map-lane-6: oklch(0.8 0.15 125);
   --map-lane-7: oklch(0.66 0.13 280);
   --map-lane-8: oklch(0.72 0.04 60);
+
+  /* Estuary identity outside the map — see the light block. */
+  --ground-contour: oklch(0.82 0.05 210 / 0.055);
+  --waterline: oklch(0.68 0.08 212 / 0.8);
+  --waterline-soft: oklch(0.6 0.06 205 / 0.45);
 }
 
 /* ------------------------------------------------------------------ *
@@ -348,14 +362,19 @@
   --color-map-lane-6: var(--map-lane-6);
   --color-map-lane-7: var(--map-lane-7);
   --color-map-lane-8: var(--map-lane-8);
+  --color-ground-contour: var(--ground-contour);
+  --color-waterline: var(--waterline);
+  --color-waterline-soft: var(--waterline-soft);
 
   /*
    * Elevation. `raised` is every resting card/panel; `floating` is popovers,
    * drawers and hover-lifted cards. Both lead with a 1px inset top highlight —
    * in dark mode that edge, not the drop shadow, is what reads as "lifted".
    */
-  --shadow-raised: inset 0 1px 0 0 var(--highlight), 0 1px 2px 0 var(--shadow), 0 2px 8px -2px var(--shadow);
-  --shadow-floating: inset 0 1px 0 0 var(--highlight), 0 2px 6px -1px var(--shadow), 0 12px 32px -8px var(--shadow);
+  --shadow-raised:
+    inset 0 1px 0 0 var(--highlight), 0 1px 2px 0 var(--shadow), 0 2px 8px -2px var(--shadow);
+  --shadow-floating:
+    inset 0 1px 0 0 var(--highlight), 0 2px 6px -1px var(--shadow), 0 12px 32px -8px var(--shadow);
 
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
@@ -376,6 +395,43 @@
   --animate-overlay-in: overlay-in 150ms ease-out;
   --animate-sheet-in: sheet-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
   --animate-dialog-in: dialog-in 150ms ease-out;
+
+  /*
+   * Estuary motion — slow and ambient on purpose; `prefers-reduced-motion`
+   * (the base layer below) freezes all of it. `ripple` is the ring a bead
+   * sends out on the course strip; `bob` floats the bead in empty states.
+   */
+  --animate-ripple: ripple 2.8s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+  --animate-bob: bob 5s ease-in-out infinite;
+  --animate-flow: flow 2.4s linear infinite;
+
+  /* One period of the course strip's 18px tick pattern, so the loop is seamless. */
+  @keyframes flow {
+    to {
+      background-position-x: 18px;
+    }
+  }
+
+  @keyframes ripple {
+    from {
+      opacity: 0.55;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: scale(2.6);
+    }
+  }
+
+  @keyframes bob {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-2px);
+    }
+  }
 
   @keyframes overlay-in {
     from {
@@ -508,4 +564,105 @@
   --normal-bg: var(--popover);
   --normal-text: var(--popover-foreground);
   --normal-border: var(--border);
+}
+
+/* ------------------------------------------------------------------ *
+ * Estuary ground and waterline
+ *
+ * Both are single-colour shapes painted through a **mask**, not an
+ * `<img>` or a `background-image`: the colour then comes from a token
+ * (`--ground-contour`, `--waterline`) and follows the theme, while the shape
+ * stays one static asset. A background-image SVG cannot read CSS variables.
+ * ------------------------------------------------------------------ */
+@layer components {
+  /*
+   * The survey-map contours behind every page — the same paper the Map is
+   * drawn on, so leaving the map does not feel like leaving the estuary.
+   * `src/assets/contours.svg` is a seamless tile from
+   * `scripts/generate-contours.mjs`. The second mask layer fades it down the
+   * page so it frames the top of a screen and gets out of the way of reading.
+   * Cards are opaque, so it only ever shows in the gutters.
+   */
+  .estuary-ground {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-color: var(--ground-contour);
+    mask-image:
+      url("./assets/contours.svg"),
+      linear-gradient(to bottom, #000 0, rgb(0 0 0 / 0.55) 520px, rgb(0 0 0 / 0.3) 100%);
+    mask-size:
+      560px 560px,
+      100% 100%;
+    mask-repeat: repeat, no-repeat;
+    mask-composite: intersect;
+  }
+
+  /*
+   * The header's bottom edge as a moving waterline: two sine strokes drifting
+   * at different speeds, so it reads as water rather than a looping GIF.
+   *
+   * **Compositor-only motion.** The strokes are wider than the header by one
+   * wave period and slide with `transform`, which the GPU animates without
+   * the main thread. The first version animated `mask-position` instead: that
+   * re-styled and repainted the translucent, blurred header 60 times a second
+   * on every page (measured: 60 style recalcs/s and ~7% CPU on an idle Inbox).
+   * The edge fade lives on the still parent, so it doesn't travel with the
+   * waves.
+   */
+  .waterline {
+    --wave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='8' viewBox='0 0 120 8'%3E%3Cpath d='M0 4 Q15 1 30 4 T60 4 T90 4 T120 4' fill='none' stroke='%23000' stroke-width='1.25'/%3E%3C/svg%3E");
+    position: absolute;
+    inset-inline: 0;
+    bottom: -4px;
+    height: 8px;
+    overflow: hidden;
+    pointer-events: none;
+    mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  }
+
+  .waterline::before,
+  .waterline::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    width: calc(100% + 180px);
+    mask-image: var(--wave);
+    mask-size: 120px 8px;
+    mask-repeat: repeat-x;
+    will-change: transform;
+  }
+
+  .waterline::before {
+    background-color: var(--waterline);
+    animation: waterline-drift 14s linear infinite;
+  }
+
+  .waterline::after {
+    background-color: var(--waterline-soft);
+    mask-size: 180px 8px;
+    top: 1.5px;
+    animation: waterline-drift-slow 26s linear infinite reverse;
+  }
+
+  /* One wave period each, so the loop is seamless. */
+  @keyframes waterline-drift {
+    from {
+      transform: translateX(-120px);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes waterline-drift-slow {
+    from {
+      transform: translateX(-180px) scaleY(0.7);
+    }
+    to {
+      transform: translateX(0) scaleY(0.7);
+    }
+  }
 }

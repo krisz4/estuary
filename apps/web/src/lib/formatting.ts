@@ -8,7 +8,7 @@ import {
   type CommentKind,
   type TaskPriority,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 /**
  * Presentation helpers. Nothing here knows about the network or React.

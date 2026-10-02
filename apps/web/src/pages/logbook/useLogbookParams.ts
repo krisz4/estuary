@@ -6,7 +6,7 @@ import {
   MAX_PAGE_SIZE,
   TASK_EVENT_TYPES,
   type TaskEventType,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { DEFAULT_LOGBOOK_RANGE, isLogbookRange, type LogbookRange } from "@/features/logbook/range";
 import { parseProjects } from "@/pages/tasks-list/useTaskListParams";
 
@@ -65,14 +65,25 @@ export const useLogbookParams = (): UseLogbookParamsResult => {
 
     return {
       project: parseProjects(searchParams.getAll("project")),
-      range: range === "custom" && (from === undefined || to === undefined) ? DEFAULT_LOGBOOK_RANGE : range,
+      range:
+        range === "custom" && (from === undefined || to === undefined)
+          ? DEFAULT_LOGBOOK_RANGE
+          : range,
       from: range === "custom" ? from : undefined,
       to: range === "custom" ? to : undefined,
       actor: searchParams.get("actor")?.trim().toLowerCase() ?? "",
       type: typeRaw !== null && isTaskEventType(typeRaw) ? [typeRaw] : [],
       archiveQ: searchParams.get("q") ?? "",
-      archivePage: parsePositiveInt(searchParams.get("page"), DEFAULT_PAGE, Number.MAX_SAFE_INTEGER),
-      archivePageSize: parsePositiveInt(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE),
+      archivePage: parsePositiveInt(
+        searchParams.get("page"),
+        DEFAULT_PAGE,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      archivePageSize: parsePositiveInt(
+        searchParams.get("pageSize"),
+        DEFAULT_PAGE_SIZE,
+        MAX_PAGE_SIZE,
+      ),
     };
   }, [searchParams]);
 

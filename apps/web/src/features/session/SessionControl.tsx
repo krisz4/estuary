@@ -1,4 +1,4 @@
-import { actorKindOf, actorNameOf } from "@helpdesk/contracts";
+import { actorKindOf, actorNameOf } from "@estuary/contracts";
 import { UserRound } from "lucide-react";
 import { Button } from "@/components/ui";
 import { openSessionDialog, useSessionActor } from "@/stores/session";

@@ -16,7 +16,7 @@ import {
   type TaskRef,
   type TaskStatus,
   type TaskSummary,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { z } from "zod";
 
 /**
@@ -80,6 +80,8 @@ export interface TaskRow {
   /** Constrained to `TaskStatus` by the zod enums on every write path. */
   status: string;
   statusNote: string | null;
+  concerns: string | null;
+  needsTriage: boolean;
   /** Constrained to `TaskPriority` by the zod enums on every write path. */
   priority: string;
   project: string | null;
@@ -250,6 +252,8 @@ export const serializeTaskSummary = (row: TaskRow & TaskSummaryRelations): TaskS
     description: row.description,
     status: row.status as TaskStatus,
     statusNote: row.statusNote,
+    concerns: row.concerns,
+    needsTriage: row.needsTriage,
     priority: row.priority as TaskPriority,
     project: row.project,
     assignee: row.assignee,

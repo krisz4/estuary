@@ -1,4 +1,4 @@
-import type { TaskStatus } from "@helpdesk/contracts";
+import type { TaskStatus } from "@estuary/contracts";
 
 /**
  * Bead travel — phase 4's "signature interaction." Pure geometry/timing
@@ -43,7 +43,8 @@ export const computeAnimationDurationMs = (pathLengthPx: number): number =>
   Math.min(MAX_DURATION_MS, Math.max(MIN_DURATION_MS, pathLengthPx / SPEED_PX_PER_MS));
 
 /** Standard ease-in-out cubic. */
-export const easeInOutCubic = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+export const easeInOutCubic = (t: number): number =>
+  t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 
 // Mutable, matching `scene.ts`'s own `Pt`/`SceneGeometry` tuple shape — a
 // `readonly` tuple here would fight every call site that hands one to
@@ -80,7 +81,12 @@ export const sampleQuadratic = (p0: Point, control: Point, p1: Point, steps: num
  * range (a station's `u` outside the channel's own span, or too few points
  * survive the filter to draw a path at all) rather than throwing.
  */
-export const sliceMainChannel = (mainPoints: readonly Point[], us: readonly number[], fromU: number, toU: number): Point[] => {
+export const sliceMainChannel = (
+  mainPoints: readonly Point[],
+  us: readonly number[],
+  fromU: number,
+  toU: number,
+): Point[] => {
   const lo = Math.min(fromU, toU) - 0.02;
   const hi = Math.max(fromU, toU) + 0.02;
   const indices: number[] = [];
@@ -104,7 +110,10 @@ export const pointAtFraction = (points: readonly Point[], t: number): Point => {
   const target = pathLength(points) * clamped;
   let covered = 0;
   for (let i = 1; i < points.length; i += 1) {
-    const segment = Math.hypot(points[i]![0] - points[i - 1]![0], points[i]![1] - points[i - 1]![1]);
+    const segment = Math.hypot(
+      points[i]![0] - points[i - 1]![0],
+      points[i]![1] - points[i - 1]![1],
+    );
     if (covered + segment >= target || i === points.length - 1) {
       const segT = segment === 0 ? 0 : (target - covered) / segment;
       const x = points[i - 1]![0] + (points[i]![0] - points[i - 1]![0]) * segT;
@@ -135,7 +144,8 @@ export const diffMovedTasks = (
   const moved: MovedTask[] = [];
   for (const task of current) {
     const prev = prevStatus.get(task.id);
-    if (prev !== undefined && prev !== task.status) moved.push({ taskId: task.id, from: prev, to: task.status });
+    if (prev !== undefined && prev !== task.status)
+      moved.push({ taskId: task.id, from: prev, to: task.status });
   }
   return moved;
 };

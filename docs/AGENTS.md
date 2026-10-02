@@ -1,6 +1,6 @@
 # Documentation guide for AI agents
 
-Use this file when exploring or changing the helpdesk codebase. Humans: see [README.md](./README.md). Commands and repo-wide rules: [../CLAUDE.md](../CLAUDE.md).
+Use this file when exploring or changing the Estuary codebase. Humans: see [README.md](./README.md). Commands and repo-wide rules: [../CLAUDE.md](../CLAUDE.md).
 
 ## Repo context
 
@@ -20,6 +20,7 @@ The product is small enough to hold in your head: **one resource (Task) with one
 | What are the task fields, statuses, and CRUD rules? | [features/Tasks.md](./features/Tasks.md) |
 | How do filtering / sorting / paging work end to end? | [features/Task_Query_Filter_Sort_Page.md](./features/Task_Query_Filter_Sort_Page.md) |
 | Which status transitions are legal? | [features/Task_Status_Lifecycle.md](./features/Task_Status_Lifecycle.md) |
+| What puts a task in front of a human, and why? | [features/Attention_Queue.md](./features/Attention_Queue.md) |
 | Where does `TASK-000042` come from? | [features/Task_Numbering.md](./features/Task_Numbering.md) |
 | How do comments work? | [features/Comments.md](./features/Comments.md) |
 | How do labels work? | [features/Labels.md](./features/Labels.md) |
@@ -29,13 +30,14 @@ The product is small enough to hold in your head: **one resource (Task) with one
 | Schema, indexes, migrations, SQLite caveats | [engineering/DATABASE.md](./engineering/DATABASE.md) |
 | Layer boundaries, dependency direction | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) |
 | Where does this piece of state belong — URL, query cache, or store? | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) § Web data flow |
-| In what order is this being built, and what is done? | [engineering/IMPLEMENTATION_PLAN.md](./engineering/IMPLEMENTATION_PLAN.md) |
-| What did a stage defer, and what is the known perf debt? | [engineering/BUILD_LOG.md](./engineering/BUILD_LOG.md) |
+| In what order was the original helpdesk built? (historical) | [history/IMPLEMENTATION_PLAN.md](./history/IMPLEMENTATION_PLAN.md) |
+| What did a stage defer (`P`/`D` numbers cited in comments)? (historical) | [history/BUILD_LOG.md](./history/BUILD_LOG.md) |
 | What env var controls X? | [engineering/ENVIRONMENT_VARIABLES.md](./engineering/ENVIRONMENT_VARIABLES.md) |
 | How do I test this / what must a test cover? | [engineering/TESTING.md](./engineering/TESTING.md) |
 | Spacing, breakpoints, states, colors | [engineering/UI_DESIGN_GUIDELINES.md](./engineering/UI_DESIGN_GUIDELINES.md) |
 | How do I run it in Docker? | [operations/DOCKER.md](./operations/DOCKER.md) |
 | What runs in CI, and what will it fail on? | [operations/CI.md](./operations/CI.md) |
+| How is a release cut and published? | [operations/RELEASING.md](./operations/RELEASING.md) |
 | What does the seed generate? | [features/Seed_Data.md](./features/Seed_Data.md) |
 | How do coding agents connect (MCP tools, plugin, skill, setup)? | [features/Agent_Integration.md](./features/Agent_Integration.md) |
 
@@ -44,7 +46,7 @@ The product is small enough to hold in your head: **one resource (Task) with one
 1. **`pages/`** — One file per UI route. Filename ≈ PascalCase screen name (`Task_Detail.md` → `/tasks/:taskId`). Cross-link the `features/` docs it depends on. Index: [pages/README.md](./pages/README.md).
 2. **`features/`** — Domain behavior, data model, API contract, invariants. **Prefer updating the feature doc when changing business rules** — the page doc describes presentation, the feature doc describes truth.
 3. **`engineering/`** — Cross-cutting technical reference. Keep `ENVIRONMENT_VARIABLES.md` in sync with `apps/api/env.example`, `apps/web/env.example`, and `apps/mcp/env.example`.
-4. **`operations/`** — How it runs locally, in Docker, and in CI.
+4. **`operations/`** — How it runs locally, in Docker, and in CI, and how it's released.
 
 ### Frontmatter (`pages/` + `features/` only)
 
@@ -119,10 +121,10 @@ The client validates for UX (inline field errors, disabled submit); the server v
 
 - Update the matching `pages/` or `features/` doc if behavior, routes, or params changed.
 - New env var → `engineering/ENVIRONMENT_VARIABLES.md` + the relevant `env.example`.
-- New endpoint or changed payload → register the path in the matching `apps/api/src/routes/*.openapi.ts` (a route with no entry fails `openapi.contract.test.ts`), then regenerate with `pnpm --filter @helpdesk/api openapi:gen` and commit `openapi.json`. **Do not add OpenAPI metadata to a contract schema** — it is applied from `apps/api` with zod's `.meta()`, because `packages/contracts` may depend on nothing but zod.
+- New endpoint or changed payload → register the path in the matching `apps/api/src/routes/*.openapi.ts` (a route with no entry fails `openapi.contract.test.ts`), then regenerate with `pnpm --filter @estuary/api openapi:gen` and commit `openapi.json`. **Do not add OpenAPI metadata to a contract schema** — it is applied from `apps/api` with zod's `.meta()`, because `packages/contracts` may depend on nothing but zod.
 - New error code → add it to `engineering/API_ERROR_CONTRACT.md`'s table.
 
 ## Out of scope for `docs/`
 
-- The brief itself: [../instructions.md](../instructions.md) — historical, do not edit.
+- The brief itself: [history/instructions.md](./history/instructions.md) — historical, do not edit.
 - Human setup instructions: [../README.md](../README.md).

@@ -1,0 +1,5 @@
+# False positives from `gitleaks git`, one fingerprint per line (commit:file:rule:line).
+# Add an entry only after confirming the match is not a secret, and say why.
+
+# Seed task slug `key: "offline-conflict-sheet"`, matched by generic-api-key.
+d72f2be5eae271d1da794338ce8837c64cdbe875:apps/api/src/seed/seed-data.ts:generic-api-key:1042

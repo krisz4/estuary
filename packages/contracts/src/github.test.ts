@@ -5,9 +5,9 @@ import { findReferences } from "./reference.js";
 
 describe("parseGithubUrl", () => {
   it("reads pull and issue URLs, ignoring trailing segments", () => {
-    expect(parseGithubUrl("https://github.com/krisz4/helpdesk/pull/123/files")).toEqual({
+    expect(parseGithubUrl("https://github.com/krisz4/estuary/pull/123/files")).toEqual({
       owner: "krisz4",
-      repo: "helpdesk",
+      repo: "estuary",
       kind: "pull",
       number: 123,
     });

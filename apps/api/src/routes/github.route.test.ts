@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 
-import { apiErrorResponseSchema, taskSchema } from "@helpdesk/contracts";
+import { apiErrorResponseSchema, taskSchema } from "@estuary/contracts";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -197,11 +197,11 @@ describe("POST /api/v1/integrations/github/webhook", () => {
       pull_request: {
         title: `Fix login (task-${task.id})`,
         body: "",
-        html_url: "https://github.com/krisz4/helpdesk/pull/55",
+        html_url: "https://github.com/krisz4/estuary/pull/55",
         merged: false,
         head: { ref: "main", sha: "deadbeef" },
       },
-      repository: { full_name: "krisz4/helpdesk" },
+      repository: { full_name: "krisz4/estuary" },
     };
     const body = JSON.stringify(payload);
 

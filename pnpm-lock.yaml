@@ -11,10 +11,10 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.8.1(jiti@2.7.0))
-      '@helpdesk/contracts':
+      '@estuary/contracts':
         specifier: workspace:*
         version: link:packages/contracts
-      '@helpdesk/tsconfig':
+      '@estuary/tsconfig':
         specifier: workspace:*
         version: link:packages/tsconfig
       '@playwright/test':
@@ -56,7 +56,7 @@ importers:
       '@asteasolutions/zod-to-openapi':
         specifier: ^9.1.0
         version: 9.1.0(zod@4.4.3)
-      '@helpdesk/contracts':
+      '@estuary/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@prisma/client':
@@ -81,7 +81,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@helpdesk/tsconfig':
+      '@estuary/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@types/cors':
@@ -114,9 +114,6 @@ importers:
 
   apps/mcp:
     dependencies:
-      '@helpdesk/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.1
         version: 1.30.1(zod@4.4.3)
@@ -124,12 +121,18 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@helpdesk/tsconfig':
+      '@estuary/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@estuary/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@types/node':
         specifier: ^20.19.0
         version: 20.19.43
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -139,7 +142,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@helpdesk/contracts':
+      '@estuary/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@hookform/resolvers':
@@ -188,7 +191,7 @@ importers:
       '@babel/core':
         specifier: ^8.0.1
         version: 8.0.1
-      '@helpdesk/tsconfig':
+      '@estuary/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@rolldown/plugin-babel':
@@ -246,7 +249,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@helpdesk/tsconfig':
+      '@estuary/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
       typescript:

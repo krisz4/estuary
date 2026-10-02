@@ -82,7 +82,11 @@ export const AppHeader = () => {
           redundant one, so a single element would carry an accessible name that
           is right at one breakpoint and doubled at the other.
         */}
-          <Button asChild size="icon" className="rounded-full shadow-md shadow-primary/25 sm:hidden">
+          <Button
+            asChild
+            size="icon"
+            className="rounded-full shadow-md shadow-primary/25 sm:hidden"
+          >
             <Link to="/tasks/new" state={createState} aria-label="New task">
               <Plus aria-hidden="true" />
             </Link>
@@ -100,13 +104,12 @@ export const AppHeader = () => {
       </div>
 
       {/*
-        The brand's colours as a hairline: land → water → the amber of "waits
-        on you". Decorative, so it sits outside the flow and the tree.
+        The header's bottom edge as a waterline — two sine strokes drifting at
+        different speeds (`.waterline` in index.css). Water hues only: the old
+        hairline faded into amber, which is reserved for "waits on you".
+        Decorative, so it sits outside the flow and the tree.
       */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-gradient-to-r from-transparent via-[#6fa3ad] to-[#f2a33a]/70 opacity-70"
-      />
+      <div aria-hidden="true" className="waterline" />
     </header>
   );
 };

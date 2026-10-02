@@ -34,11 +34,13 @@ Pick the first row whose signal matches. New work defaults to **backlog**; **tod
 3. **Keep the lease alive.** `task_heartbeat` at least every 10 minutes of work and before anything long (test suites, builds). A lapsed lease lets another agent take the task over.
 4. **Log milestones.** `task_comment` with `kind: "progress"` when you choose an approach, finish a meaningful part, or hit a surprise — enough for another agent to resume from.
 5. **Finish with exactly one hand-off** — each of these releases your claim:
-   - `task_submit_for_qa` — acceptance criteria met. `summary`: what changed, how to verify (commands, URLs, screens), what was left out. `links`: PR / branch / commit. Put the reference (`TASK-000042`) in the PR title or branch name: with the GitHub webhook connected, that links the PR to the task by itself.
+   - `task_submit_for_qa` — acceptance criteria met. `summary`: what changed, how to verify (commands, URLs, screens). `links`: PR / branch / commit. `concerns`: **only** when a reviewer must look at something specific (a deviation, a risk, a shortcut, a check you could not run) — omit it for routine work, which the human then approves in one click. `followUps`: see below. Put the reference (`TASK-000042`) in the PR title or branch name: with the GitHub webhook connected, that links the PR to the task by itself.
    - `task_request_decision` — you need a human's choice. One clear question, 2–6 distinct options each with its consequences, your `recommendedOption`, and `context` (what you found). After it is answered the task returns to `todo`; whoever picks it up next reads the answer from `decisions[0]` / `statusNote`.
    - `task_request_action` — a human must act. Instructions precise enough to follow without asking you anything: what, where, how to tell it worked.
    - `task_block` — waiting on other tasks (`blockedBy` ids; it returns to `todo` by itself when they are done) or an outside event (`reason`).
-   - `task_release` — you are stopping without finishing (session ending, out of your depth). The `reason` says what you did and what is left.
+   - `task_release` — you are stopping without finishing (session ending, out of your depth). The `reason` says what you did and what is left; separable leftovers go in `followUps`. (If a session ends with a task still claimed, the plugin releases it back to `todo` for you — but a hand-off with a reason is always better.)
+
+**Nothing you found may stay in chat.** Every recommendation you make, part you left out, or problem you noticed goes in `followUps` on the hand-off — no extra calls: each becomes a subtask a human sees, `todo` if you give `acceptanceCriteria`, otherwise `needs_refinement` with `missing` (what a person must decide or supply). Keep each one short; skip it if it is not worth a person's attention.
 
 **Never leave a task claimed and idle. Never mark a task done.** Pass `expectedVersion` (the `version` from your last read) on writes; on `VERSION_CONFLICT`, `task_get`, reconcile, retry.
 
@@ -53,18 +55,18 @@ Search before you file, and before you start, so you neither duplicate a task no
 
 ## Filing tasks
 
-- **Follow-ups found mid-work** (a bug next door, missing tests, a refactor you resisted): search first (above), then `task_create` them in `backlog` rather than widening the task you hold. Mention the new reference in a progress comment.
+- **Follow-ups found mid-work** (a bug next door, missing tests, a refactor you resisted): collect them and attach them as `followUps` to your hand-off rather than widening the task you hold. `task_create` only when it must exist before you hand off (another agent should start it now) — search first, then file it as `todo` with criteria or `needs_refinement`; `backlog` is for ideas you are *not* recommending. Tasks you file are marked untriaged until a person looks at them.
 - **Labels**: in a monorepo, label every task with its workspace (`labels: ["web"]`, `["api", "contracts"]`); add a kind (`bug`, `flaky-test`) when useful. `task_update` `labels` replaces the whole set.
 - **From a GitHub issue**: `task_import_github_issue` (URL, `owner/repo#123`, or `#123` for this repo) instead of retyping it — importing twice returns the same open task.
 - **Subtasks**: `parentId` = the task being split. Give each its own acceptance criteria if it goes straight to `todo`.
 - **Ordering**: if B cannot start before A is done, `task_add_dependency` (B depends on A). `task_next` skips B until A is `done`; `deferred` does not count as done.
-- **Project**: the repository's name as a slug (`helpdesk`, `web-app`). The server defaults to it (from `origin`, so worktrees agree), and the SessionStart context names it — pass `project` explicitly only for another repository.
+- **Project**: the repository's name as a slug (`estuary`, `web-app`). The server defaults to it (from `origin`, so worktrees agree), and the SessionStart context names it — pass `project` explicitly only for another repository.
 - **Idempotency**: a key is always sent. Omitted, it is derived from project + title, so a retried or re-run create returns the existing task — while that task is still open. Once it is `done` or `deferred` the same call files a fresh task. To file a second *open* task under an existing title, pass your own `idempotencyKey`, e.g. `claude-code:<project>:<short-slug>-<date>`.
 - `task_create` with `transition` creates, then transitions — two requests. If the transition fails the task still exists: fix it with `task_transition`, do not create again.
 
 ## When a human asks in chat
 
-- **"What needs me?"** — `task_list` with `status: ["needs_user_decision", "needs_user_action", "needs_qa"]` (all projects unless they name one). For each: the question and options, the instructions, or the QA summary — then offer to record their answers.
+- **"What needs me?"** — `task_list` with `attention: true` (all projects unless they name one): decisions, actions, QA, refinement, untriaged suggestions, and tasks blocked on an outside reason. For each: the question and options, the instructions, the QA summary and concerns, or what is missing — then offer to record their answers.
 - **They answer a decision in chat** — `task_answer_decision` with their `choice` (an option label) and/or `note`. Only ever with an answer the human gave you in this conversation: never answer a decision yourself, including your own — the server records you as `answeredBy` but cannot tell the difference.
 - **They reject QA** — `task_comment` with `kind: "qa_feedback"` saying why, then `task_transition` to `todo` (or wherever they say).
 - **"What changed?"** — `task_events` from a cursor (all projects; narrow with `project`, `actor`, `type`); `task_stats` for counts.

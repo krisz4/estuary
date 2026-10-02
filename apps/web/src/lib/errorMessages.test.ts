@@ -1,4 +1,4 @@
-import { API_ERROR_CODES } from "@helpdesk/contracts";
+import { API_ERROR_CODES } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiClientError, CLIENT_ERROR_CODES } from "@/api/http";
 import {

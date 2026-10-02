@@ -1,10 +1,12 @@
 import {
+  HUMAN_ATTENTION_STATUSES,
   parseReference,
   parseSearchTerms,
   type PaginatedTasks,
   type TaskListQuery,
+  SUGGESTED_TASK_STATUSES,
   type TaskSort,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { paginate, toSkipTake } from "../lib/pagination.js";
@@ -21,7 +23,7 @@ import { PRIORITY_RANK, STATUS_RANK } from "./task-status.js";
  * the brief. Behavioural spec:
  * `docs/features/Task_Query_Filter_Sort_Page.md`.
  *
- * `parseReference` is **imported** from `@helpdesk/contracts`, not reimplemented
+ * `parseReference` is **imported** from `@estuary/contracts`, not reimplemented
  * here. The web app parses references too, and two parsers that disagree about
  * whether `TASK-4` means task 4 or tasks 40–49 is a bug nobody would look for.
  */
@@ -202,6 +204,18 @@ export async function resolveTextSearch(
   return rows.map((row) => Number(row.id));
 }
 
+/**
+ * Everything waiting on a person — the `where` twin of `attentionKindOf` in
+ * `packages/contracts` (`task-query.test.ts` checks the two agree row by row).
+ */
+export const attentionWhere: Prisma.TaskWhereInput = {
+  OR: [
+    { status: { in: [...HUMAN_ATTENTION_STATUSES, "needs_refinement"] } },
+    { status: { in: [...SUGGESTED_TASK_STATUSES] }, needsTriage: true },
+    { status: "blocked", dependencies: { none: { dependsOn: { status: { not: "done" } } } } },
+  ],
+};
+
 /** The filter fields `buildWhere` reads. A subset of the parsed query. */
 export type TaskWhereQuery = Pick<
   TaskListQuery,
@@ -215,6 +229,7 @@ export type TaskWhereQuery = Pick<
   | "claimedBy"
   | "parentId"
   | "parentIsNull"
+  | "attention"
   | "dependsOn"
   | "dependencyOf"
   | "q"
@@ -375,6 +390,9 @@ export function buildWhere(
   }
   if (query.parentIsNull !== undefined) {
     clauses.push({ parentId: query.parentIsNull ? null : { not: null } });
+  }
+  if (query.attention !== undefined) {
+    clauses.push(query.attention ? attentionWhere : { NOT: attentionWhere });
   }
   if (query.dependsOn !== undefined) {
     clauses.push({ dependencies: { some: { dependsOnId: query.dependsOn } } });

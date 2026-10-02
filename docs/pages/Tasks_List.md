@@ -22,7 +22,7 @@ The most feature-dense page in the app. `/` no longer redirects here — it redi
 
 | Component | Role on this page |
 | --------- | ----------------- |
-| `TaskFilterBar` (`src/features/tasks/`) | Debounced search input, status/priority/**label** chip multiselects, a **"Top-level only"** checkbox (`parentIsNull`), assignee select, "created by" actor select, created-from/created-to date inputs (UTC), removable active-filter chips (including the relational ones — `parentId`, `parentIsNull`, `dependsOn`, `dependencyOf` — that arrive by link rather than by a control in this bar), clear-all. Two one-click **status presets** sit beside the Status legend: **"Open work"** selects every status except the closed lane (`OPEN_STATUSES`), **"Needs you"** selects `HUMAN_ATTENTION_STATUSES` — the same three statuses the inbox shows. Assignee, project, label, and creator options all come from `GET /tasks/facets` |
+| `TaskFilterBar` (`src/features/tasks/`) | Debounced search input, status/priority/**label** chip multiselects, a **"Top-level only"** checkbox (`parentIsNull`), assignee select, "created by" actor select, created-from/created-to date inputs (UTC), removable active-filter chips (including the relational ones — `parentId`, `parentIsNull`, `dependsOn`, `dependencyOf` — that arrive by link rather than by a control in this bar), clear-all. Two one-click **status presets** sit beside the Status legend: **"Open work"** selects every status except the closed lane (`OPEN_STATUSES`), **"Needs you"** selects `HUMAN_ATTENTION_STATUSES` — the three statuses where an agent explicitly stopped (decide/act/review), a `status=` filter rather than the broader `attention=true` the [Inbox](./Inbox.md) and the map's "Needs you" section use, which also cover `needs_refinement`, un-triaged suggestions, and outside-`blocked` work. Assignee, project, label, and creator options all come from `GET /tasks/facets` |
 | `ViewSwitch` (`src/features/tasks/`) | List ⇄ Map, carrying the current search string so switching view preserves every filter. The map reads the same URL state — [Tasks_Map.md](./Tasks_Map.md) |
 | `TaskTable` | Desktop `<table>` — sortable column headers, per-row meta line (claim, subtask count linking to `?parentId=`, open dependencies, open decision, comment count), label chips (each linking to `?label=`) under the title, search-term highlighting in the title when `q` is set, two real links per row |
 | `TaskCardList` | Mobile stacked cards (same data, different presentation), each the whole card as one link; label chips render unlinked (a link cannot nest inside the card's own `<a>`) |
@@ -30,11 +30,12 @@ The most feature-dense page in the app. `/` no longer redirects here — it redi
 | `Pagination` (`src/components/`) | Page buttons with ellipsis, prev/next, "Showing X–Y of Z", page-size select |
 | `StatusBadge`, `PriorityBadge`, `ActorBadge`, `ClaimIndicator`, `LabelChips` | Per-row indicators — ten status tones, four priority tones (plus the card's left-border stripe), agent/human/system actor badge, "who holds the claim", the task's label set |
 | `GithubImportDialog` (`src/features/tasks/`) | "Import issue" entry point beside the view switch, shown only when `GET /integrations/github` reports `enabled: true`. Issue URL/shorthand, optional project/status/labels → `POST /integrations/github/import`; success navigates to the created (or already-imported) task |
+| `CleanupDoneButton` (`src/features/tasks/`) | "Clean up done" beside the view switch. Reads the done count from `useTaskStatsQuery(project)` (disabled at zero), confirms with that count and the scope (the URL's `project`, or all projects), then `POST /tasks/cleanup`. Toasts the deleted count or the error. See [../features/Task_Cleanup.md](../features/Task_Cleanup.md) |
 | `EmptyState` (`src/components/`) | Three variants: no tasks at all, no matches for the current filters, and a page past the end of a non-empty result |
 | `ErrorPanel` (`src/components/`) | Copy from `errorCopy(code)` + Retry (`refetch()`) |
 | `TaskTableSkeleton` / `TaskCardListSkeleton` | Loading placeholders that render the real chrome, so the layout does not jump |
 
-**There is no "New task" button on this page.** `AppHeader` renders one on every screen. "Import issue" is the one page-specific header action, and only when the GitHub integration is on.
+**There is no "New task" button on this page.** `AppHeader` renders one on every screen. The page-specific header actions are "Clean up done" and, only when the GitHub integration is on, "Import issue".
 
 ### Hooks
 
@@ -44,6 +45,7 @@ The most feature-dense page in the app. `/` no longer redirects here — it redi
 | `useTasksQuery(params)` | `GET /api/v1/tasks`; key `queryKeys.tasks.list(query)`; `placeholderData: keepPreviousData` so the table does not blank out while paging; polls every 15s (`api/polling.ts`) |
 | `useTaskFacetsQuery()` | `GET /api/v1/tasks/facets`; key `queryKeys.tasks.facets()`; 5-minute `staleTime` — the option lists change rarely |
 | `useGithubIntegrationQuery()` | `GET /api/v1/integrations/github`; key `queryKeys.github.status()`; gates the "Import issue" button. `retry: false` — a disabled instance answers 404 every time |
+| `useTaskStatsQuery(project)` / `useCleanupDoneTasksMutation()` | The done count for the cleanup button (key `queryKeys.tasks.statsFor`); the cleanup itself, invalidating `tasks.all` + `events.all` |
 | `useImportGithubIssueMutation()` | `POST /api/v1/integrations/github/import`; invalidates `tasks.all` + `events.all` on success |
 
 ### API calls
@@ -54,8 +56,10 @@ The most feature-dense page in the app. `/` no longer redirects here — it redi
 | `getTaskFacets()` | `GET` | `/api/v1/tasks/facets` — assignees, projects, labels, creators for the filter selects |
 | `getGithubIntegrationStatus()` | `GET` | `/api/v1/integrations/github` |
 | `importGithubIssue(input)` | `POST` | `/api/v1/integrations/github/import` |
+| `getTaskStats(query)` | `GET` | `/api/v1/tasks/stats?project=` |
+| `cleanupDoneTasks(input)` | `POST` | `/api/v1/tasks/cleanup` |
 
-Otherwise a read-only page. Full parameter semantics: [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md); labels: [../features/Labels.md](../features/Labels.md); the import flow: [../features/GitHub_Integration.md](../features/GitHub_Integration.md).
+Otherwise a read-only page; the one bulk write is "Clean up done" ([../features/Task_Cleanup.md](../features/Task_Cleanup.md)). Full parameter semantics: [../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md); labels: [../features/Labels.md](../features/Labels.md); the import flow: [../features/GitHub_Integration.md](../features/GitHub_Integration.md).
 
 ## Behavior / UI flow
 

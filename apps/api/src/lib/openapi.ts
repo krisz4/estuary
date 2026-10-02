@@ -13,6 +13,7 @@ import {
   eventsResponseSchema,
   floorSnapshotSchema,
   historyResponseSchema,
+  cleanupDoneTasksResponseSchema,
   nextTaskResponseSchema,
   paginatedTasksSchema,
   taskEventSchema,
@@ -21,7 +22,7 @@ import {
   taskStatsSchema,
   taskSummarySchema,
   type ApiErrorCode,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { z } from "zod";
 
 /**
@@ -103,13 +104,19 @@ export const TaskFacetsComponent = taskFacetsSchema.meta({
 export const TaskStatsComponent = taskStatsSchema.meta({
   id: "TaskStats",
   description:
-    "Task count per status — all ten keys present, zero included — plus needsAttention, the number of tasks waiting on a human (needs_user_decision + needs_user_action + needs_qa).",
+    "Task count per status — all ten keys present, zero included — plus needsAttention, the number of tasks waiting on a person — the rows GET /tasks?attention=true returns.",
 });
 
 export const NextTaskResponseComponent = nextTaskResponseSchema.meta({
   id: "NextTaskResponse",
   description:
     "The task just claimed for the caller, or { task: null } when nothing is available — not a 404, since nothing is missing.",
+});
+
+export const CleanupDoneTasksResponseComponent = cleanupDoneTasksResponseSchema.meta({
+  id: "CleanupDoneTasksResponse",
+  description:
+    "How many done tasks were deleted (or, on a dry run, would be) and their ids, ascending.",
 });
 
 export const TaskEventComponent = taskEventSchema.meta({

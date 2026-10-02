@@ -5,7 +5,7 @@ import {
   SYSTEM_ACTOR,
   transitionInputSchema,
   type TransitionInputRaw,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { env } from "../lib/env.js";

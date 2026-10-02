@@ -21,7 +21,12 @@ describe("MiniNav", () => {
   });
 
   it("stays hidden when there is no matching sentinel in the document at all", () => {
-    render(<MiniNav heroSentinelId="does-not-exist" sections={[{ id: "needs-you", label: "Needs you" }]} />);
+    render(
+      <MiniNav
+        heroSentinelId="does-not-exist"
+        sections={[{ id: "needs-you", label: "Needs you" }]}
+      />,
+    );
     expect(screen.queryByRole("navigation", { name: "Map sections" })).not.toBeInTheDocument();
   });
 });
@@ -90,7 +95,12 @@ describe("MiniNav, with a driveable IntersectionObserver", () => {
     // reason.
     act(() =>
       sentinelObserver?.callback([
-        { isIntersecting: false, intersectionRatio: 0, target: sentinelObserver.target, boundingClientRect: { top: -10 } },
+        {
+          isIntersecting: false,
+          intersectionRatio: 0,
+          target: sentinelObserver.target,
+          boundingClientRect: { top: -10 },
+        },
       ]),
     );
 
@@ -115,7 +125,12 @@ describe("MiniNav, with a driveable IntersectionObserver", () => {
     // load, on a hero tall enough that the sentinel starts off-screen.
     act(() =>
       sentinelObserver?.callback([
-        { isIntersecting: false, intersectionRatio: 0, target: sentinelObserver.target, boundingClientRect: { top: 1200 } },
+        {
+          isIntersecting: false,
+          intersectionRatio: 0,
+          target: sentinelObserver.target,
+          boundingClientRect: { top: 1200 },
+        },
       ]),
     );
 
@@ -169,7 +184,12 @@ describe("MiniNav, with a driveable IntersectionObserver", () => {
     const sentinelObserver = observers.find((o) => o.target.id === "hero-end");
     act(() =>
       sentinelObserver?.callback([
-        { isIntersecting: false, intersectionRatio: 0, target: sentinelObserver.target, boundingClientRect: { top: -10 } },
+        {
+          isIntersecting: false,
+          intersectionRatio: 0,
+          target: sentinelObserver.target,
+          boundingClientRect: { top: -10 },
+        },
       ]),
     );
 
@@ -183,7 +203,10 @@ describe("MiniNav, with a driveable IntersectionObserver", () => {
       ]),
     );
 
-    expect(screen.getByRole("link", { name: /Needs you/ })).toHaveAttribute("aria-current", "location");
+    expect(screen.getByRole("link", { name: /Needs you/ })).toHaveAttribute(
+      "aria-current",
+      "location",
+    );
     expect(screen.getByRole("link", { name: /All tasks/ })).not.toHaveAttribute("aria-current");
   });
 });

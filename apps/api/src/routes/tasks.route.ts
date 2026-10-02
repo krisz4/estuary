@@ -2,6 +2,7 @@ import {
   addDependencyInputSchema,
   answerDecisionInputSchema,
   claimTaskInputSchema,
+  cleanupDoneTasksInputSchema,
   createTaskInputSchema,
   hasAtLeastOneField,
   nextTaskInputSchema,
@@ -10,7 +11,7 @@ import {
   taskStatsQuerySchema,
   transitionInputSchema,
   updateTaskInputSchema,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { Router } from "express";
 
 import { asyncHandler } from "../lib/asyncHandler.js";
@@ -24,6 +25,7 @@ import {
   getTaskStats,
   updateTask,
 } from "../services/task.service.js";
+import { cleanupDoneTasks } from "../services/task-cleanup.service.js";
 import { listTasks } from "../services/task-query.js";
 import {
   addDependency,
@@ -151,6 +153,19 @@ tasksRouter.post(
   asyncHandler(async (req, res) => {
     const input = nextTaskInputSchema.parse(req.body ?? {});
     res.status(200).json({ task: await nextTask(input, req.actor) });
+  }),
+);
+
+/**
+ * `POST /tasks/cleanup` — hard-delete `done` tasks in bulk, humans only. A
+ * literal segment like `/next`; `dryRun: true` returns the same shape without
+ * deleting anything. See `docs/features/Task_Cleanup.md`.
+ */
+tasksRouter.post(
+  "/cleanup",
+  asyncHandler(async (req, res) => {
+    const input = cleanupDoneTasksInputSchema.parse(req.body ?? {});
+    res.status(200).json(await cleanupDoneTasks(input, req.actor));
   }),
 );
 

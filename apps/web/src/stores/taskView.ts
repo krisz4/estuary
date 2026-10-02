@@ -49,7 +49,7 @@ import { safeStorage } from "@/stores/safeStorage";
 export const TASK_VIEWS = ["list", "map"] as const;
 export type TaskView = (typeof TASK_VIEWS)[number];
 
-export const TASK_VIEW_STORAGE_KEY = "helpdesk.taskView";
+export const TASK_VIEW_STORAGE_KEY = "estuary.taskView";
 
 const isTaskView = (value: unknown): value is TaskView =>
   typeof value === "string" && (TASK_VIEWS as readonly string[]).includes(value);

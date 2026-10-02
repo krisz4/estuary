@@ -1,5 +1,5 @@
 import {
-  HUMAN_ATTENTION_STATUSES,
+  actorKindOf,
   TASK_STATUSES,
   TERMINAL_TASK_STATUSES,
   type CreateTaskInput,
@@ -8,7 +8,7 @@ import {
   type TaskStats,
   type TaskStatus,
   type UpdateTaskInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { taskNotFound, validationError } from "../lib/errors.js";
@@ -22,6 +22,7 @@ import {
   unblockDependents,
   writeTask,
 } from "./task-guards.js";
+import { attentionWhere } from "./task-query.js";
 import { loadTask } from "./task-read.js";
 import { applyTaskRanks } from "./task-status.js";
 
@@ -87,14 +88,16 @@ export async function getTaskFacets(): Promise<TaskFacets> {
 
 /**
  * Count per status — every status present, zero included, so a client can index
- * the record without a fallback — plus the size of the inbox.
+ * the record without a fallback — plus the size of the inbox: everything
+ * `GET /tasks?attention=true` would list (`attentionWhere`), not just the three
+ * human statuses.
  */
 export async function getTaskStats(projects?: string[]): Promise<TaskStats> {
-  const rows = await prisma.task.groupBy({
-    by: ["status"],
-    where: projects === undefined ? {} : { project: { in: projects } },
-    _count: { _all: true },
-  });
+  const scope: Prisma.TaskWhereInput = projects === undefined ? {} : { project: { in: projects } };
+  const [rows, needsAttention] = await Promise.all([
+    prisma.task.groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
+    prisma.task.count({ where: { AND: [scope, attentionWhere] } }),
+  ]);
 
   const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, 0])) as Record<
     TaskStatus,
@@ -106,10 +109,6 @@ export async function getTaskStats(projects?: string[]): Promise<TaskStats> {
     if (row.status in byStatus) byStatus[row.status as TaskStatus] = row._count._all;
   }
 
-  const needsAttention = HUMAN_ATTENTION_STATUSES.reduce(
-    (sum, status) => sum + byStatus[status],
-    0,
-  );
   return { byStatus, needsAttention };
 }
 
@@ -201,32 +200,8 @@ export async function createTask(input: CreateTaskInput, actor: string): Promise
         });
       }
 
-      const row = await tx.task.create({
-        data: applyTaskRanks({
-          title: input.title,
-          description: input.description,
-          status: input.status,
-          priority: input.priority,
-          project: input.project ?? null,
-          assignee: input.assignee ?? null,
-          acceptanceCriteria: input.acceptanceCriteria ?? null,
-          links: JSON.stringify(input.links ?? []),
-          labels: { create: (input.labels ?? []).map((label) => ({ label })) },
-          parentId: input.parentId ?? null,
-          idempotencyKey: key ?? null,
-          createdBy: actor,
-        }),
-        select: { id: true },
-      });
-
-      await recordEvent(tx, {
-        taskId: row.id,
-        type: "task.created",
-        actor,
-        payload: { status: input.status, title: input.title },
-      });
-
-      return loadTask(tx, row.id);
+      const id = await insertTask(tx, input, actor);
+      return loadTask(tx, id);
     });
     return { task, created: true };
   } catch (err) {
@@ -239,6 +214,53 @@ export async function createTask(input: CreateTaskInput, actor: string): Promise
     }
     throw err;
   }
+}
+
+/**
+ * The row + its `task.created` event, inside the caller's transaction. Shared by
+ * `createTask` and the follow-ups a hand-off files (`task-workflow.service.ts`).
+ *
+ * An agent's task starts `needsTriage`: nobody has seen it yet. One the agent
+ * goes on to claim at once (its own work, filed to be tracked) is cleared by
+ * that claim, so only what it left for others stays in front of people.
+ */
+export async function insertTask(
+  tx: Db,
+  input: Omit<CreateTaskInput, "idempotencyKey"> & { idempotencyKey?: string | undefined },
+  actor: string,
+  extra: { statusNote?: string; followUpOf?: number } = {},
+): Promise<number> {
+  const row = await tx.task.create({
+    data: applyTaskRanks({
+      title: input.title,
+      description: input.description,
+      status: input.status,
+      statusNote: extra.statusNote ?? null,
+      priority: input.priority,
+      project: input.project ?? null,
+      assignee: input.assignee ?? null,
+      acceptanceCriteria: input.acceptanceCriteria ?? null,
+      links: JSON.stringify(input.links ?? []),
+      labels: { create: (input.labels ?? []).map((label) => ({ label })) },
+      parentId: input.parentId ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
+      createdBy: actor,
+      needsTriage: actorKindOf(actor) === "agent",
+    }),
+    select: { id: true },
+  });
+
+  await recordEvent(tx, {
+    taskId: row.id,
+    type: "task.created",
+    actor,
+    payload: {
+      status: input.status,
+      title: input.title,
+      ...(extra.followUpOf === undefined ? {} : { followUpOf: extra.followUpOf }),
+    },
+  });
+  return row.id;
 }
 
 const isTerminal = (status: string): boolean =>
@@ -282,6 +304,7 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
         acceptanceCriteria: true,
         links: true,
         parentId: true,
+        needsTriage: true,
         labels: { select: { label: true }, orderBy: { label: "asc" } },
       },
     });
@@ -301,6 +324,11 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
       const value = incoming[field];
       if (value !== undefined && value !== existing[field]) data[field] = value;
     }
+
+    // A person editing an agent's suggestion has seen it. An explicit value
+    // wins: `needsTriage: false` alone is the inbox's "Accept".
+    const triage = input.needsTriage ?? (actorKindOf(actor) === "human" ? false : undefined);
+    if (triage !== undefined && triage !== existing.needsTriage) data.needsTriage = triage;
 
     // `labels` replaces the whole set (same rule as `links`), and is not a
     // column on `Task` — it lives in the `TaskLabel` join table, so it cannot

@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   actorKindOf,
+  SUGGESTED_TASK_STATUSES,
   actorNameOf,
   type CommentKind,
   type DecisionStatus,
@@ -9,7 +10,7 @@ import {
   type TaskLink,
   type TaskPriority,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 import { env } from "../lib/env.js";
 import { logger } from "../lib/logger.js";
@@ -81,6 +82,8 @@ export interface SeedTaskWrite {
   acceptanceCriteria: string | null;
   status: TaskStatus;
   statusNote: string | null;
+  concerns: string | null;
+  needsTriage: boolean;
   priority: TaskPriority;
   project: string | null;
   assignee: string | null;
@@ -629,6 +632,13 @@ function buildTask(
     acceptanceCriteria: template.acceptanceCriteria ?? null,
     status,
     statusNote,
+    concerns: status === "needs_qa" ? (template.concerns ?? null) : null,
+    // The server's rule: an agent filed it and nobody has claimed it since. In
+    // the seed nothing a person did touches a never-started task.
+    needsTriage:
+      actorKindOf(template.createdBy) === "agent" &&
+      !everStarted &&
+      (SUGGESTED_TASK_STATUSES as readonly string[]).includes(status),
     priority: template.priority,
     project: template.project,
     assignee,

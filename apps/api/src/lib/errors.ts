@@ -1,4 +1,4 @@
-import { API_ERROR_STATUS, type ApiErrorCode } from "@helpdesk/contracts";
+import { API_ERROR_STATUS, type ApiErrorCode } from "@estuary/contracts";
 import type { ZodError } from "zod";
 
 /**
@@ -8,7 +8,7 @@ import type { ZodError } from "zod";
  * constructed as responses.** `middleware/errorHandler.ts` is the single place
  * that writes an error body, so nothing here knows about `res`.
  *
- * The code union and its HTTP status both come from `@helpdesk/contracts`, so a
+ * The code union and its HTTP status both come from `@estuary/contracts`, so a
  * typo is a compile error and the status table cannot drift from the client's
  * copy of it.
  */
@@ -130,7 +130,7 @@ export const internalError = () => new ApiError("INTERNAL_ERROR");
 /**
  * Structural check for a `ZodError`, not `instanceof`.
  *
- * The schemas that throw live in `@helpdesk/contracts` and are compiled against
+ * The schemas that throw live in `@estuary/contracts` and are compiled against
  * *that* package's `zod`, while this app resolves its own. pnpm dedupes them to
  * one physical copy today, so `instanceof` happens to hold — but the day the two
  * ranges drift to different minors, every validation failure would silently fall

@@ -10,7 +10,7 @@ import {
   historyQuerySchema,
   taskListQuerySchema,
   taskStatsQuerySchema,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import type { Router } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
@@ -274,7 +274,7 @@ describe("the list query is documented from the real schema", () => {
     sort: "priority:desc",
     status: "todo",
     priority: "high",
-    project: "helpdesk",
+    project: "estuary",
     label: "web",
     assignee: "Priya Nair",
     assigneeIsNull: undefined, // exclusive with `assignee`; probed on its own below
@@ -282,6 +282,7 @@ describe("the list query is documented from the real schema", () => {
     claimedBy: "agent:claude-code",
     parentId: "42",
     parentIsNull: undefined, // exclusive with `parentId`; probed on its own below
+    attention: "true",
     dependsOn: "7",
     dependencyOf: "7",
     q: "printer",
@@ -373,6 +374,7 @@ describe("the other query surfaces are documented from their schemas", () => {
         "assignee",
         "assigneeIsNull",
         "at",
+        "attention",
         "claimedBy",
         "createdBy",
         "createdFrom",
@@ -519,7 +521,7 @@ describe("openapi.json", () => {
     // The failure message people will actually see, so it says what to do.
     expect(
       committed,
-      "openapi.json is stale — run `pnpm --filter @helpdesk/api openapi:gen` and commit the result",
+      "openapi.json is stale — run `pnpm --filter @estuary/api openapi:gen` and commit the result",
     ).toEqual(JSON.parse(JSON.stringify(document)));
   });
 });

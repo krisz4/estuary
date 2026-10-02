@@ -5,7 +5,7 @@ import {
   type FloorSnapshot,
   type FloorTask,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { useMemo } from "react";
 import { useEventLogQuery } from "@/api/events";
 import { cn } from "@/lib/cn";
@@ -20,7 +20,8 @@ import { laneColor, readFloorColors } from "@/features/floor/scene";
  */
 export type BriefingProps = {
   snapshot: FloorSnapshot;
-  onSetStatuses: (statuses: TaskStatus[]) => void;
+  /** A tile was clicked — the page opens those statuses' full list (it does not filter the map). */
+  onOpenStatuses: (statuses: TaskStatus[]) => void;
   onSelectTask: (taskId: number) => void;
   project: readonly string[];
   /** ISO timestamp to summarise since — the page computes this once (`useMapLastVisit`). */
@@ -122,7 +123,12 @@ const TaskChip = ({
   >
     <span
       className="size-1.5 rounded-full"
-      style={{ backgroundColor: laneColor(projectColorIndex(task.project, projectOrder), readFloorColors()) }}
+      style={{
+        backgroundColor: laneColor(
+          projectColorIndex(task.project, projectOrder),
+          readFloorColors(),
+        ),
+      }}
       aria-hidden="true"
     />
     #{task.id}
@@ -131,7 +137,7 @@ const TaskChip = ({
 
 export const Briefing = ({
   snapshot,
-  onSetStatuses,
+  onOpenStatuses,
   onSelectTask,
   project,
   since,
@@ -148,16 +154,20 @@ export const Briefing = ({
 
   const taskById = new Map(snapshot.tasks.map((task) => [task.id, task] as const));
   const projectOrder = useMemo(
-    () => [...new Set(snapshot.tasks.map((t) => t.project).filter((p): p is string => p !== null))].sort(),
+    () =>
+      [
+        ...new Set(snapshot.tasks.map((t) => t.project).filter((p): p is string => p !== null)),
+      ].sort(),
     [snapshot.tasks],
   );
 
-  const idsTo = (to: string): number[] =>
-    [
-      ...new Set(
-        events.filter((event) => (event.payload as { to?: unknown }).to === to).map((event) => event.taskId),
-      ),
-    ];
+  const idsTo = (to: string): number[] => [
+    ...new Set(
+      events
+        .filter((event) => (event.payload as { to?: unknown }).to === to)
+        .map((event) => event.taskId),
+    ),
+  ];
 
   // "Agents picked up N tasks" — agents only. A human claiming a task (the
   // drawer's "Claim this task", or testing via the API with a `human:*`
@@ -165,7 +175,8 @@ export const Briefing = ({
   // it in made "Agents picked up 6 tasks" true when every one of those
   // claims was actually a human.
   const claimedCount = events.filter(
-    (event) => (event.payload as { to?: unknown }).to === "in_progress" && event.actor.startsWith("agent:"),
+    (event) =>
+      (event.payload as { to?: unknown }).to === "in_progress" && event.actor.startsWith("agent:"),
   ).length;
   const sentToReview = idsTo("needs_qa");
   const closed = idsTo("done");
@@ -178,7 +189,14 @@ export const Briefing = ({
       .slice(0, 3)
       .map((id) => taskById.get(id))
       .filter((task): task is FloorTask => task !== undefined)
-      .map((task) => <TaskChip key={task.id} task={task} projectOrder={projectOrder} onClick={() => onSelectTask(task.id)} />);
+      .map((task) => (
+        <TaskChip
+          key={task.id}
+          task={task}
+          projectOrder={projectOrder}
+          onClick={() => onSelectTask(task.id)}
+        />
+      ));
 
   const sentences: React.ReactNode[] = [];
   if (claimedCount > 0 || sentToReview.length > 0) {
@@ -208,13 +226,15 @@ export const Briefing = ({
         They need you for{" "}
         {askedDecision.length > 0 ? (
           <>
-            <b>{askedDecision.length}</b> decision{askedDecision.length === 1 ? "" : "s"} {chips(askedDecision)}
+            <b>{askedDecision.length}</b> decision{askedDecision.length === 1 ? "" : "s"}{" "}
+            {chips(askedDecision)}
           </>
         ) : null}
         {askedDecision.length > 0 && askedAction.length > 0 ? " and " : null}
         {askedAction.length > 0 ? (
           <>
-            <b>{askedAction.length}</b> manual step{askedAction.length === 1 ? "" : "s"} {chips(askedAction)}
+            <b>{askedAction.length}</b> manual step{askedAction.length === 1 ? "" : "s"}{" "}
+            {chips(askedAction)}
           </>
         ) : null}
         .
@@ -230,7 +250,10 @@ export const Briefing = ({
   }
 
   const { statusCounts } = snapshot.meta;
-  const needsYou = HUMAN_ATTENTION_STATUSES.reduce((sum, status) => sum + (statusCounts[status] ?? 0), 0);
+  const needsYou = HUMAN_ATTENTION_STATUSES.reduce(
+    (sum, status) => sum + (statusCounts[status] ?? 0),
+    0,
+  );
   const building = statusCounts.in_progress ?? 0;
   const blockedTasks = snapshot.tasks.filter((task) => task.status === "blocked");
   const blockedOnTasks = blockedTasks.filter((task) => task.openBlockerCount > 0).length;
@@ -240,8 +263,13 @@ export const Briefing = ({
   // window (the DONE/DEFERRED beads on the map) — `meta.statusCounts` counts
   // every closed task regardless of window, which is a different number and
   // was showing up as "Shipped 16" next to a map with nothing at the mouth.
-  const shippedInWindow = snapshot.tasks.filter((task) => terminalStatuses.includes(task.status)).length;
-  const shippedAllTime = TERMINAL_TASK_STATUSES.reduce((sum, status) => sum + (statusCounts[status] ?? 0), 0);
+  const shippedInWindow = snapshot.tasks.filter((task) =>
+    terminalStatuses.includes(task.status),
+  ).length;
+  const shippedAllTime = TERMINAL_TASK_STATUSES.reduce(
+    (sum, status) => sum + (statusCounts[status] ?? 0),
+    0,
+  );
 
   return (
     <section
@@ -266,7 +294,12 @@ export const Briefing = ({
         </p>
         <p className="mt-1 max-w-[68ch] text-sm leading-relaxed text-pretty">
           {sentences.length > 0
-            ? sentences.map((node, i) => <span key={i}>{i > 0 ? " " : ""}{node}</span>)
+            ? sentences.map((node, i) => (
+                <span key={i}>
+                  {i > 0 ? " " : ""}
+                  {node}
+                </span>
+              ))
             : "Nothing has moved yet."}
         </p>
       </div>
@@ -279,23 +312,32 @@ export const Briefing = ({
           value={needsYou}
           tone="attention"
           loud={needsYou > 0}
-          onClick={() => onSetStatuses([...HUMAN_ATTENTION_STATUSES])}
+          onClick={() => onOpenStatuses([...HUMAN_ATTENTION_STATUSES])}
         />
-        <Tile label="Under way" value={building} tone="info" onClick={() => onSetStatuses(["in_progress"])} />
+        <Tile
+          label="Under way"
+          value={building}
+          tone="info"
+          onClick={() => onOpenStatuses(["in_progress"])}
+        />
         <Tile
           label="Blocked"
           value={blockedTasks.length}
           tone="destructive"
           loud={blockedTasks.length > 0}
-          sublabel={blockedTasks.length > 0 ? `${blockedOnTasks} on tasks · ${blockedExternal} external` : undefined}
-          onClick={() => onSetStatuses(["blocked"])}
+          sublabel={
+            blockedTasks.length > 0
+              ? `${blockedOnTasks} on tasks · ${blockedExternal} external`
+              : undefined
+          }
+          onClick={() => onOpenStatuses(["blocked"])}
         />
         <Tile
           label={`Shipped · ${shippedWindow}`}
           value={shippedInWindow}
           tone="success"
           sublabel={`${shippedAllTime} done in total`}
-          onClick={() => onSetStatuses([...TERMINAL_TASK_STATUSES])}
+          onClick={() => onOpenStatuses([...TERMINAL_TASK_STATUSES])}
         />
       </dl>
     </section>

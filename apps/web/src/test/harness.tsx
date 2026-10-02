@@ -8,7 +8,7 @@ import {
   type Task,
   type TaskStats,
   type TaskSummary,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { render, type RenderResult } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { type ReactNode } from "react";
@@ -42,8 +42,10 @@ export const makeTask = (overrides: Partial<Task> = {}): Task => ({
   description: "Exports time out under load; throttle per client.",
   status: "todo",
   statusNote: null,
+  concerns: null,
+  needsTriage: false,
   priority: "medium",
-  project: "helpdesk",
+  project: "estuary",
   assignee: null,
   acceptanceCriteria: "Requests over 10/min get a 429.",
   links: [],

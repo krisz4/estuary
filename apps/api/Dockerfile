@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Helpdesk API image — Node 24 + Express 5 + Prisma (SQLite).
+# Estuary API image — Node 24 + Express 5 + Prisma (SQLite).
 #
 # **Node 24, not 20**, and that is forced rather than chosen: the repo pins
 # `pnpm@11.1.2` via `packageManager`, and pnpm 11 imports `node:sqlite`, which
@@ -14,7 +14,7 @@
 # lockfile, and `packages/contracts`, none of which are reachable from
 # `apps/api/`.
 #
-#     docker build -f apps/api/Dockerfile -t helpdesk-api .
+#     docker build -f apps/api/Dockerfile -t estuary-api .
 #
 # Four stages: base → deps → build → runtime. Only `runtime` ships.
 #
@@ -48,7 +48,7 @@ ENV CI=1
 # ------------------------------------------------------------------ #
 FROM base AS deps
 
-# `--filter "@helpdesk/api..."` includes @helpdesk/api and its workspace
+# `--filter "@estuary/api..."` includes @estuary/api and its workspace
 # dependencies (contracts, tsconfig) and skips apps/web entirely — the web image
 # builds in its own Dockerfile, and React + Vite + Playwright-adjacent devDeps
 # are a large fraction of the tree (P35: 625 MB / 590 packages installed whole).
@@ -69,7 +69,7 @@ COPY apps/mcp/package.json apps/mcp/
 # cached layer instead of a step someone has to remember.
 COPY apps/api/prisma apps/api/prisma
 
-RUN pnpm install --frozen-lockfile --filter "@helpdesk/api..."
+RUN pnpm install --frozen-lockfile --filter "@estuary/api..."
 
 # ------------------------------------------------------------------ #
 # build — compile contracts, then the API
@@ -80,10 +80,10 @@ COPY packages/tsconfig packages/tsconfig
 COPY packages/contracts packages/contracts
 COPY apps/api apps/api
 
-# `^build` ordering by hand: the API's tsconfig resolves @helpdesk/contracts
+# `^build` ordering by hand: the API's tsconfig resolves @estuary/contracts
 # through its `types` entry, which does not exist until contracts is built.
-RUN pnpm --filter @helpdesk/contracts build \
- && pnpm --filter @helpdesk/api build
+RUN pnpm --filter @estuary/contracts build \
+ && pnpm --filter @estuary/api build
 
 # P37: a failed build can leave a plausible-looking `dist/` behind, so the
 # presence of the directory proves nothing. `RUN` already fails the image on a
@@ -128,7 +128,7 @@ COPY apps/api/prisma apps/api/prisma
 # The install also re-runs `prisma generate`, so the client in this image is
 # generated against the schema in this image rather than copied from a stage
 # that might have had a different one.
-RUN pnpm install --frozen-lockfile --prod --filter "@helpdesk/api..." \
+RUN pnpm install --frozen-lockfile --prod --filter "@estuary/api..." \
  && pnpm store prune
 
 COPY --from=build /app/packages/contracts/dist packages/contracts/dist

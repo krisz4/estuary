@@ -1,4 +1,4 @@
-import { apiErrorResponseSchema } from "@helpdesk/contracts";
+import { apiErrorResponseSchema } from "@estuary/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 

@@ -1,4 +1,4 @@
-import { type FloorSnapshot, type FloorTask, type TaskStatus } from "@helpdesk/contracts";
+import { type FloorSnapshot, type FloorTask, type TaskStatus } from "@estuary/contracts";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useReleaseTaskMutation } from "@/api/tasks";
@@ -33,7 +33,9 @@ const STATUS_ZONE_CLASS: Record<TaskStatus, string> = {
 };
 
 const minutesLeftOf = (task: FloorTask): number | null =>
-  task.claim === null ? null : Math.round((new Date(task.claim.expiresAt).getTime() - Date.now()) / 60_000);
+  task.claim === null
+    ? null
+    : Math.round((new Date(task.claim.expiresAt).getTime() - Date.now()) / 60_000);
 
 /** A live claim whose lease has not expired. Everything else in progress (no claim, or an expired one) is "stalled" — the seed data is mostly the latter. */
 const isLiveClaim = (task: FloorTask): boolean => {
@@ -108,7 +110,9 @@ export const InFlightSection = ({
         </div>
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-sm font-semibold text-foreground">Blocked chains ({chains.length})</h3>
+          <h3 className="text-sm font-semibold text-foreground">
+            Blocked chains ({chains.length})
+          </h3>
           {chains.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
               Nothing is chain-blocked right now.
@@ -130,7 +134,8 @@ const AgentCard = ({
   onSelectTask: (taskId: number) => void;
 }) => {
   const minutesLeft = minutesLeftOf(task);
-  const expiringSoon = minutesLeft !== null && minutesLeft > 0 && minutesLeft <= EXPIRING_SOON_MINUTES;
+  const expiringSoon =
+    minutesLeft !== null && minutesLeft > 0 && minutesLeft <= EXPIRING_SOON_MINUTES;
 
   return (
     <li>
@@ -140,14 +145,18 @@ const AgentCard = ({
         className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card p-3 text-left text-sm shadow-raised transition-[background-color,box-shadow] hover:bg-muted hover:shadow-floating"
       >
         <span className="flex items-center justify-between gap-2">
-          <span className="font-semibold text-foreground">{task.claim?.actor ?? task.assignee ?? "Unclaimed"}</span>
+          <span className="font-semibold text-foreground">
+            {task.claim?.actor ?? task.assignee ?? "Unclaimed"}
+          </span>
           <span className="font-mono text-xs text-muted-foreground">{task.reference}</span>
         </span>
         <span className="truncate text-foreground">{task.title}</span>
         <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           {task.claim === null ? null : <span>claimed {formatRelative(task.updatedAt)}</span>}
           {minutesLeft === null ? null : (
-            <span className={cn(expiringSoon && "font-semibold text-attention")}>lease {minutesLeft}m left</span>
+            <span className={cn(expiringSoon && "font-semibold text-attention")}>
+              lease {minutesLeft}m left
+            </span>
           )}
         </span>
       </button>
@@ -197,7 +206,8 @@ const StalledRow = ({
               {},
               {
                 onSuccess: () => toast.success(`Released — ${task.reference} is back in To do`),
-                onError: (error) => toast.error(errorCopy(error).title, { description: errorDescription(error) }),
+                onError: (error) =>
+                  toast.error(errorCopy(error).title, { description: errorDescription(error) }),
               },
             )
           }
@@ -286,7 +296,11 @@ const ChainDiagram = ({
 
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-raised">
-      <div role="group" aria-label={`Blocked chain of ${chain.nodes.length} tasks`} className="flex flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-label={`Blocked chain of ${chain.nodes.length} tasks`}
+        className="flex flex-wrap items-center gap-2"
+      >
         {ordered.map((node, index) => (
           <span key={node.taskId} className="flex items-center gap-2">
             <button

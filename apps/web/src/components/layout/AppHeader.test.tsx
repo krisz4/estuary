@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { type TaskFacets } from "@helpdesk/contracts";
+import { type TaskFacets } from "@estuary/contracts";
 import {
   makeStats,
   mockApi,
@@ -160,7 +160,7 @@ describe("the 401 prompt", () => {
 });
 
 describe("AppHeader — project scope", () => {
-  const projectFacets = () => ({ body: makeFacets({ projects: ["helpdesk", "web-app"] }) });
+  const projectFacets = () => ({ body: makeFacets({ projects: ["estuary", "web-app"] }) });
 
   it("hides the switcher while no task has a project", async () => {
     shellApi({ "GET /tasks/stats": () => ({ body: makeStats() }) });
@@ -196,7 +196,7 @@ describe("AppHeader — project scope", () => {
   });
 
   it("keeps the remembered scope on screens without a project filter", async () => {
-    useProjectScopeStore.setState({ project: "helpdesk" });
+    useProjectScopeStore.setState({ project: "estuary" });
     shellApi({
       "GET /tasks/facets": projectFacets,
       "GET /tasks/stats": () => ({ body: makeStats() }),
@@ -206,15 +206,15 @@ describe("AppHeader — project scope", () => {
 
     expect(await screen.findByRole("link", { name: "Inbox" })).toHaveAttribute(
       "href",
-      "/inbox?project=helpdesk",
+      "/inbox?project=estuary",
     );
     expect(await screen.findByRole("combobox", { name: "Current project" })).toHaveTextContent(
-      "helpdesk",
+      "estuary",
     );
   });
 
   it("links 'Tasks' to the remembered view in the current scope, and marks it current on task screens", async () => {
-    useProjectScopeStore.setState({ project: "helpdesk" });
+    useProjectScopeStore.setState({ project: "estuary" });
     useTaskViewStore.setState({ view: "map" });
     shellApi({
       "GET /tasks/facets": projectFacets,
@@ -224,14 +224,14 @@ describe("AppHeader — project scope", () => {
     renderShell("/tasks/42");
 
     const tasks = await screen.findByRole("link", { name: "Tasks" });
-    expect(tasks).toHaveAttribute("href", "/tasks/map?project=helpdesk");
+    expect(tasks).toHaveAttribute("href", "/tasks/map?project=estuary");
     expect(tasks).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Inbox" })).not.toHaveAttribute("aria-current");
   });
 
   it("swaps the project param in place, keeping other filters and dropping the page", async () => {
     const user = userEvent.setup();
-    const { router, requests } = renderShellWithApi("/tasks?project=helpdesk&status=todo&page=3");
+    const { router, requests } = renderShellWithApi("/tasks?project=estuary&status=todo&page=3");
 
     await user.click(await screen.findByRole("combobox", { name: "Current project" }));
     await user.click(await screen.findByRole("option", { name: "web-app" }));

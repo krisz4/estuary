@@ -91,6 +91,15 @@
               "null"
             ]
           },
+          "concerns": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "needsTriage": {
+            "type": "boolean"
+          },
           "priority": {
             "type": "string",
             "enum": [
@@ -335,6 +344,8 @@
           "description",
           "status",
           "statusNote",
+          "concerns",
+          "needsTriage",
           "priority",
           "project",
           "assignee",
@@ -574,6 +585,15 @@
                     "string",
                     "null"
                   ]
+                },
+                "concerns": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "needsTriage": {
+                  "type": "boolean"
                 },
                 "priority": {
                   "type": "string",
@@ -819,6 +839,8 @@
                 "description",
                 "status",
                 "statusNote",
+                "concerns",
+                "needsTriage",
                 "priority",
                 "project",
                 "assignee",
@@ -976,6 +998,15 @@
               "string",
               "null"
             ]
+          },
+          "concerns": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "needsTriage": {
+            "type": "boolean"
           },
           "priority": {
             "type": "string",
@@ -1563,6 +1594,8 @@
           "description",
           "status",
           "statusNote",
+          "concerns",
+          "needsTriage",
           "priority",
           "project",
           "assignee",
@@ -1686,7 +1719,34 @@
           "needsAttention"
         ],
         "additionalProperties": false,
-        "description": "Task count per status — all ten keys present, zero included — plus needsAttention, the number of tasks waiting on a human (needs_user_decision + needs_user_action + needs_qa)."
+        "description": "Task count per status — all ten keys present, zero included — plus needsAttention, the number of tasks waiting on a person — the rows GET /tasks?attention=true returns."
+      },
+      "CleanupDoneTasksResponse": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "dryRun": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted",
+          "taskIds",
+          "dryRun"
+        ],
+        "additionalProperties": false,
+        "description": "How many done tasks were deleted (or, on a dry run, would be) and their ids, ascending."
       },
       "NextTaskResponse": {
         "type": "object",
@@ -1730,6 +1790,15 @@
                   "string",
                   "null"
                 ]
+              },
+              "concerns": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "needsTriage": {
+                "type": "boolean"
               },
               "priority": {
                 "type": "string",
@@ -2317,6 +2386,8 @@
               "description",
               "status",
               "statusNote",
+              "concerns",
+              "needsTriage",
               "priority",
               "project",
               "assignee",
@@ -3503,10 +3574,10 @@
                 "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
               },
               "minItems": 1,
-              "description": "Repeatable, same OR/AND rule as status. A lowercase slug; the input is lowercased before matching, so HelpDesk finds helpdesk."
+              "description": "Repeatable, same OR/AND rule as status. A lowercase slug; the input is lowercased before matching, so Estuary finds estuary."
             },
             "required": false,
-            "description": "Repeatable, same OR/AND rule as status. A lowercase slug; the input is lowercased before matching, so HelpDesk finds helpdesk.",
+            "description": "Repeatable, same OR/AND rule as status. A lowercase slug; the input is lowercased before matching, so Estuary finds estuary.",
             "name": "project",
             "in": "query"
           },
@@ -3578,6 +3649,29 @@
             "required": false,
             "description": "Exact actor holding the task's claim, e.g. agent:claude-code — lowercased before matching. Matches the stored holder even after the lease expired, so an agent can find the work it was doing before a crash.",
             "name": "claimedBy",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "true",
+                    "false"
+                  ]
+                }
+              ],
+              "description": "true returns everything waiting on a person — needs_user_decision, needs_user_action, needs_qa, needs_refinement, agent-filed backlog/todo nobody has triaged yet (needsTriage), and tasks blocked on an outside reason only (no unfinished dependency). false returns the rest. GET /tasks/stats counts the same set as needsAttention."
+            },
+            "required": false,
+            "description": "true returns everything waiting on a person — needs_user_decision, needs_user_action, needs_qa, needs_refinement, agent-filed backlog/todo nobody has triaged yet (needsTriage), and tasks blocked on an outside reason only (no unfinished dependency). false returns the rest. GET /tasks/stats counts the same set as needsAttention.",
+            "name": "attention",
             "in": "query"
           },
           {
@@ -4392,7 +4486,7 @@
           "Tasks"
         ],
         "summary": "Task counts per status",
-        "description": "Every status is present in byStatus, zero included, so a client can index it without a fallback. needsAttention is the inbox size. Declared before /tasks/{taskId} for the same reason /facets is.",
+        "description": "Every status is present in byStatus, zero included, so a client can index it without a fallback. needsAttention is the inbox size — the count of GET /tasks?attention=true. Declared before /tasks/{taskId} for the same reason /facets is.",
         "security": [
           {
             "bearerAuth": []
@@ -4922,6 +5016,9 @@
                     ],
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
+                  },
+                  "needsTriage": {
+                    "type": "boolean"
                   },
                   "expectedVersion": {
                     "type": "integer",
@@ -5504,6 +5601,331 @@
         }
       }
     },
+    "/api/v1/tasks/cleanup": {
+      "post": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Delete done tasks in bulk",
+        "description": "Hard-deletes tasks whose status is `done` — no other status is ever touched. Each deleted task gets a `task.deleted` event with `reason: \"cleanup\"`; comments, decisions, labels, and dependency rows cascade, and subtasks of a deleted parent survive as top-level tasks.\n\n- `project`: only these projects; omit for all.\n- `olderThanDays`: only tasks completed more than this many days ago; omit or 0 for every done task.\n- `dryRun`: return the count and ids without deleting.\n\nHumans only: an `agent:` actor is ACTOR_NOT_PERMITTED, dry run included. The API also runs this on its own for tasks done longer than `DONE_RETENTION_DAYS` (default 90), as `system:taskmanager`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                    },
+                    "minItems": 1
+                  },
+                  "olderThanDays": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3650
+                  },
+                  "dryRun": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was deleted, or would be on a dry run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CleanupDoneTasksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "MALFORMED_JSON"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is an agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "ACTOR_NOT_PERMITTED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than BODY_LIMIT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "PAYLOAD_TOO_LARGE"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "An unknown field, a project that is not a slug, or olderThanDays outside 0–3650. `details` maps field name to messages. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/next": {
       "post": {
         "tags": [
@@ -5803,7 +6225,7 @@
           "Workflow"
         ],
         "summary": "Change a task's status",
-        "description": "The only way a status changes. There is no from→to table: any status may move to any other, and **what the target requires is the shape of the payload**, discriminated on `to`:\n\n| to | requires |\n| -- | -------- |\n| needs_refinement | `reason` |\n| todo | `acceptanceCriteria`, unless the task already has some |\n| blocked | `reason` or a non-empty `blockedBy` (added as dependencies) |\n| needs_user_decision | `decision`: question, 2–6 options, optional recommendation |\n| needs_user_action | `instructions` |\n| needs_qa | `summary`; optional `links` are appended |\n| deferred | `reason` |\n\nThe reason / instructions / summary / question becomes `statusNote`, replacing the previous one. Entering in_progress claims the task for the caller; leaving it drops the claim. Leaving needs_user_decision withdraws the open decision. Reaching done stamps completedAt and unblocks dependents whose dependencies are now all done.\n\nAn `agent:` actor may not move a task to done unless the server runs with AGENTS_MAY_COMPLETE=true.",
+        "description": "The only way a status changes. There is no from→to table: any status may move to any other, and **what the target requires is the shape of the payload**, discriminated on `to`:\n\n| to | requires |\n| -- | -------- |\n| needs_refinement | `reason` |\n| todo | `acceptanceCriteria`, unless the task already has some |\n| blocked | `reason` or a non-empty `blockedBy` (added as dependencies) |\n| needs_user_decision | `decision`: question, 2–6 options, optional recommendation |\n| needs_user_action | `instructions` |\n| needs_qa | `summary`; optional `links` are appended |\n| deferred | `reason` |\n\nThe reason / instructions / summary / question becomes `statusNote`, replacing the previous one. Entering in_progress claims the task for the caller; leaving it drops the claim. Leaving needs_user_decision withdraws the open decision. Reaching done stamps completedAt and unblocks dependents whose dependencies are now all done. A needs_qa hand-off may carry concerns (what a reviewer must not miss; omit for routine work) and followUps, each filed as a needsTriage subtask — todo with acceptance criteria, needs_refinement without. A person's transition, a claim, done, or deferred clears needsTriage.\n\nAn `agent:` actor may not move a task to done unless the server runs with AGENTS_MAY_COMPLETE=true.",
         "security": [
           {
             "bearerAuth": []
@@ -6107,6 +6529,56 @@
                           "additionalProperties": false
                         },
                         "maxItems": 20
+                      },
+                      "concerns": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "followUps": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string",
+                              "minLength": 5,
+                              "maxLength": 120
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 10,
+                              "maxLength": 5000
+                            },
+                            "acceptanceCriteria": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 5000
+                            },
+                            "missing": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 5000
+                            },
+                            "priority": {
+                              "type": "string",
+                              "enum": [
+                                "low",
+                                "medium",
+                                "high",
+                                "urgent"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 10
                       },
                       "expectedVersion": {
                         "type": "integer",
@@ -7167,7 +7639,7 @@
           "Workflow"
         ],
         "summary": "Give up a claimed task",
-        "description": "The holder gives the task up: back to todo, claim cleared, `reason` as the status note. A human may release anyone's claim; an agent only its own. The body may be omitted.",
+        "description": "The holder gives the task up: back to todo, claim cleared, `reason` as the status note. A human may release anyone's claim; an agent only its own. `followUps` files the work left undone as needsTriage subtasks, like a needs_qa hand-off. The body may be omitted.",
         "security": [
           {
             "bearerAuth": []
@@ -7210,6 +7682,51 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 5000
+                  },
+                  "followUps": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string",
+                          "minLength": 5,
+                          "maxLength": 120
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 10,
+                          "maxLength": 5000
+                        },
+                        "acceptanceCriteria": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "maxLength": 5000
+                        },
+                        "missing": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 5000
+                        },
+                        "priority": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "urgent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "description"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 10
                   },
                   "expectedVersion": {
                     "type": "integer",
@@ -9592,6 +10109,29 @@
             "required": false,
             "description": "Exact actor holding the task's claim, e.g. agent:claude-code — lowercased before matching. Matches the stored holder even after the lease expired, so an agent can find the work it was doing before a crash.",
             "name": "claimedBy",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "true",
+                    "false"
+                  ]
+                }
+              ],
+              "description": "true returns everything waiting on a person — needs_user_decision, needs_user_action, needs_qa, needs_refinement, agent-filed backlog/todo nobody has triaged yet (needsTriage), and tasks blocked on an outside reason only (no unfinished dependency). false returns the rest. GET /tasks/stats counts the same set as needsAttention."
+            },
+            "required": false,
+            "description": "true returns everything waiting on a person — needs_user_decision, needs_user_action, needs_qa, needs_refinement, agent-filed backlog/todo nobody has triaged yet (needsTriage), and tasks blocked on an outside reason only (no unfinished dependency). false returns the rest. GET /tasks/stats counts the same set as needsAttention.",
+            "name": "attention",
             "in": "query"
           },
           {

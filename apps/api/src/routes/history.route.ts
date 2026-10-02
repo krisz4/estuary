@@ -1,4 +1,4 @@
-import { historyQuerySchema } from "@helpdesk/contracts";
+import { historyQuerySchema } from "@estuary/contracts";
 import { Router } from "express";
 
 import { asyncHandler } from "../lib/asyncHandler.js";

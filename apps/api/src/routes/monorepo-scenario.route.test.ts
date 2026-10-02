@@ -1,4 +1,4 @@
-import { ACTOR_HEADER } from "@helpdesk/contracts";
+import { ACTOR_HEADER } from "@estuary/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 

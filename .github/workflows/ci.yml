@@ -6,12 +6,11 @@
 #
 # ## Three properties of this file that are load-bearing
 #
-# **Node 24, not 20.** The root `engines` says `>=20.11.0` and it is honest about
-# the *application*, but CI cannot run on 20: the repo pins `pnpm@11.1.2` via
-# `packageManager`, pnpm 11 imports `node:sqlite`, and that builtin does not
-# exist before Node 22.5 — every install on Node 20 dies with
-# `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` before resolving a package. 24 is the
-# active LTS and is what the Docker images use (docs/operations/DOCKER.md).
+# **Node 24.** The root `engines` says `^22.18.0 || >=24.11.0`, and both halves
+# are load-bearing: pnpm 11 (pinned via `packageManager`) imports `node:sqlite`,
+# which does not exist before Node 22.5, and `@babel/core` 8 (the React
+# Compiler) declares that same range. 24 is the active LTS and is what the
+# Docker images use (docs/operations/DOCKER.md).
 #
 # **pnpm's version is never written here.** `pnpm/action-setup` reads
 # `packageManager` from the root `package.json`, so CI cannot drift from the pin.
@@ -99,9 +98,9 @@ jobs:
       # docs/features/API_Documentation.md § Rules promises this check exists.
       - name: OpenAPI spec is up to date
         run: |
-          pnpm --filter @helpdesk/api openapi:gen
+          pnpm --filter @estuary/api openapi:gen
           if ! git diff --quiet --exit-code -- apps/api/openapi.json; then
-            echo "::error file=apps/api/openapi.json::openapi.json is stale. Run 'pnpm --filter @helpdesk/api openapi:gen' and commit the result."
+            echo "::error file=apps/api/openapi.json::openapi.json is stale. Run 'pnpm --filter @estuary/api openapi:gen' and commit the result."
             git --no-pager diff -- apps/api/openapi.json
             exit 1
           fi
@@ -116,14 +115,14 @@ jobs:
       - name: Migrations match the schema
         working-directory: apps/api
         env:
-          DATABASE_URL: file:/tmp/helpdesk-migration-check.db
+          DATABASE_URL: file:/tmp/estuary-migration-check.db
         run: |
           pnpm exec prisma migrate deploy
           if ! pnpm exec prisma migrate diff \
             --from-schema-datasource prisma/schema.prisma \
             --to-schema-datamodel prisma/schema.prisma \
             --exit-code; then
-            echo "::error file=apps/api/prisma/schema.prisma::schema.prisma does not match the migration history. Run 'pnpm --filter @helpdesk/api db:migrate --name <descriptive_snake_case>' and commit the migration."
+            echo "::error file=apps/api/prisma/schema.prisma::schema.prisma does not match the migration history. Run 'pnpm --filter @estuary/api db:migrate --name <descriptive_snake_case>' and commit the migration."
             exit 1
           fi
 
@@ -152,7 +151,7 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # Required, not an optimisation. `@helpdesk/contracts` resolves only
+      # Required, not an optimisation. `@estuary/contracts` resolves only
       # through `dist` (its package `exports` name no source files), so both
       # `tsx src/server.ts` and the Vite dev server that `playwright.config.ts`
       # starts fail at import without it — P44's

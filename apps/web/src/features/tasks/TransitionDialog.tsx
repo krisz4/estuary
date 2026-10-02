@@ -8,7 +8,7 @@ import {
   type TaskStatus,
   type TaskSummary,
   type TransitionInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import {

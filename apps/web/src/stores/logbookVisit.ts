@@ -20,7 +20,7 @@ import { safeStorage } from "@/stores/safeStorage";
  * advanced to "now" only when the page unmounts (the user navigates away),
  * which is the moment a *next* visit's "since you left" should measure from.
  */
-export const LOGBOOK_VISIT_STORAGE_KEY = "helpdesk.logbookVisit";
+export const LOGBOOK_VISIT_STORAGE_KEY = "estuary.logbookVisit";
 
 /**
  * The floor on how recent "since you left" is allowed to read. A visit only

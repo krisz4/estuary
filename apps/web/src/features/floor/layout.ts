@@ -7,7 +7,7 @@ import {
   type TaskPriority,
   type TaskRef,
   type TaskStatus,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { type FloorMatchMode, type MapGroupBy } from "@/pages/tasks-map/useFloorParams";
 
 /**
@@ -44,7 +44,12 @@ export type MapRegion = {
 };
 
 export const MAP_REGIONS: readonly MapRegion[] = [
-  { key: "plan", name: "PLAN", place: "headwaters", statuses: ["backlog", "needs_refinement", "todo"] },
+  {
+    key: "plan",
+    name: "PLAN",
+    place: "headwaters",
+    statuses: ["backlog", "needs_refinement", "todo"],
+  },
   { key: "doing", name: "DOING", place: "the reach", statuses: ["in_progress", "needs_qa"] },
   {
     key: "waiting",
@@ -112,6 +117,26 @@ export const computeDensityScale = (visibleCount: number): number => {
   return 1 - t * (1 - MIN);
 };
 
+/**
+ * How much wider than the prototype the river is drawn — "few tasks, a
+ * stream; many, a river". Beads sit *in* the water (`scene.ts`'s
+ * `placeBeads`), so the channel has to be wide enough to hold the busiest
+ * station: 1.3× at rest (a touch wider than the prototype, so even a quiet
+ * map reads as a river), swelling to 2.3× once one station holds 60 beads.
+ * Rounded to 0.1 so the cached terrain layer is only redrawn when the load
+ * changes noticeably, not on every task that moves.
+ */
+export const computeRiverScale = (busiestStationCount: number): number => {
+  const BASE = 1.3;
+  const MAX = 2.3;
+  const QUIET = 4;
+  const FULL_AT = 60;
+  const t = clamp01((busiestStationCount - QUIET) / (FULL_AT - QUIET));
+  return Math.round((BASE + t * (MAX - BASE)) * 10) / 10;
+};
+
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+
 export const beadRadius = (
   priority: TaskPriority,
   viewportScale: number,
@@ -149,8 +174,10 @@ export type MustShowContext = {
  * (shouldn't happen for a bead actually being dragged, but a drag that
  * somehow outlives its own layout shouldn't silently "succeed" either).
  */
-export const isValidDropTarget = (currentStation: TaskStatus | undefined, target: TaskStatus): boolean =>
-  currentStation !== undefined && target !== currentStation;
+export const isValidDropTarget = (
+  currentStation: TaskStatus | undefined,
+  target: TaskStatus,
+): boolean => currentStation !== undefined && target !== currentStation;
 
 export const isMustShowCrate = (task: FloorTask, ctx: MustShowContext): boolean =>
   isHumanAttention(task.status) ||
@@ -251,9 +278,9 @@ export const dependencyClosureOf = (
     (forward.get(edge.blockerId) ?? forward.set(edge.blockerId, []).get(edge.blockerId)!).push(
       edge.dependentId,
     );
-    (backward.get(edge.dependentId) ?? backward.set(edge.dependentId, []).get(edge.dependentId)!).push(
-      edge.blockerId,
-    );
+    (
+      backward.get(edge.dependentId) ?? backward.set(edge.dependentId, []).get(edge.dependentId)!
+    ).push(edge.blockerId);
   }
   const closure = new Set<number>([selectedTaskId]);
   const queue = [selectedTaskId];
@@ -305,7 +332,8 @@ const computeChainComponents = (
   for (const task of tasks) parent.set(task.id, task.id);
   const inScope = new Set(tasks.map((task) => task.id));
   for (const edge of edges) {
-    if (inScope.has(edge.blockerId) && inScope.has(edge.dependentId)) union(edge.blockerId, edge.dependentId);
+    if (inScope.has(edge.blockerId) && inScope.has(edge.dependentId))
+      union(edge.blockerId, edge.dependentId);
   }
 
   const componentMembers = new Map<number, number[]>();
@@ -381,7 +409,9 @@ export const buildBlockedChains = (
 
   for (const task of tasks) parent.set(task.id, task.id);
   const inScope = new Set(tasks.map((task) => task.id));
-  const relevantEdges = edges.filter((edge) => inScope.has(edge.blockerId) && inScope.has(edge.dependentId));
+  const relevantEdges = edges.filter(
+    (edge) => inScope.has(edge.blockerId) && inScope.has(edge.dependentId),
+  );
   for (const edge of relevantEdges) union(edge.blockerId, edge.dependentId);
 
   const componentEdges = new Map<number, FloorEdge[]>();
@@ -426,12 +456,15 @@ export const buildBlockedChains = (
         dependentId: edge.dependentId,
         satisfied: edge.satisfied,
       })),
-      bottleneckTaskId: bottleneck !== null && bottleneck.unblocksCount > 0 ? bottleneck.taskId : null,
+      bottleneckTaskId:
+        bottleneck !== null && bottleneck.unblocksCount > 0 ? bottleneck.taskId : null,
     });
   }
 
   return chains.sort(
-    (a, b) => b.nodes.length - a.nodes.length || Math.min(...a.nodes.map((n) => n.taskId)) - Math.min(...b.nodes.map((n) => n.taskId)),
+    (a, b) =>
+      b.nodes.length - a.nodes.length ||
+      Math.min(...a.nodes.map((n) => n.taskId)) - Math.min(...b.nodes.map((n) => n.taskId)),
   );
 };
 
@@ -483,7 +516,9 @@ const groupLabelOf = (
     if (key === NO_PARENT_GROUP_KEY) return "No parent";
     const parentId = Number(key.slice("parent-".length));
     const title = taskIndex.get(parentId)?.title ?? refIndex.get(parentId)?.title;
-    return title === undefined ? formatReference(parentId) : `${formatReference(parentId)} ${title}`;
+    return title === undefined
+      ? formatReference(parentId)
+      : `${formatReference(parentId)} ${title}`;
   }
   if (mode === "chain") return key.startsWith("chain-") ? `Chain ${Number(key.slice(6)) + 1}` : key;
   return key;
@@ -549,7 +584,8 @@ export const beadColorIndex = (
   groupIndex: number,
   mode: MapGroupBy,
   allProjects: readonly string[],
-): number | null => (mode === "project" ? projectColorIndex(task.project, allProjects) : groupIndex);
+): number | null =>
+  mode === "project" ? projectColorIndex(task.project, allProjects) : groupIndex;
 
 /* ------------------------------------------------------------------ *
  * The build function
@@ -567,9 +603,34 @@ export type BuildMapLayoutInput = {
   olderClosedCount: number;
   /** From `computeMaxPerCluster` — how many beads a station shows before shoaling the rest. */
   maxPerCluster: number;
+  /**
+   * The moment the map shows (epoch ms): now when live, the playhead when
+   * replaying. Decides which done tasks have settled (`DONE_SETTLE_MS`).
+   * Omitted, nothing settles by age — only `MAX_LOOSE_DONE` applies.
+   */
+  now?: number;
 };
 
-const emptyPriorityMix = (): Record<TaskPriority, number> => ({ low: 0, medium: 0, high: 0, urgent: 0 });
+/**
+ * Done work settles. A task stays a loose bead at the done station for
+ * `DONE_SETTLE_MS` after it ships, so a fresh ship is visible on the map;
+ * after that (or past the `MAX_LOOSE_DONE` most recent) it folds into the
+ * station's shoal. The shoal shows just the count, and pressing it opens the
+ * full done list in the map's modal, like the station itself. Finished work
+ * shouldn't take river space from live work.
+ */
+export const DONE_SETTLE_MS = 6 * 60 * 60 * 1000;
+export const MAX_LOOSE_DONE = 8;
+
+const shippedAt = (task: FloorTask): number =>
+  Date.parse(task.completedAt ?? task.updatedAt) || 0;
+
+const emptyPriorityMix = (): Record<TaskPriority, number> => ({
+  low: 0,
+  medium: 0,
+  high: 0,
+  urgent: 0,
+});
 
 export const buildMapLayout = (input: BuildMapLayoutInput): MapLayout => {
   const {
@@ -583,6 +644,7 @@ export const buildMapLayout = (input: BuildMapLayoutInput): MapLayout => {
     edgeNeighborIds,
     olderClosedCount,
     maxPerCluster,
+    now,
   } = input;
 
   const taskById = new Map(tasks.map((task) => [task.id, task] as const));
@@ -590,7 +652,9 @@ export const buildMapLayout = (input: BuildMapLayoutInput): MapLayout => {
   const mustShowCtx: MustShowContext = { hasActiveFilters, selectedTaskId, edgeNeighborIds };
 
   const traceClosure: ReadonlySet<number> | null =
-    selectedTaskId === null || selectedTaskId === undefined ? null : dependencyClosureOf(selectedTaskId, edges);
+    selectedTaskId === null || selectedTaskId === undefined
+      ? null
+      : dependencyClosureOf(selectedTaskId, edges);
 
   const assignment = groupAssignment(tasks, edges, groupMode);
 
@@ -632,9 +696,22 @@ export const buildMapLayout = (input: BuildMapLayoutInput): MapLayout => {
     const mustShow = sorted.filter((task) => isMustShowCrate(task, mustShowCtx));
     const rest = sorted.filter((task) => !isMustShowCrate(task, mustShowCtx));
 
-    const capacity = Math.max(maxPerCluster, mustShow.length);
-    const shownRest = rest.slice(0, Math.max(0, capacity - mustShow.length));
-    const overflow = rest.slice(Math.max(0, capacity - mustShow.length));
+    let shownRest: FloorTask[];
+    let overflow: FloorTask[];
+    if (station === "done") {
+      // Most recent first, then only the ones still inside the settle window.
+      const byShipped = [...rest].sort((a, b) => shippedAt(b) - shippedAt(a));
+      const loose = byShipped
+        .filter((task) => now === undefined || now - shippedAt(task) < DONE_SETTLE_MS)
+        .slice(0, Math.max(0, Math.min(MAX_LOOSE_DONE, maxPerCluster - mustShow.length)));
+      const looseIds = new Set(loose.map((task) => task.id));
+      shownRest = rest.filter((task) => looseIds.has(task.id));
+      overflow = rest.filter((task) => !looseIds.has(task.id));
+    } else {
+      const capacity = Math.max(maxPerCluster, mustShow.length);
+      shownRest = rest.slice(0, Math.max(0, capacity - mustShow.length));
+      overflow = rest.slice(Math.max(0, capacity - mustShow.length));
+    }
 
     // Must-show first (so they always render), but keep the group-then-priority
     // order stable within each half for a coherent sector layout.
@@ -659,7 +736,9 @@ export const buildMapLayout = (input: BuildMapLayoutInput): MapLayout => {
       };
     });
 
-    beads.forEach((bead) => taskPosition.set(bead.task.id, { station, order: bead.order, inShoal: false }));
+    beads.forEach((bead) =>
+      taskPosition.set(bead.task.id, { station, order: bead.order, inShoal: false }),
+    );
 
     const shoal: MapShoal | null =
       overflow.length === 0
@@ -674,7 +753,9 @@ export const buildMapLayout = (input: BuildMapLayoutInput): MapLayout => {
             taskIds: overflow.map((task) => task.id),
           };
     if (shoal !== null) {
-      overflow.forEach((task) => taskPosition.set(task.id, { station, order: beads.length, inShoal: true }));
+      overflow.forEach((task) =>
+        taskPosition.set(task.id, { station, order: beads.length, inShoal: true }),
+      );
     }
 
     const stationGroupCounts = new Map<string, number>();

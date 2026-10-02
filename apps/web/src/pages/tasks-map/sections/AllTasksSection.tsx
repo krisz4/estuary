@@ -1,4 +1,4 @@
-import { type FloorSnapshot, type FloorTask } from "@helpdesk/contracts";
+import { type FloorSnapshot, type FloorTask } from "@estuary/contracts";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui";
 import { DispatchBar, type DispatchBarProps } from "@/features/floor/DispatchBar";
@@ -51,18 +51,29 @@ export const AllTasksSection = ({
 }: AllTasksSectionProps) => {
   const visible = hasActiveFilters ? snapshot.tasks.filter((task) => task.matches) : snapshot.tasks;
   const zeroMatches = hasActiveFilters && visible.length === 0;
-  const countLabel = hasActiveFilters ? `${visible.length} of ${snapshot.meta.total} match` : snapshot.meta.total;
+  const countLabel = hasActiveFilters
+    ? `${visible.length} of ${snapshot.meta.total} match`
+    : snapshot.meta.total;
 
   return (
     <section id="all" className="scroll-mt-28">
       <div className="sticky top-0 z-20 flex flex-col gap-2 border-b border-border bg-background/95 pt-2 pb-2 backdrop-blur">
-        <SectionHeader eyebrow="Everything" title="All tasks" count={countLabel} action={<ViewSwitch />} tone="primary" />
+        <SectionHeader
+          eyebrow="Everything"
+          title="All tasks"
+          count={countLabel}
+          action={<ViewSwitch />}
+          tone="primary"
+        />
         <DispatchBar {...dispatchProps} compact={false} />
         <div
           className={`hidden items-center gap-3 px-2 pt-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase lg:grid ${LEDGER_DENSE_GRID_COLS}`}
         >
           {COLUMN_LABELS.map((label, index) => (
-            <span key={label} className={index === COLUMN_LABELS.length - 1 ? "text-right" : undefined}>
+            <span
+              key={label}
+              className={index === COLUMN_LABELS.length - 1 ? "text-right" : undefined}
+            >
               {label}
             </span>
           ))}

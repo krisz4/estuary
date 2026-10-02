@@ -14,7 +14,7 @@ Each doc has YAML frontmatter (`type: Page`, `title`, `description`, `tags`, opt
 | `/tasks/new` | [Task_Create.md](./Task_Create.md) | Create a task |
 | `/tasks/:taskId` | [Task_Detail.md](./Task_Detail.md) | Detail view — status/claim/decision controls, dependencies, comments, activity, delete |
 | `/tasks/:taskId/edit` | [Task_Edit.md](./Task_Edit.md) | Edit an existing task, with version-conflict handling |
-| `/inbox` | [Inbox.md](./Inbox.md) | Everything waiting on a human — decisions, actions, QA |
+| `/inbox` | [Inbox.md](./Inbox.md) | Everything waiting on a human — decisions, actions, QA, refinement, agent suggestions, outside-blocked |
 | `/logbook` | [Logbook.md](./Logbook.md) | History — since-you-left, cumulative flow, throughput, human wait, cycle time, agents, event log, archive |
 | `*` | [Not_Found.md](./Not_Found.md) | Unmatched routes |
 
@@ -22,7 +22,7 @@ Each doc has YAML frontmatter (`type: Page`, `title`, `description`, `tags`, opt
 
 | Route | Doc | Description |
 | ----- | --- | ----------- |
-| `/tasks/map` (remaining) | [Floor_And_Logbook_Plan.md](./Floor_And_Logbook_Plan.md) | Redesign plan: phase 4 (live bead travel, drag-to-transition, quick add) has landed — see [Tasks_Map.md](./Tasks_Map.md) § Known gaps for the small remainder (boat fade-in/out) |
+| `/tasks/map` (remaining) | [Floor_And_Logbook_Plan.md](./Floor_And_Logbook_Plan.md) | Redesign plan: phase 4 (live bead travel, drag-to-transition) has landed; quick add was later removed — see [Tasks_Map.md](./Tasks_Map.md) § Known gaps for the small remainder (boat fade-in/out) |
 
 Route order matters: `/tasks/new`, `/tasks/board`, and `/tasks/map` are declared **before** `/tasks/:taskId` so none is parsed as an id. (`/tasks/board` is a redirect to `/tasks/map`, kept for old links — the Kanban board itself was retired.)
 

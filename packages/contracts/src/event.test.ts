@@ -12,7 +12,7 @@ const event = {
   id: 101,
   taskId: 42,
   taskTitle: "Add retries to the sender",
-  project: "helpdesk",
+  project: "estuary",
   type: "task.status_changed",
   actor: "agent:claude-code",
   payload: { from: "in_progress", to: "needs_qa", note: "Added the MCP tools." },

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { type Comment } from "@helpdesk/contracts";
+import { type Comment } from "@estuary/contracts";
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";

@@ -8,10 +8,11 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import {
-  HUMAN_ATTENTION_STATUSES,
   MAX_PAGE_SIZE,
   formatTaskSort,
   type AnswerDecisionInput,
+  type CleanupDoneTasksInput,
+  type CleanupDoneTasksResponse,
   type CreateTaskInput,
   type PaginatedTasks,
   type ReleaseTaskInput,
@@ -21,7 +22,7 @@ import {
   type TaskStatsQuery,
   type TransitionInput,
   type UpdateTaskInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { createComment } from "@/api/comments";
 import { api, type QueryInput } from "@/api/http";
 import { POLL_INTERVAL_MS } from "@/api/polling";
@@ -31,7 +32,7 @@ import { type TaskListParams } from "@/pages/tasks-list/useTaskListParams";
 /**
  * Task endpoints and their query hooks.
  *
- * Response types come from `@helpdesk/contracts` — never a hand-written
+ * Response types come from `@estuary/contracts` — never a hand-written
  * interface mirroring the API. The client does not re-`parse()` the body: the
  * server already validated it on the way out, and a `.parse()` here would turn a
  * new optional field on a healthy response into a blank screen.
@@ -76,15 +77,20 @@ export const toTaskListQuery = (params: TaskListParams): QueryInput => ({
 /**
  * The inbox's one request: everything waiting on a human, most urgent first.
  *
- * Fixed apart from `project`, its one filter (see `toInboxQuery`) — and it goes
- * through `queryKeys.tasks.list()` like every other list, so a transition
- * anywhere in the app refreshes it through the same `lists()` prefix.
+ * `attention: true` — not a `status` list — is what makes this the attention
+ * queue rather than just the three hand-off statuses: it also picks up
+ * `needs_refinement`, agent-filed `backlog`/`todo` tasks nobody has triaged
+ * yet, and `blocked` tasks with no open dependency (`ATTENTION_KINDS` /
+ * `attentionKindOf` in the contracts). Fixed apart from `project`, its one
+ * filter (see `toInboxQuery`) — and it goes through `queryKeys.tasks.list()`
+ * like every other list, so a transition anywhere in the app refreshes it
+ * through the same `lists()` prefix.
  */
 export const INBOX_QUERY: QueryInput = {
   page: 1,
   pageSize: MAX_PAGE_SIZE,
   sort: "priority:desc",
-  status: HUMAN_ATTENTION_STATUSES,
+  attention: true,
 };
 
 /* ------------------------------------------------------------------ *
@@ -110,6 +116,9 @@ export const updateTask = (taskId: number, input: UpdateTaskInput): Promise<Task
   api.patch<Task>(`/tasks/${taskId}`, input);
 
 export const deleteTask = (taskId: number): Promise<void> => api.delete<void>(`/tasks/${taskId}`);
+
+export const cleanupDoneTasks = (input: CleanupDoneTasksInput): Promise<CleanupDoneTasksResponse> =>
+  api.post<CleanupDoneTasksResponse>("/tasks/cleanup", input);
 
 export const transitionTask = (taskId: number, input: TransitionInput): Promise<Task> =>
   api.post<Task>(`/tasks/${taskId}/transition`, input);
@@ -163,7 +172,7 @@ export const useTasksQuery = (params: TaskListParams): UseQueryResult<PaginatedT
 export const toInboxQuery = (project: readonly string[]): QueryInput =>
   project.length > 0 ? { ...INBOX_QUERY, project: [...project] } : INBOX_QUERY;
 
-/** Everything in `HUMAN_ATTENTION_STATUSES` — the inbox page. */
+/** The attention queue (`?attention=true`) — the inbox page and the map's "Needs you". */
 export const useInboxQuery = (project: readonly string[] = []): UseQueryResult<PaginatedTasks> => {
   const query = toInboxQuery(project);
   return useQuery({
@@ -479,6 +488,28 @@ export const useDeleteTaskMutation = (): UseMutationResult<void, Error, number> 
         queryKey: queryKeys.events.all,
         refetchType: "none",
       });
+    },
+  });
+};
+
+/**
+ * `POST /tasks/cleanup` — delete done tasks in bulk. Invalidates `tasks.all`
+ * rather than the delete mutation's narrower set: it is fired from the list,
+ * where no deleted task's detail is mounted to 404, and the floor's done counts
+ * move too.
+ */
+export const useCleanupDoneTasksMutation = (): UseMutationResult<
+  CleanupDoneTasksResponse,
+  Error,
+  CleanupDoneTasksInput
+> => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: cleanupDoneTasks,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.events.all });
     },
   });
 };

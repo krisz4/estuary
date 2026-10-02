@@ -1,4 +1,4 @@
-import { type PaginationMeta } from "@helpdesk/contracts";
+import { type PaginationMeta } from "@estuary/contracts";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button, Select } from "@/components/ui";
 import { cn } from "@/lib/cn";

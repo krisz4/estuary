@@ -23,10 +23,11 @@ Base path `/api/v1`. Errors use the standard envelope ([../engineering/API_ERROR
 
 | Method | Path | Body | Success | Notes |
 | ------ | ---- | ---- | ------- | ----- |
-| GET | `/tasks` | query: `taskListQuerySchema` | 200 `PaginatedTasks` | Filters: `status`, `priority`, `project`, `label` (repeatable), `assignee` / `assigneeIsNull`, `createdBy`, `claimedBy`, `parentId` / `parentIsNull`, `dependsOn`, `dependencyOf`, `q`, `createdFrom/To`. Full reference: [Task_Query_Filter_Sort_Page.md](./Task_Query_Filter_Sort_Page.md). |
+| GET | `/tasks` | query: `taskListQuerySchema` | 200 `PaginatedTasks` | Filters: `status`, `priority`, `project`, `label` (repeatable), `assignee` / `assigneeIsNull`, `createdBy`, `claimedBy`, `parentId` / `parentIsNull`, `attention`, `dependsOn`, `dependencyOf`, `q`, `createdFrom/To`. `attention=true` selects everything in the [attention queue](./Attention_Queue.md); `false` selects the rest; ANDs with every other filter. `GET /floor` accepts it too (shared filter fields). Full reference: [Task_Query_Filter_Sort_Page.md](./Task_Query_Filter_Sort_Page.md). |
 | GET | `/tasks/facets` | — | 200 `TaskFacets` | Distinct `assignees`, `projects`, `labels`, `creators`. |
-| GET | `/tasks/stats` | query: `project` (repeatable, optional) | 200 `TaskStats` | Count per status (all ten keys present) + `needsAttention`. |
+| GET | `/tasks/stats` | query: `project` (repeatable, optional) | 200 `TaskStats` | Count per status (all ten keys present) + `needsAttention` — the size of the whole [attention queue](./Attention_Queue.md), not just the three `HUMAN_ATTENTION_STATUSES`. |
 | POST | `/tasks` | `CreateTaskInput` | 201 `Task`; **200** on idempotent replay | `status` ∈ backlog / needs_refinement / todo. Replay = same `idempotencyKey` on a still-open task — see [Idempotent create](#idempotent-create). |
+| POST | `/tasks/cleanup` | `CleanupDoneTasksInput` (optional) | 200 `{ deleted, taskIds, dryRun }` | Hard-deletes `done` tasks; `project`, `olderThanDays`, `dryRun`. Humans only (`ACTOR_NOT_PERMITTED` for agents). See [Task_Cleanup.md](./Task_Cleanup.md). |
 | POST | `/tasks/next` | `NextTaskInput` | 200 `{ task: Task \| null }` | Atomically claims the best available task → `in_progress`. `project` / `label` (repeatable) / `minPriority` narrow the candidates. |
 | GET | `/tasks/:taskId` | — | 200 `Task` | Includes comments, parent, children, dependencies, dependents, open decision. |
 | PATCH | `/tasks/:taskId` | `UpdateTaskInput` | 200 `Task` | **No `status`** — use `/transition`. `{}` → `AT_LEAST_ONE_FIELD`. |
@@ -34,7 +35,7 @@ Base path `/api/v1`. Errors use the standard envelope ([../engineering/API_ERROR
 | POST | `/tasks/:taskId/transition` | `TransitionInput` | 200 `Task` | See [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md). |
 | POST | `/tasks/:taskId/claim` | `{ expectedVersion? }` | 200 `Task` | Same as transitioning to `in_progress`. |
 | POST | `/tasks/:taskId/heartbeat` | — | 200 `Task` | Extends the caller's lease. Does **not** bump `version` (it does move `updatedAt`, which Prisma manages — an actively worked task floats up an `updatedAt` sort, which is accurate). |
-| POST | `/tasks/:taskId/release` | `ReleaseTaskInput` | 200 `Task` | Holder gives the task up → `todo`. |
+| POST | `/tasks/:taskId/release` | `ReleaseTaskInput` | 200 `Task` | Holder gives the task up → `todo`. `followUps?` — same as the `needs_qa` transition's, see [Attention_Queue.md](./Attention_Queue.md). |
 | POST | `/tasks/:taskId/decision/answer` | `AnswerDecisionInput` | 200 `Task` | Answers the open decision → task goes to `todo`. |
 | POST | `/tasks/:taskId/dependencies` | `AddDependencyInput` | 200 `Task` | This task depends on `dependsOnId`. |
 | DELETE | `/tasks/:taskId/dependencies/:dependsOnId` | — | 200 `Task` | Removing the last open blocker of a `blocked` task auto-unblocks it. |
@@ -94,9 +95,9 @@ Every write appends a `TaskEvent`. Types and payloads:
 
 | Type | Payload |
 | ---- | ------- |
-| `task.created` | `{ status, title }` |
-| `task.updated` | `{ fields: string[] }` |
-| `task.deleted` | `{ title }` |
+| `task.created` | `{ status, title }` (adds `followUpOf: <parentId>` when filed as a follow-up from a hand-off — see [Attention_Queue.md](./Attention_Queue.md)) |
+| `task.updated` | `{ fields: string[] }` — includes `"needsTriage"` when a write cleared it, whether that was the whole PATCH (`{ needsTriage: false }`, the inbox's Accept) or incidental to other fields |
+| `task.deleted` | `{ title, reason? }` (`reason: "cleanup"` when removed by `POST /tasks/cleanup` or the retention sweep) |
 | `task.status_changed` | `{ from, to, note }` |
 | `task.claimed` | `{ expiresAt, via? }` (`via: "next"` when taken by `POST /tasks/next`) |
 | `task.released` | `{ reason, claimedBy }` |
@@ -121,6 +122,7 @@ Each event also carries `taskTitle` — unlike `project` this is **joined at rea
 
 ## Related
 
+- [Attention_Queue.md](./Attention_Queue.md) — the attention queue, `needsTriage`, `concerns`, follow-ups
 - [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) — statuses and what each transition requires
 - [Actors.md](./Actors.md) — the `X-Actor` model
 - [Agent_Integration.md](./Agent_Integration.md) — the MCP server and Claude Code setup

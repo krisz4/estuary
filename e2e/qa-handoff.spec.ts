@@ -33,7 +33,7 @@ test("sends an agent's work back from the inbox with feedback, then approves the
   page,
   request,
 }) => {
-  const pr = { label: "PR #123", url: "https://github.com/example/helpdesk/pull/123" };
+  const pr = { label: "PR #123", url: "https://github.com/example/estuary/pull/123" };
   const firstSummary = "Added rate limiting to /exports. Verify with `pnpm test:api`.";
   const feedback = "The 429 response is missing the Retry-After header.";
   const secondSummary = "Retry-After is now set on every 429; covered by a route test.";

@@ -41,7 +41,12 @@ process.env.NODE_ENV = "test";
  * set `AGENTS_MAY_COMPLETE=true` would see the agent-completion tests fail.
  * Tests that need another value set it on `env` and restore it.
  */
-for (const name of ["API_TOKEN", "AGENTS_MAY_COMPLETE", "CLAIM_LEASE_MINUTES"]) {
+for (const name of [
+  "API_TOKEN",
+  "AGENTS_MAY_COMPLETE",
+  "CLAIM_LEASE_MINUTES",
+  "DONE_RETENTION_DAYS",
+]) {
   process.env[name] = "";
 }
 

@@ -52,11 +52,11 @@ describe("parseTaskListParams", () => {
   });
 
   it("keeps project slugs, lowercased and de-duplicated, and drops anything else", () => {
-    // Lowercased like the contract's `projectSchema` stores them: `HelpDesk`
-    // and `helpdesk` are one project, and the filter is an exact match.
+    // Lowercased like the contract's `projectSchema` stores them: `Estuary`
+    // and `estuary` are one project, and the filter is an exact match.
     expect(
-      parse("?project=HelpDesk&project=helpdesk&project=has%20space&project=mcp-server").project,
-    ).toEqual(["helpdesk", "mcp-server"]);
+      parse("?project=Estuary&project=estuary&project=has%20space&project=mcp-server").project,
+    ).toEqual(["estuary", "mcp-server"]);
   });
 
   it("keeps a createdBy that is an actor, lowercased, and drops one that is not", () => {
@@ -67,9 +67,9 @@ describe("parseTaskListParams", () => {
   });
 
   it("round-trips project and createdBy through the URL", () => {
-    const params = parse("?project=helpdesk&project=mcp-server&createdBy=human%3Akrisz");
+    const params = parse("?project=estuary&project=mcp-server&createdBy=human%3Akrisz");
     expect(serializeTaskListParams(params).toString()).toBe(
-      "project=helpdesk&project=mcp-server&createdBy=human%3Akrisz",
+      "project=estuary&project=mcp-server&createdBy=human%3Akrisz",
     );
   });
 
@@ -229,14 +229,14 @@ describe("useTaskListParams", () => {
   });
 
   it("treats project as the header's scope: not counted, and kept when filters are cleared", () => {
-    const h = renderParams("/tasks?project=helpdesk&status=todo");
+    const h = renderParams("/tasks?project=estuary&status=todo");
 
     expect(h.current.api.activeFilterCount).toBe(1);
 
     act(() => h.current.api.clearFilters());
 
     expect(h.current.api.params.status).toEqual([]);
-    expect(h.current.api.params.project).toEqual(["helpdesk"]);
+    expect(h.current.api.params.project).toEqual(["estuary"]);
     expect(h.current.api.hasActiveFilters).toBe(false);
   });
 

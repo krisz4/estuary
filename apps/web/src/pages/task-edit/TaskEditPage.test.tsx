@@ -119,7 +119,7 @@ describe("TaskEditPage", () => {
 
     await waitFor(() => expect(screen.getByLabelText(/^title/i)).toHaveValue(TITLE));
     expect(screen.getByLabelText(/assignee/i)).toHaveValue("Marcus Feld");
-    expect(screen.getByLabelText(/^project/i)).toHaveValue("helpdesk");
+    expect(screen.getByLabelText(/^project/i)).toHaveValue("estuary");
     expect(screen.getByLabelText(/^acceptance criteria/i)).toHaveValue(
       "Requests over 10/min get a 429.",
     );

@@ -1,4 +1,4 @@
-import { type TaskLink } from "@helpdesk/contracts";
+import { type TaskLink } from "@estuary/contracts";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";

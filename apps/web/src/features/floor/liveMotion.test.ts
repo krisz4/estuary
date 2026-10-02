@@ -1,6 +1,10 @@
-import { type TaskEvent } from "@helpdesk/contracts";
+import { type TaskEvent } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
-import { formatLiveStatusLine, LIVE_MOTION_SNAP_THRESHOLD, planLiveAnimations } from "@/features/floor/liveMotion";
+import {
+  formatLiveStatusLine,
+  LIVE_MOTION_SNAP_THRESHOLD,
+  planLiveAnimations,
+} from "@/features/floor/liveMotion";
 
 let nextId = 1;
 
@@ -8,7 +12,7 @@ const event = (overrides: Partial<TaskEvent> = {}): TaskEvent => ({
   id: nextId++,
   taskId: overrides.taskId ?? 1,
   taskTitle: overrides.taskTitle ?? null,
-  project: overrides.project ?? "helpdesk",
+  project: overrides.project ?? "estuary",
   type: overrides.type ?? "task.status_changed",
   actor: overrides.actor ?? "agent:claude-code",
   payload: overrides.payload ?? {},
@@ -18,7 +22,13 @@ const event = (overrides: Partial<TaskEvent> = {}): TaskEvent => ({
 describe("planLiveAnimations", () => {
   it("turns a status_changed event into a move animation", () => {
     const plan = planLiveAnimations(
-      [event({ type: "task.status_changed", taskId: 5, payload: { from: "todo", to: "in_progress" } })],
+      [
+        event({
+          type: "task.status_changed",
+          taskId: 5,
+          payload: { from: "todo", to: "in_progress" },
+        }),
+      ],
       { reducedMotion: false },
     );
     expect(plan.snap).toBe(false);
@@ -34,7 +44,9 @@ describe("planLiveAnimations", () => {
   });
 
   it("turns a decision.requested event into a pulse animation", () => {
-    const plan = planLiveAnimations([event({ type: "decision.requested", taskId: 9 })], { reducedMotion: false });
+    const plan = planLiveAnimations([event({ type: "decision.requested", taskId: 9 })], {
+      reducedMotion: false,
+    });
     expect(plan.animations).toEqual([{ kind: "pulse", taskId: 9 }]);
   });
 
@@ -60,10 +72,9 @@ describe("planLiveAnimations", () => {
   });
 
   it("snaps (no individual animations) when reduced motion is requested", () => {
-    const plan = planLiveAnimations(
-      [event({ payload: { from: "todo", to: "in_progress" } })],
-      { reducedMotion: true },
-    );
+    const plan = planLiveAnimations([event({ payload: { from: "todo", to: "in_progress" } })], {
+      reducedMotion: true,
+    });
     expect(plan.snap).toBe(true);
     expect(plan.animations).toEqual([]);
   });

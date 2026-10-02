@@ -1,4 +1,4 @@
-import { floorSnapshotSchema } from "@helpdesk/contracts";
+import { floorSnapshotSchema } from "@estuary/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -26,13 +26,13 @@ describe("GET /api/v1/floor", () => {
   });
 
   it("scopes by project and marks other filters as matches", async () => {
-    await makeTask({ project: "helpdesk", status: "todo", priority: "urgent" });
+    await makeTask({ project: "estuary", status: "todo", priority: "urgent" });
     await makeTask({ project: "billing", status: "todo" });
 
-    const res = await request(app).get(FLOOR).query({ project: "helpdesk", priority: "high" });
+    const res = await request(app).get(FLOOR).query({ project: "estuary", priority: "high" });
 
     expect(res.body.tasks).toHaveLength(1);
-    expect(res.body.tasks[0].project).toBe("helpdesk");
+    expect(res.body.tasks[0].project).toBe("estuary");
     expect(res.body.tasks[0].matches).toBe(false);
   });
 

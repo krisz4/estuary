@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { TASK_IDEMPOTENCY_KEY_MAX } from "@helpdesk/contracts";
+import { TASK_IDEMPOTENCY_KEY_MAX } from "@estuary/contracts";
 
 /**
  * The idempotency key `task_create` sends when the caller did not pick one.

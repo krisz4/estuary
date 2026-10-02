@@ -118,14 +118,14 @@ describe("reads", () => {
     }));
     const result = await call("task_list", {
       status: ["needs_user_decision", "needs_qa"],
-      project: ["helpdesk"],
+      project: ["estuary"],
       q: "login",
     });
     const request = only(requests);
     expect(request.method).toBe("GET");
     expect(request.path).toBe("/tasks");
     expect(request.query.getAll("status")).toEqual(["needs_user_decision", "needs_qa"]);
-    expect(request.query.getAll("project")).toEqual(["helpdesk"]);
+    expect(request.query.getAll("project")).toEqual(["estuary"]);
     expect(request.query.get("q")).toBe("login");
     expect(request.query.get("sort")).toBe("createdAt:desc");
     expect(request.query.get("page")).toBe("1");
@@ -149,7 +149,7 @@ describe("reads", () => {
           },
         },
       }),
-      { defaultProject: "helpdesk" },
+      { defaultProject: "estuary" },
     );
     const result = await call("task_list", {});
     expect(only(requests).query.has("project")).toBe(false);
@@ -176,12 +176,12 @@ describe("reads", () => {
           title: "Split the board into lanes",
           status: "in_progress",
           priority: "high",
-          project: "helpdesk",
+          project: "estuary",
           labels: ["api", "web"],
           parentId: 3,
           childCount: 2,
           openDependencyCount: 1,
-          claim: { actor: "agent:claude-code@helpdesk", expiresAt: "2026-09-25T10:30:00.000Z" },
+          claim: { actor: "agent:claude-code@estuary", expiresAt: "2026-09-25T10:30:00.000Z" },
           version: 4,
           updatedAt: "2026-09-24T08:00:00.000Z",
           description: `First line\n\nsecond   line ${"y".repeat(300)}`,
@@ -192,7 +192,7 @@ describe("reads", () => {
     const result = await call("task_list", {});
     const lines = result.text.split("\n");
     expect(lines[1]).toBe(
-      "- TASK-000007 [in_progress] Split the board into lanes · high · project helpdesk · labels api,web · parent #3 · 2 subtasks · 1 open dependency · claimed by agent:claude-code@helpdesk · v4 · updated 2026-09-24",
+      "- TASK-000007 [in_progress] Split the board into lanes · high · project estuary · labels api,web · parent #3 · 2 subtasks · 1 open dependency · claimed by agent:claude-code@estuary · v4 · updated 2026-09-24",
     );
     expect(lines[2]).toMatch(/^ {2}First line second line y+…$/);
     expect(lines[2]!.length).toBeLessThanOrEqual(2 + 160 + 1);
@@ -286,7 +286,7 @@ describe("reads", () => {
               id: 5,
               taskId: 42,
               taskTitle: "Accept a project filter",
-              project: "helpdesk",
+              project: "estuary",
               type: "task.status_changed",
               actor: "human:dana",
               payload: {},
@@ -296,20 +296,20 @@ describe("reads", () => {
           meta: { nextAfter: 5, hasMore: false },
         },
       }),
-      { defaultProject: "helpdesk" },
+      { defaultProject: "estuary" },
     );
     await call("task_events", {});
     const result = await call("task_events", {
-      project: ["helpdesk"],
+      project: ["estuary"],
       actor: "human:dana",
       type: ["task.status_changed", "decision.answered"],
     });
     expect(requests[0]!.query.has("project")).toBe(false);
-    expect(requests[1]!.query.getAll("project")).toEqual(["helpdesk"]);
+    expect(requests[1]!.query.getAll("project")).toEqual(["estuary"]);
     expect(requests[1]!.query.get("actor")).toBe("human:dana");
     expect(requests[1]!.query.getAll("type")).toEqual(["task.status_changed", "decision.answered"]);
     expect(result.text).toContain(
-      'task 42 "Accept a project filter" (helpdesk) task.status_changed by human:dana',
+      'task 42 "Accept a project filter" (estuary) task.status_changed by human:dana',
     );
   });
 
@@ -332,10 +332,10 @@ describe("reads", () => {
       status: 200,
       body: { byStatus, needsAttention: 3 },
     }));
-    const result = await call("task_stats", { project: ["helpdesk", "web"] });
+    const result = await call("task_stats", { project: ["estuary", "web"] });
     const request = only(requests);
     expect(request.path).toBe("/tasks/stats");
-    expect(request.query.getAll("project")).toEqual(["helpdesk", "web"]);
+    expect(request.query.getAll("project")).toEqual(["estuary", "web"]);
     expect(result.text).toContain("3 task(s) need a human.");
   });
 });
@@ -348,7 +348,7 @@ describe("task_create", () => {
 
   it("always sends an idempotency key, derived from project + title", async () => {
     const { call, requests } = await setup(() => ({ status: 201, body: makeTask() }), {
-      defaultProject: "helpdesk",
+      defaultProject: "estuary",
     });
     const result = await call("task_create", createBody);
     const request = only(requests);
@@ -358,8 +358,8 @@ describe("task_create", () => {
       ...createBody,
       status: "backlog",
       priority: "medium",
-      project: "helpdesk",
-      idempotencyKey: "mcp:helpdesk:add-rate-limiting",
+      project: "estuary",
+      idempotencyKey: "mcp:estuary:add-rate-limiting",
     });
     expect(result.text).toContain("Created TASK-000042.");
   });
@@ -372,7 +372,7 @@ describe("task_create", () => {
 
   it("keeps a caller's own key and an explicit null project", async () => {
     const { call, requests } = await setup(() => ({ status: 201, body: makeTask() }), {
-      defaultProject: "helpdesk",
+      defaultProject: "estuary",
     });
     await call("task_create", { ...createBody, project: null, idempotencyKey: "mine-1" });
     expect(only(requests).body).toMatchObject({ project: null, idempotencyKey: "mine-1" });
@@ -492,6 +492,68 @@ describe("writes", () => {
     });
   });
 
+  it("task_submit_for_qa carries concerns and follow-ups, and answers without echoing the task", async () => {
+    const { call, requests } = await setup(
+      echoTask({
+        status: "needs_qa",
+        version: 5,
+        description: "A long description the agent already knows.",
+        concerns: "Could not run the e2e suite",
+        children: [
+          {
+            id: 43,
+            reference: "TASK-000043",
+            title: "Add an e2e fixture",
+            status: "todo",
+            project: "estuary",
+          },
+        ],
+      }),
+    );
+    const followUps = [
+      {
+        title: "Add an e2e fixture",
+        description: "The e2e suite has no fixture for this.",
+        acceptanceCriteria: "The suite runs in CI.",
+      },
+    ];
+    const result = await call("task_submit_for_qa", {
+      taskId: 42,
+      summary: "Done",
+      concerns: "Could not run the e2e suite",
+      followUps,
+    });
+
+    expect(only(requests).body).toEqual({
+      to: "needs_qa",
+      summary: "Done",
+      concerns: "Could not run the e2e suite",
+      followUps,
+    });
+    expect(result.text).toContain("v5");
+    expect(result.text).toContain("concerns: Could not run the e2e suite");
+    expect(result.text).toContain("TASK-000043 [todo] Add an e2e fixture");
+    // Writes are compact: no JSON body, no description the agent just sent.
+    expect(result.text).not.toContain("{");
+    expect(result.text).not.toContain("A long description");
+  });
+
+  it("task_release forwards follow-ups", async () => {
+    const { call, requests } = await setup(echoTask({ status: "todo" }));
+    const followUps = [{ title: "Finish the retry path", description: "Half of it is done." }];
+    await call("task_release", { taskId: 42, reason: "Out of time", followUps });
+    expect(only(requests).body).toEqual({ reason: "Out of time", followUps });
+  });
+
+  it("task_list attention: true asks for the whole attention queue and marks untriaged rows", async () => {
+    const { call, requests } = await setup(() =>
+      page([makeSummary({ status: "todo", needsTriage: true })]),
+    );
+    const result = await call("task_list", { attention: true });
+    expect(only(requests).query.get("attention")).toBe("true");
+    expect(result.text).toContain("untriaged");
+  });
+
   it("task_request_decision nests the decision payload", async () => {
     const { call, requests } = await setup(echoTask({ status: "needs_user_decision" }));
     await call("task_request_decision", {
@@ -540,7 +602,7 @@ describe("writes", () => {
     const { call, requests } = await setup(
       () => ({ status: 200, body: { task: makeTask({ status: "in_progress" }) } }),
       {
-        defaultProject: "helpdesk",
+        defaultProject: "estuary",
       },
     );
     const claimed = await call("task_next", { minPriority: "high" });
@@ -548,10 +610,10 @@ describe("writes", () => {
     await call("task_next", { project: ["web"] });
     await call("task_next", { label: ["Web"] });
     expect(requests.map((request) => request.body)).toEqual([
-      { minPriority: "high", project: ["helpdesk"] },
+      { minPriority: "high", project: ["estuary"] },
       {},
       { project: ["web"] },
-      { label: ["web"], project: ["helpdesk"] },
+      { label: ["web"], project: ["estuary"] },
     ]);
     expect(requests[0]!.path).toBe("/tasks/next");
     expect(claimed.text).toContain("Claimed TASK-000042");
@@ -559,11 +621,11 @@ describe("writes", () => {
 
   it("task_next explains an empty queue without flagging an error", async () => {
     const { call } = await setup(() => ({ status: 200, body: { task: null } }), {
-      defaultProject: "helpdesk",
+      defaultProject: "estuary",
     });
     const result = await call("task_next", {});
     expect(result.isError).toBe(false);
-    expect(result.text).toContain("Nothing to claim in project helpdesk");
+    expect(result.text).toContain("Nothing to claim in project estuary");
   });
 
   it("claim, heartbeat, and release hit their endpoints", async () => {
@@ -723,8 +785,8 @@ describe("task_get detail", () => {
     const { call } = await setup(
       echoTask({
         parentId: 1,
-        parent: ref(1, "helpdesk"),
-        children: [ref(2, "helpdesk")],
+        parent: ref(1, "estuary"),
+        children: [ref(2, "estuary")],
         dependencies: [ref(3, "mobile-app")],
         dependents: [ref(4, null)],
       }),

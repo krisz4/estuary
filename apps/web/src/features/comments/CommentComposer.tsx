@@ -5,7 +5,7 @@ import {
   type Comment,
   type CommentKind,
   type CreateCommentInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { useState } from "react";
 import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";

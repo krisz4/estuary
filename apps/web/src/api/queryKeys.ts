@@ -4,7 +4,7 @@ import {
   type HistoryQueryInput,
   type TaskListQueryInput,
   type TaskStatsQuery,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 /**
  * Every TanStack Query key in the app.
@@ -45,6 +45,7 @@ import {
  * | Create, or an edit-form save | `all` + `events` | Any field may have changed, including an assignee or project that adds or removes a `facets` entry |
  * | Transition, claim, release, decision answer, dependency change | `lists()` + `details()` + `stats()` + `events` | Can reorder and re-filter every list, and can auto-unblock *other* tasks (so every mounted detail, not one) — but adds no assignee, project, or creator to `facets` |
  * | Delete | `lists()` + `facets()` + `stats()` + `events` | Plus `detail(id)` marked stale with `refetchType: "none"` — see `useDeleteTaskMutation` for why refetching it would be a guaranteed 404 |
+ * | Clean up done tasks | `all` + `events` | Bulk delete from the list page, where no deleted task's detail is mounted; also moves the floor's done counts |
  *
  * The workflow row is worth the extra lines rather than folding into `all`: the
  * map keeps a facets observer mounted, so `all` there is a `GET /tasks/facets`

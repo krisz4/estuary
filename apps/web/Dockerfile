@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 #
-# Helpdesk web image — Vite build served by nginx. No Node at runtime.
+# Estuary web image — Vite build served by nginx. No Node at runtime.
 #
 # Build from the **repo root** (needs the workspace lockfile and
 # `packages/contracts`):
 #
-#     docker build -f apps/web/Dockerfile -t helpdesk-web .
+#     docker build -f apps/web/Dockerfile -t estuary-web .
 
 # ------------------------------------------------------------------ #
 # deps
@@ -27,9 +27,9 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/mcp/package.json apps/mcp/
 
-# `@helpdesk/web...` pulls in contracts and tsconfig and skips apps/api — which
+# `@estuary/web...` pulls in contracts and tsconfig and skips apps/api — which
 # also means Prisma never installs here, and Prisma is ~57% of the tree (P1).
-RUN pnpm install --frozen-lockfile --filter "@helpdesk/web..."
+RUN pnpm install --frozen-lockfile --filter "@estuary/web..."
 
 # ------------------------------------------------------------------ #
 # build
@@ -62,8 +62,8 @@ COPY packages/tsconfig packages/tsconfig
 COPY packages/contracts packages/contracts
 COPY apps/web apps/web
 
-RUN pnpm --filter @helpdesk/contracts build \
- && pnpm --filter @helpdesk/web build
+RUN pnpm --filter @estuary/contracts build \
+ && pnpm --filter @estuary/web build
 
 # P37: with `packages/contracts/dist` missing, `vite build` exits 1 **after**
 # writing a dist/ that looks complete and is ~70 kB short. `RUN` fails the image

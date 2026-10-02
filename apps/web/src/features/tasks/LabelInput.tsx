@@ -1,4 +1,4 @@
-import { labelSchema, TASK_LABELS_MAX } from "@helpdesk/contracts";
+import { labelSchema, TASK_LABELS_MAX } from "@estuary/contracts";
 import { X } from "lucide-react";
 import { useId, useState, type KeyboardEvent } from "react";
 import { fieldClassName } from "@/components/ui";

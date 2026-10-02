@@ -5,7 +5,9 @@ import {
   FLOOR_SHIPPED_WINDOWS,
   type FloorShippedWindow,
   TASK_ID_MAX_DIGITS,
-} from "@helpdesk/contracts";
+  TASK_STATUSES,
+  type TaskStatus,
+} from "@estuary/contracts";
 import {
   DEFAULT_TASK_LIST_PARAMS,
   parseTaskListParams,
@@ -34,7 +36,10 @@ import {
  * - `shipped` — `24h | 7d`, the mouth's window.
  * - `fold` — folded group keys (repeatable), shareable because it changes what
  *   a link shows.
- * - `task` — the selected task id, so the drawer is shareable.
+ * - `task` — the task open in `TaskWorkspaceDialog`, so it is shareable.
+ * - `list` — statuses (repeatable) whose full task list is open in
+ *   `TaskWorkspaceDialog`, from a station or a briefing tile. It opens a list *over*
+ *   the map rather than filtering it, so it never touches `status`.
  * - `stale` / `working` — client-computed presets.
  * - `at` — replay: the map as it stood at this instant (phase 6, the tide
  *   scrubber).
@@ -60,6 +65,7 @@ export const FLOOR_PARAM_KEYS = [
   "shipped",
   "fold",
   "task",
+  "list",
   "at",
   "stale",
   "working",
@@ -73,6 +79,8 @@ export type FloorOnlyParams = {
   shipped: FloorShippedWindow;
   fold: string[];
   task: number | undefined;
+  /** Non-empty = the station/tile list dialog is open for these statuses. */
+  list: TaskStatus[];
   at: string | undefined;
   stale: boolean;
   working: boolean;
@@ -101,6 +109,11 @@ const parseAt = (raw: string | null): string | undefined => {
 
 const parseFlag = (raw: string | null): boolean => raw === "1" || raw === "true";
 
+/** `?list=backlog&list=nonsense&list=backlog` → `["backlog"]`. */
+const parseStatusList = (raw: string[]): TaskStatus[] => [
+  ...new Set(raw.map((value) => oneOf(TASK_STATUSES, value.trim())).filter((v) => v !== undefined)),
+];
+
 const parseFloorOnly = (searchParams: URLSearchParams): FloorOnlyParams => ({
   group: (() => {
     // `group` wins when both are present (a hand-edited URL); `belts` is the
@@ -110,9 +123,18 @@ const parseFloorOnly = (searchParams: URLSearchParams): FloorOnlyParams => ({
   })(),
   links: oneOf(FLOOR_LINKS_MODES, searchParams.get("links") ?? "") ?? DEFAULT_FLOOR_LINKS_MODE,
   match: oneOf(FLOOR_MATCH_MODES, searchParams.get("match") ?? "") ?? "dim",
-  shipped: oneOf(FLOOR_SHIPPED_WINDOWS, searchParams.get("shipped") ?? "") ?? DEFAULT_FLOOR_SHIPPED_WINDOW,
-  fold: [...new Set(searchParams.getAll("fold").map((value) => value.trim()).filter(Boolean))],
+  shipped:
+    oneOf(FLOOR_SHIPPED_WINDOWS, searchParams.get("shipped") ?? "") ?? DEFAULT_FLOOR_SHIPPED_WINDOW,
+  fold: [
+    ...new Set(
+      searchParams
+        .getAll("fold")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ],
   task: parseTaskId(searchParams.get("task")),
+  list: parseStatusList(searchParams.getAll("list")),
   at: parseAt(searchParams.get("at")),
   stale: parseFlag(searchParams.get("stale")),
   working: parseFlag(searchParams.get("working")),
@@ -131,6 +153,7 @@ const serializeFloorOnly = (params: FloorOnlyParams, next: URLSearchParams): voi
   next.delete("shipped");
   next.delete("fold");
   next.delete("task");
+  next.delete("list");
   next.delete("at");
   next.delete("stale");
   next.delete("working");
@@ -142,6 +165,7 @@ const serializeFloorOnly = (params: FloorOnlyParams, next: URLSearchParams): voi
   if (params.shipped !== DEFAULT_FLOOR_SHIPPED_WINDOW) next.set("shipped", params.shipped);
   for (const key of params.fold) next.append("fold", key);
   if (params.task !== undefined) next.set("task", String(params.task));
+  for (const status of params.list) next.append("list", status);
   if (params.at !== undefined) next.set("at", params.at);
   if (params.stale) next.set("stale", "1");
   if (params.working) next.set("working", "1");
@@ -183,6 +207,8 @@ export type FloorParamsApi = {
   setShipped: (shipped: FloorShippedWindow) => void;
   toggleFold: (groupKey: string) => void;
   setSelectedTask: (taskId: number | undefined, options?: { replace?: boolean }) => void;
+  /** Opens (non-empty) or closes (`[]`) the task-list dialog. Pushes a history entry, so Back closes it. */
+  setStatusList: (statuses: TaskStatus[]) => void;
   setAt: (at: string | undefined, options?: { replace?: boolean }) => void;
   /** Applies a whole preset patch in one URL write — "Chains" sets both `group` and `links`. */
   applyPreset: (patch: Partial<FloorOnlyParams>) => void;
@@ -250,6 +276,7 @@ export const useFloorParams = (): FloorParamsApi => {
         shipped: current.shipped,
         fold: current.fold,
         task: current.task,
+        list: current.list,
         at: current.at,
         stale: false,
         working: false,
@@ -294,6 +321,11 @@ export const useFloorParams = (): FloorParamsApi => {
     [update],
   );
 
+  const setStatusList = useCallback(
+    (statuses: TaskStatus[]) => update((current) => ({ ...current, list: statuses })),
+    [update],
+  );
+
   const setAt = useCallback(
     (at: string | undefined, options?: { replace?: boolean }) =>
       update((current) => ({ ...current, at }), options),
@@ -316,6 +348,7 @@ export const useFloorParams = (): FloorParamsApi => {
     setShipped,
     toggleFold,
     setSelectedTask,
+    setStatusList,
     setAt,
     applyPreset,
     hasActiveFilters: hasActiveFloorFilters(params),

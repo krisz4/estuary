@@ -1,4 +1,4 @@
-import { type ValidationErrorDetails } from "@helpdesk/contracts";
+import { type ValidationErrorDetails } from "@estuary/contracts";
 import { ApiClientError, isApiClientError, type ApiClientErrorCode } from "@/api/http";
 
 /**
@@ -199,7 +199,7 @@ export const errorDescription = (error: unknown): string => {
  * **Not every `details` key is a form field.** An unknown query parameter is
  * reported by zod with an empty path — it names the offending key in the
  * *message*, not the path — and the server files those under `_`
- * (`docs/engineering/BUILD_LOG.md`, stage 8 constraints). A form that mapped
+ * (`docs/history/BUILD_LOG.md`, stage 8 constraints). A form that mapped
  * `details` straight onto its fields would call `setError("_", …)` on a field
  * that does not exist, and react-hook-form drops errors for unregistered names
  * silently: the user sees a rejected submit with nothing highlighted.

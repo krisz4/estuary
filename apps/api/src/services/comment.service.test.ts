@@ -1,4 +1,4 @@
-import { createCommentInputSchema } from "@helpdesk/contracts";
+import { createCommentInputSchema } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../lib/errors.js";

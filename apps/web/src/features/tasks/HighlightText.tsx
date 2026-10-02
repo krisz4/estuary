@@ -1,4 +1,4 @@
-import { parseSearchTerms } from "@helpdesk/contracts";
+import { parseSearchTerms } from "@estuary/contracts";
 import { Fragment } from "react";
 
 /**

@@ -2,10 +2,15 @@
 
 `.github/workflows/ci.yml`. Runs on pushes to `main`, on every pull request, and on manual dispatch.
 
-> **This workflow has never been run by GitHub Actions** — the repository has no remote (D23 in
-> [../engineering/BUILD_LOG.md](../engineering/BUILD_LOG.md)). Every step below was executed locally,
-> in this order, and is green; what is unproven is the workflow *as a workflow*. Expect the first real
-> run to be where the runner-only parts get their first test.
+Besides `ci.yml`, three more workflows run:
+
+| Workflow | When | What |
+| -------- | ---- | ---- |
+| `codeql.yml` | push to `main`, PRs, weekly | CodeQL `security-extended` for TypeScript and for the workflows themselves. Findings go to Security → Code scanning |
+| `secret-scan.yml` | push to `main`, PRs | gitleaks over the **full history**, with matches redacted in the log. Confirmed false positives go in `.gitleaksignore` by fingerprint |
+| `release.yml` | a `v*.*.*` tag | Publishes `estuary-mcp` to npm and the images to GHCR, then creates the GitHub release. See [RELEASING.md](./RELEASING.md) |
+
+Dependabot (`.github/dependabot.yml`) opens weekly grouped update PRs for npm, GitHub Actions, and the Dockerfiles' base images.
 
 Two jobs in parallel:
 
@@ -18,15 +23,15 @@ The gate order inside `verify` is the one [../engineering/TESTING.md](../enginee
 
 ## Why two jobs and not one
 
-`e2e` pays a Playwright browser download that `verify` does not need, and `verify` runs three test suites `e2e` does not. Splitting them means a unit-test failure surfaces without waiting on chromium. The cost is paying `pnpm install` twice — accepted, because the pnpm store is cached and the install is mostly hardlinks (P1 in [../engineering/BUILD_LOG.md](../engineering/BUILD_LOG.md)).
+`e2e` pays a Playwright browser download that `verify` does not need, and `verify` runs three test suites `e2e` does not. Splitting them means a unit-test failure surfaces without waiting on chromium. The cost is paying `pnpm install` twice — accepted, because the pnpm store is cached and the install is mostly hardlinks (P1 in [../history/BUILD_LOG.md](../history/BUILD_LOG.md)).
 
 ## The four checks that exist only in CI
 
 Everything else in the workflow is a script a developer already runs. These four are not:
 
-**Build output is asserted, not assumed.** `test -s` on each expected artifact (`packages/contracts/dist/index.js`, `apps/api/dist/server.js`, `apps/api/dist/seed/index.js`, `apps/web/dist/index.html`). A non-zero exit already fails the step; the assertions cover P37, where a *failed* `vite build` leaves a plausible-looking `dist/` behind that is ~70 kB short. The Dockerfiles make the same assertions for the same reason. Never infer a successful build from a directory existing.
+**Build output is asserted, not assumed.** `test -s` on each expected artifact (`packages/contracts/dist/index.js` and `index.d.ts`, `apps/api/dist/server.js`, `apps/api/dist/seed/index.js`, `apps/web/dist/index.html`, `apps/mcp/dist/index.js`). A non-zero exit already fails the step; the assertions cover P37, where a *failed* `vite build` leaves a plausible-looking `dist/` behind that is ~70 kB short. The Dockerfiles make the same assertions for the same reason. Never infer a successful build from a directory existing.
 
-**`openapi.json` must be current.** The job regenerates the spec and fails if the working tree is then dirty. The spec is a committed artefact derived from the zod contracts, so it goes stale silently — a contract change that shipped without `pnpm --filter @helpdesk/api openapi:gen` fails here. Promised by [../features/API_Documentation.md](../features/API_Documentation.md#rules).
+**`openapi.json` must be current.** The job regenerates the spec and fails if the working tree is then dirty. The spec is a committed artefact derived from the zod contracts, so it goes stale silently — a contract change that shipped without `pnpm --filter @estuary/api openapi:gen` fails here. Promised by [../features/API_Documentation.md](../features/API_Documentation.md#rules).
 
 **`schema.prisma` must match its migrations.** `migrate deploy` replays the migration *files* and reports success, so it cannot detect a schema change nobody wrote a migration for. The job replays the migrations onto an empty database and then runs `prisma migrate diff --from-schema-datasource --to-schema-datamodel --exit-code`; exit 2 means the two disagree. This is checklist rule #2 in [../../CLAUDE.md](../../CLAUDE.md) enforced mechanically, and it is the same check the container entrypoint runs before serving ([DOCKER.md](./DOCKER.md)) — which matters, because the stage 14 Docker gate has still never been executed (D22).
 
@@ -44,17 +49,18 @@ The `engines` range used to read `>=20.11.0`, which was already fiction — no i
 
 ## `apps/mcp` is covered without a dedicated step
 
-`pnpm build`, `pnpm typecheck`, and `pnpm test` all run through `turbo run <task>`, and Turborepo runs a task for every workspace that defines it. `apps/mcp` has `build`, `typecheck`, and `test` scripts (`apps/mcp/package.json`), so it is built and tested by the same three steps every other workspace is, with no `apps/mcp`-specific line in the workflow. **The one gap:** "Assert build output" checks `packages/contracts/dist/index.js`, `apps/api/dist/server.js`, `apps/api/dist/seed/index.js`, and `apps/web/dist/index.html`, but not `apps/mcp/dist/index.js` — a silently-empty MCP build would still pass CI. Worth adding the same `test -s` line if `apps/mcp`'s build ever needs the same guarantee as the others.
+`pnpm build`, `pnpm typecheck`, and `pnpm test` all run through `turbo run <task>`, and Turborepo runs a task for every workspace that defines it. `apps/mcp` has `build`, `typecheck`, and `test` scripts (`apps/mcp/package.json`), so it is built and tested by the same three steps every other workspace is, with no `apps/mcp`-specific line in the workflow. "Assert build output" includes `apps/mcp/dist/index.js`, so a silently empty MCP build fails CI like the others.
 
 ## What CI does not do
 
 - **No Docker build.** The compose stack is not exercised here; its gate is a human running `docker compose up --build` on a clean volume (D22). A `docker build` step would prove the images build, not that the app comes up seeded and survives a `down`, which is the part that has never been verified.
 - **No coverage gate.** `test:coverage` exists as a script; no threshold is enforced. A coverage number is not the property the suite is trying to have — see TESTING.md's opening line.
-- **No deployment.** There is nowhere to deploy to; see [DOCKER.md](./DOCKER.md) § Not included.
+- **No deployment.** CI never deploys anything. Releases publish packages and images, and that's `release.yml`'s job, triggered by a tag ([RELEASING.md](./RELEASING.md)).
 - **No retries anywhere.** `playwright.config.ts` sets `retries: 0` including in CI. An intermittent failure a retry turns green is exactly the signal the suite exists to produce.
 
 ## Related
 
 - [../engineering/TESTING.md](../engineering/TESTING.md) — what each layer covers
-- [../engineering/BUILD_LOG.md](../engineering/BUILD_LOG.md) — P3, P37, P43, P44, D4, D22, D23
+- [../history/BUILD_LOG.md](../history/BUILD_LOG.md) — P3, P37, P43, P44, D4, D22, D23
 - [DOCKER.md](./DOCKER.md)
+- [RELEASING.md](./RELEASING.md)

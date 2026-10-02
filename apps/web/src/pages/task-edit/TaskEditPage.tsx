@@ -3,7 +3,7 @@ import {
   taskIdParamSchema,
   type Task,
   type UpdateTaskInput,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { RefreshCw } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";

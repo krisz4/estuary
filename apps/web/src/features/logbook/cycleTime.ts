@@ -1,4 +1,4 @@
-import { type CycleTime } from "@helpdesk/contracts";
+import { type CycleTime } from "@estuary/contracts";
 import { actorDisplayName } from "@/lib/formatting";
 
 /** One agent's row in the cycle-time dot strip: every finished pass, oldest first. */

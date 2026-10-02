@@ -1,4 +1,9 @@
-import { TASK_EVENT_TYPES, type EventsResponse, type TaskEvent, type TaskEventType } from "@helpdesk/contracts";
+import {
+  TASK_EVENT_TYPES,
+  type EventsResponse,
+  type TaskEvent,
+  type TaskEventType,
+} from "@estuary/contracts";
 import { Route } from "lucide-react";
 import { Link } from "react-router-dom";
 import { type InfiniteData, type UseInfiniteQueryResult } from "@tanstack/react-query";
@@ -85,7 +90,10 @@ export const EventLog = ({ query, filters, onFiltersChange, hasAnyFilter }: Even
           <Select
             value={filters.type[0] ?? EVENT_TYPE_ANY}
             onValueChange={(value) =>
-              onFiltersChange({ ...filters, type: value === EVENT_TYPE_ANY ? [] : [value as TaskEventType] })
+              onFiltersChange({
+                ...filters,
+                type: value === EVENT_TYPE_ANY ? [] : [value as TaskEventType],
+              })
             }
             aria-label="Filter event log by type"
             options={[
@@ -99,7 +107,11 @@ export const EventLog = ({ query, filters, onFiltersChange, hasAnyFilter }: Even
       {query.isPending ? (
         <EventLogSkeleton />
       ) : query.error !== null && query.data === undefined ? (
-        <ErrorPanel error={query.error} onRetry={() => void query.refetch()} isRetrying={query.isFetching} />
+        <ErrorPanel
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          isRetrying={query.isFetching}
+        />
       ) : events.length === 0 ? (
         <EmptyState
           title={hasAnyFilter ? "No events match" : "No events in this range"}

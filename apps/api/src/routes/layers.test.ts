@@ -81,6 +81,7 @@ describe("services/ contains no HTTP", () => {
       "services/floor.service.ts",
       "services/github.service.ts",
       "services/history.service.ts",
+      "services/task-cleanup.service.ts",
       "services/task-events.ts",
       "services/task-guards.ts",
       "services/task-query.ts",

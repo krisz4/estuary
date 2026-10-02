@@ -2,7 +2,7 @@ import {
   githubImportInputSchema,
   TASK_PROJECT_MAX,
   type GithubImportInputRaw,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";

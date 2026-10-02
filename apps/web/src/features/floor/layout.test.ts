@@ -1,4 +1,4 @@
-import { type FloorEdge, type FloorTask } from "@helpdesk/contracts";
+import { type FloorEdge, type FloorTask } from "@estuary/contracts";
 import { describe, expect, it } from "vitest";
 import {
   ALL_FLOOR_STATUSES,
@@ -13,6 +13,9 @@ import {
   computeDefaultBeltsMode,
   computeDensityScale,
   computeMaxPerCluster,
+  computeRiverScale,
+  DONE_SETTLE_MS,
+  MAX_LOOSE_DONE,
   computeViewportScale,
   dependencyClosureOf,
   countWorkingAgents,
@@ -35,7 +38,7 @@ const task = (overrides: Partial<FloorTask> = {}): FloorTask => {
     status: overrides.status ?? "backlog",
     statusNote: overrides.statusNote ?? null,
     priority: overrides.priority ?? "medium",
-    project: overrides.project === undefined ? "helpdesk" : overrides.project,
+    project: overrides.project === undefined ? "estuary" : overrides.project,
     assignee: overrides.assignee ?? null,
     labels: overrides.labels ?? [],
     parentId: overrides.parentId ?? null,
@@ -110,7 +113,9 @@ describe("isMustShowCrate", () => {
     const selected = task({ id: 99 });
     expect(isMustShowCrate(selected, { hasActiveFilters: false, selectedTaskId: 99 })).toBe(true);
     const neighbor = task({ id: 5 });
-    expect(isMustShowCrate(neighbor, { hasActiveFilters: false, edgeNeighborIds: new Set([5]) })).toBe(true);
+    expect(
+      isMustShowCrate(neighbor, { hasActiveFilters: false, edgeNeighborIds: new Set([5]) }),
+    ).toBe(true);
   });
 });
 
@@ -128,14 +133,19 @@ describe("compareFloorTasks / isStaleTask / isWorkingTask", () => {
     const now = new Date("2026-02-01T00:00:00.000Z").getTime();
     expect(isStaleTask(task({ updatedAt: "2026-01-01T00:00:00.000Z" }), now)).toBe(true);
     expect(isStaleTask(task({ updatedAt: "2026-01-30T00:00:00.000Z" }), now)).toBe(false);
-    expect(isStaleTask(task({ status: "done", updatedAt: "2026-01-01T00:00:00.000Z" }), now)).toBe(false);
+    expect(isStaleTask(task({ status: "done", updatedAt: "2026-01-01T00:00:00.000Z" }), now)).toBe(
+      false,
+    );
   });
 
   it("is working only for in_progress with a live claim", () => {
     expect(isWorkingTask(task({ status: "in_progress", claim: null }))).toBe(false);
     expect(
       isWorkingTask(
-        task({ status: "in_progress", claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T00:00:00.000Z" } }),
+        task({
+          status: "in_progress",
+          claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T00:00:00.000Z" },
+        }),
       ),
     ).toBe(true);
   });
@@ -153,29 +163,33 @@ describe("dependencyClosureOf", () => {
 describe("computeDefaultBeltsMode", () => {
   it("is 'project' with every-project scope, 'epic' for one project with parents, 'none' otherwise", () => {
     expect(computeDefaultBeltsMode([], [task()])).toBe("project");
-    expect(computeDefaultBeltsMode(["helpdesk"], [task({ parentId: 1 })])).toBe("epic");
-    expect(computeDefaultBeltsMode(["helpdesk"], [task({ childCount: 2 })])).toBe("epic");
-    expect(computeDefaultBeltsMode(["helpdesk"], [task()])).toBe("none");
+    expect(computeDefaultBeltsMode(["estuary"], [task({ parentId: 1 })])).toBe("epic");
+    expect(computeDefaultBeltsMode(["estuary"], [task({ childCount: 2 })])).toBe("epic");
+    expect(computeDefaultBeltsMode(["estuary"], [task()])).toBe("none");
   });
 });
 
 describe("sortedProjectKeys / projectColorIndex / beadColorIndex", () => {
   it("sorts distinct projects alphabetically, dropping nulls", () => {
-    const tasks = [task({ project: "billing" }), task({ project: null }), task({ project: "acme" })];
+    const tasks = [
+      task({ project: "billing" }),
+      task({ project: null }),
+      task({ project: "acme" }),
+    ];
     expect(sortedProjectKeys(tasks)).toEqual(["acme", "billing"]);
   });
 
   it("assigns a stable index by sorted position, null for no project, no collisions up to palette size", () => {
-    const order = ["acme", "billing", "helpdesk"];
+    const order = ["acme", "billing", "estuary"];
     expect(projectColorIndex("acme", order)).toBe(0);
-    expect(projectColorIndex("helpdesk", order)).toBe(2);
+    expect(projectColorIndex("estuary", order)).toBe(2);
     expect(projectColorIndex(null, order)).toBeNull();
   });
 
   it("colours by project order when group=project, by group sector otherwise", () => {
-    const t = task({ project: "helpdesk" });
-    expect(beadColorIndex(t, "helpdesk", 3, "project", ["billing", "helpdesk"])).toBe(1);
-    expect(beadColorIndex(t, "some-label", 3, "label", ["billing", "helpdesk"])).toBe(3);
+    const t = task({ project: "estuary" });
+    expect(beadColorIndex(t, "estuary", 3, "project", ["billing", "estuary"])).toBe(1);
+    expect(beadColorIndex(t, "some-label", 3, "label", ["billing", "estuary"])).toBe(3);
   });
 });
 
@@ -213,14 +227,20 @@ describe("density / sizing helpers", () => {
 
 describe("buildMapLayout — grouping", () => {
   it("groups by project", () => {
-    const tasks = [task({ project: "helpdesk", status: "todo" }), task({ project: "billing", status: "todo" })];
+    const tasks = [
+      task({ project: "estuary", status: "todo" }),
+      task({ project: "billing", status: "todo" }),
+    ];
     const layout = buildMapLayout({ ...baseInput, tasks });
     const keys = layout.clusters.todo.beads.map((b) => b.groupKey).sort();
-    expect(keys).toEqual(["billing", "helpdesk"]);
+    expect(keys).toEqual(["billing", "estuary"]);
   });
 
   it("collapses into one group with group=none", () => {
-    const tasks = [task({ project: "helpdesk", status: "todo" }), task({ project: "billing", status: "todo" })];
+    const tasks = [
+      task({ project: "estuary", status: "todo" }),
+      task({ project: "billing", status: "todo" }),
+    ];
     const layout = buildMapLayout({ ...baseInput, group: "none", tasks });
     expect(new Set(layout.clusters.todo.beads.map((b) => b.groupKey)).size).toBe(1);
   });
@@ -276,7 +296,10 @@ describe("buildMapLayout — beads and shoals", () => {
   });
 
   it("in hide mode, a non-matching task is neither a bead nor part of the shoal, but still counted", () => {
-    const tasks = [task({ status: "todo", matches: true }), task({ status: "todo", matches: false })];
+    const tasks = [
+      task({ status: "todo", matches: true }),
+      task({ status: "todo", matches: false }),
+    ];
     const layout = buildMapLayout({ ...baseInput, match: "hide", tasks, hasActiveFilters: true });
     expect(layout.clusters.todo.beads).toHaveLength(1);
     expect(layout.clusters.todo.totalCount).toBe(2);
@@ -328,12 +351,20 @@ describe("buildMapLayout — taskPosition, ghost beads, and the Logbook pile", (
   });
 
   it("produces one flat, deduplicated ghost bead per off-scope ref", () => {
-    const inScope = task({ id: 1, status: "blocked", project: "helpdesk" });
+    const inScope = task({ id: 1, status: "blocked", project: "estuary" });
     const layout = buildMapLayout({
       ...baseInput,
       tasks: [inScope],
       edges: [edge(99, 1)],
-      refs: [{ id: 99, reference: "TASK-000099", title: "Off-scope blocker", status: "todo", project: "mobile-app" }],
+      refs: [
+        {
+          id: 99,
+          reference: "TASK-000099",
+          title: "Off-scope blocker",
+          status: "todo",
+          project: "mobile-app",
+        },
+      ],
     });
     expect(layout.ghostBeads).toHaveLength(1);
     expect(layout.ghostBeads[0]?.direction).toBe("blocker");
@@ -341,10 +372,14 @@ describe("buildMapLayout — taskPosition, ghost beads, and the Logbook pile", (
   });
 
   it("carries the older-closed count as one snapshot-wide pile, null when zero", () => {
-    expect(buildMapLayout({ ...baseInput, tasks: [], olderClosedCount: 212 }).olderClosedPile).toEqual({
+    expect(
+      buildMapLayout({ ...baseInput, tasks: [], olderClosedCount: 212 }).olderClosedPile,
+    ).toEqual({
       count: 212,
     });
-    expect(buildMapLayout({ ...baseInput, tasks: [], olderClosedCount: 0 }).olderClosedPile).toBeNull();
+    expect(
+      buildMapLayout({ ...baseInput, tasks: [], olderClosedCount: 0 }).olderClosedPile,
+    ).toBeNull();
   });
 });
 
@@ -421,17 +456,26 @@ describe("countWorkingAgents", () => {
   const now = new Date("2026-01-01T12:00:00.000Z");
 
   it("counts a live agent claim", () => {
-    const a = task({ id: 1, claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:30:00.000Z" } });
+    const a = task({
+      id: 1,
+      claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:30:00.000Z" },
+    });
     expect(countWorkingAgents([a], now)).toBe(1);
   });
 
   it("does not count a human's claim", () => {
-    const a = task({ id: 1, claim: { actor: "human:krisz", expiresAt: "2026-01-01T12:30:00.000Z" } });
+    const a = task({
+      id: 1,
+      claim: { actor: "human:krisz", expiresAt: "2026-01-01T12:30:00.000Z" },
+    });
     expect(countWorkingAgents([a], now)).toBe(0);
   });
 
   it("does not count an expired claim — a task can be in_progress with no live claim at all", () => {
-    const a = task({ id: 1, claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T11:00:00.000Z" } });
+    const a = task({
+      id: 1,
+      claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T11:00:00.000Z" },
+    });
     expect(countWorkingAgents([a], now)).toBe(0);
   });
 
@@ -441,14 +485,75 @@ describe("countWorkingAgents", () => {
   });
 
   it("counts the same actor holding two claims once, not twice", () => {
-    const a = task({ id: 1, claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:30:00.000Z" } });
-    const b = task({ id: 2, claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:45:00.000Z" } });
+    const a = task({
+      id: 1,
+      claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:30:00.000Z" },
+    });
+    const b = task({
+      id: 2,
+      claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:45:00.000Z" },
+    });
     expect(countWorkingAgents([a, b], now)).toBe(1);
   });
 
   it("counts two distinct agents separately", () => {
-    const a = task({ id: 1, claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:30:00.000Z" } });
-    const b = task({ id: 2, claim: { actor: "agent:claude-code-ci", expiresAt: "2026-01-01T12:45:00.000Z" } });
+    const a = task({
+      id: 1,
+      claim: { actor: "agent:claude-code", expiresAt: "2026-01-01T12:30:00.000Z" },
+    });
+    const b = task({
+      id: 2,
+      claim: { actor: "agent:claude-code-ci", expiresAt: "2026-01-01T12:45:00.000Z" },
+    });
     expect(countWorkingAgents([a, b], now)).toBe(2);
+  });
+});
+
+describe("buildMapLayout — done work settles", () => {
+  const now = Date.parse("2026-09-26T12:00:00.000Z");
+  const shipped = (msAgo: number): FloorTask =>
+    task({ status: "done", completedAt: new Date(now - msAgo).toISOString() });
+
+  it("keeps a fresh ship loose and folds older done work into the shoal", () => {
+    const fresh = shipped(10 * 60 * 1000);
+    const old = [shipped(DONE_SETTLE_MS + 1), shipped(2 * DONE_SETTLE_MS)];
+    const layout = buildMapLayout({ ...baseInput, tasks: [fresh, ...old], maxPerCluster: 30, now });
+    const cluster = layout.clusters.done;
+    expect(cluster.beads.map((bead) => bead.task.id)).toEqual([fresh.id]);
+    expect(cluster.shoal?.count).toBe(2);
+    expect(cluster.totalCount).toBe(3);
+  });
+
+  it("shows at most MAX_LOOSE_DONE loose, the most recent ones", () => {
+    const tasks = Array.from({ length: MAX_LOOSE_DONE + 4 }, (_, i) => shipped((i + 1) * 60 * 1000));
+    const layout = buildMapLayout({ ...baseInput, tasks, maxPerCluster: 30, now });
+    const loose = layout.clusters.done.beads.map((bead) => bead.task.id);
+    expect(loose).toHaveLength(MAX_LOOSE_DONE);
+    expect(loose).toEqual(expect.arrayContaining(tasks.slice(0, MAX_LOOSE_DONE).map((t) => t.id)));
+    expect(layout.clusters.done.shoal?.count).toBe(4);
+  });
+
+  it("does not settle other stations by age", () => {
+    const stale = task({ status: "todo", updatedAt: new Date(now - 10 * DONE_SETTLE_MS).toISOString() });
+    const layout = buildMapLayout({ ...baseInput, tasks: [stale], maxPerCluster: 30, now });
+    expect(layout.clusters.todo.beads).toHaveLength(1);
+    expect(layout.clusters.todo.shoal).toBeNull();
+  });
+});
+
+describe("computeRiverScale", () => {
+  it("is a little wider than the prototype at rest and swells with the busiest station", () => {
+    expect(computeRiverScale(0)).toBe(1.3);
+    expect(computeRiverScale(4)).toBe(1.3);
+    expect(computeRiverScale(32)).toBeGreaterThan(1.3);
+    expect(computeRiverScale(60)).toBe(2.3);
+    expect(computeRiverScale(500)).toBe(2.3);
+  });
+
+  it("moves in 0.1 steps, so the cached terrain is not redrawn on every task", () => {
+    for (let n = 0; n <= 80; n += 1) {
+      const scale = computeRiverScale(n);
+      expect(Math.round(scale * 10) / 10).toBe(scale);
+    }
   });
 });

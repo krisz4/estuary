@@ -12,7 +12,7 @@
  * the behavior, the inline script is a copy that exists only to beat the paint.
  */
 
-export const THEME_STORAGE_KEY = "helpdesk.theme";
+export const THEME_STORAGE_KEY = "estuary.theme";
 
 export const THEME_PREFERENCES = ["light", "dark", "system"] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];

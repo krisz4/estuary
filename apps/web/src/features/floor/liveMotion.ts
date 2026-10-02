@@ -1,4 +1,4 @@
-import { TASK_STATUSES, type TaskEvent, type TaskStatus } from "@helpdesk/contracts";
+import { TASK_STATUSES, type TaskEvent, type TaskStatus } from "@estuary/contracts";
 
 /**
  * Phase 4's "live motion" — turning a batch of `GET /events?after=` rows into
@@ -72,7 +72,11 @@ export const planLiveAnimations = (
  * at all (the seed data's "Stalled" tasks), which isn't an agent working.
  */
 export const formatLiveStatusLine = (workingCount: number, syncedSecondsAgo: number): string => {
-  const agents = workingCount === 0 ? "No agent working" : `${workingCount} agent${workingCount === 1 ? "" : "s"} working`;
-  const synced = syncedSecondsAgo < 1 ? "synced just now" : `synced ${Math.round(syncedSecondsAgo)}s ago`;
+  const agents =
+    workingCount === 0
+      ? "No agent working"
+      : `${workingCount} agent${workingCount === 1 ? "" : "s"} working`;
+  const synced =
+    syncedSecondsAgo < 1 ? "synced just now" : `synced ${Math.round(syncedSecondsAgo)}s ago`;
   return `${agents} · ${synced}`;
 };

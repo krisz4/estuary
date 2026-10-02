@@ -129,7 +129,9 @@ export const MiniNav = ({
           aria-current={activeId === section.id ? "location" : undefined}
           className={cn(
             "shrink-0 rounded-md px-2 py-1 whitespace-nowrap transition-colors hover:bg-map-panel-2",
-            activeId === section.id ? "bg-map-panel-2 font-semibold text-foreground" : "text-muted-foreground",
+            activeId === section.id
+              ? "bg-map-panel-2 font-semibold text-foreground"
+              : "text-muted-foreground",
           )}
         >
           {section.label}

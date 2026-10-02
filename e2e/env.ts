@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
  * ## Why not 4000 / 5173
  *
  * Because `pnpm dev` uses those, and `reuseExistingServer` would then hand the
- * suite a developer's dev servers — pointed at `apps/api/prisma/data/helpdesk.db`.
+ * suite a developer's dev servers — pointed at `apps/api/prisma/data/estuary.db`.
  * Most specs create, transition, comment on, and **delete** tasks. Running
  * `pnpm test:e2e` with `pnpm dev` open in another terminal is an ordinary thing
  * to do, and on the shared ports it would quietly mutate the developer's local
@@ -53,11 +53,11 @@ export const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? WEB_ORIGIN;
 export const API_BASE_URL = `${API_ORIGIN}/api/v1`;
 
 /**
- * The **third** database: not `apps/api/prisma/data/helpdesk.db` (the dev file)
+ * The **third** database: not `apps/api/prisma/data/estuary.db` (the dev file)
  * and not the per-worker files in `os.tmpdir()` that vitest uses. Gitignored,
  * together with its `-wal` / `-shm` siblings.
  */
-export const E2E_DB_PATH = path.join(E2E_DIR, "helpdesk-e2e.db");
+export const E2E_DB_PATH = path.join(E2E_DIR, "estuary-e2e.db");
 
 /** Prisma wants a connection string. Absolute, so nothing resolves it from `prisma/`. */
 export const E2E_DATABASE_URL = `file:${E2E_DB_PATH}`;

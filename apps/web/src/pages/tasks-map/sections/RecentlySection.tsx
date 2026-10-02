@@ -1,4 +1,4 @@
-import { type FloorSnapshot, type TaskEvent } from "@helpdesk/contracts";
+import { type FloorSnapshot, type TaskEvent } from "@estuary/contracts";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useEventLogQuery } from "@/api/events";
@@ -50,7 +50,13 @@ const groupByHour = (events: readonly TaskEvent[]): { label: string; events: Tas
  * `useEventLogQuery`/`useHistoryQuery` hooks the Logbook and hero briefing
  * already use.
  */
-export const RecentlySection = ({ project, snapshot }: { project: readonly string[]; snapshot: FloorSnapshot }) => {
+export const RecentlySection = ({
+  project,
+  snapshot,
+}: {
+  project: readonly string[];
+  snapshot: FloorSnapshot;
+}) => {
   // Fixed at mount rather than recomputed every render — recomputing it live
   // would shift the query's `from` on every render (a fresh `Date.now()` each
   // time), churning the query key and refetching for no reason.
@@ -64,7 +70,8 @@ export const RecentlySection = ({ project, snapshot }: { project: readonly strin
 
   const taskById = new Map(snapshot.tasks.map((task) => [task.id, task] as const));
   const refById = new Map(snapshot.refs.map((ref) => [ref.id, ref] as const));
-  const titleFor = (taskId: number): string | null => taskById.get(taskId)?.title ?? refById.get(taskId)?.title ?? null;
+  const titleFor = (taskId: number): string | null =>
+    taskById.get(taskId)?.title ?? refById.get(taskId)?.title ?? null;
 
   return (
     <section id="recent" className="scroll-mt-28">
@@ -81,13 +88,21 @@ export const RecentlySection = ({ project, snapshot }: { project: readonly strin
       <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
         <div>
           {query.isPending ? (
-            <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading recent activity">
+            <div
+              className="flex flex-col gap-2"
+              aria-busy="true"
+              aria-label="Loading recent activity"
+            >
               {[1, 2, 3].map((n) => (
                 <Skeleton key={n} className="h-8 w-full" />
               ))}
             </div>
           ) : query.error !== null && query.data === undefined ? (
-            <ErrorPanel error={query.error} onRetry={() => void query.refetch()} isRetrying={query.isFetching} />
+            <ErrorPanel
+              error={query.error}
+              onRetry={() => void query.refetch()}
+              isRetrying={query.isFetching}
+            />
           ) : events.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing happened in the last 24 hours.</p>
           ) : (
@@ -101,7 +116,10 @@ export const RecentlySection = ({ project, snapshot }: { project: readonly strin
                     {group.events.map((event) => {
                       const { summary } = describeEvent(event);
                       return (
-                        <li key={event.id} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 py-1.5 text-sm">
+                        <li
+                          key={event.id}
+                          className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 py-1.5 text-sm"
+                        >
                           <ActorBadge actor={event.actor} plain />
                           <span className="text-foreground">{summary}</span>
                           <Link
@@ -110,7 +128,9 @@ export const RecentlySection = ({ project, snapshot }: { project: readonly strin
                           >
                             <span className="shrink-0 font-mono text-xs">#{event.taskId}</span>
                             {titleFor(event.taskId) === null ? null : (
-                              <span className="truncate text-sm font-normal">{titleFor(event.taskId)}</span>
+                              <span className="truncate text-sm font-normal">
+                                {titleFor(event.taskId)}
+                              </span>
                             )}
                           </Link>
                           <time
@@ -154,7 +174,12 @@ const ThroughputSparkline = ({
   return (
     <div className="rounded-lg border border-border bg-card p-3 shadow-raised">
       <p className="mb-2 text-xs font-semibold text-foreground">Created vs. shipped, last 7 days</p>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-16 w-full" role="img" aria-label="Created versus shipped tasks per day, last 7 days">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-16 w-full"
+        role="img"
+        aria-label="Created versus shipped tasks per day, last 7 days"
+      >
         {points.map((point, index) => {
           const groupX = (index / points.length) * width;
           const createdH = (point.created / max) * height;

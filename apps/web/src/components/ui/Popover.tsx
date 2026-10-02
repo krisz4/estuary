@@ -18,7 +18,7 @@ import { cn } from "@/lib/cn";
  * modal dialog does. That is deliberate — a focus trap here would make Tab
  * unable to reach the rest of the Dispatch bar, and every control inside is
  * still independently reachable by Tab either way. It is not a substitute for
- * `Dialog` where a true modal is needed (the floor's task drawer, "More"
+ * `Dialog` where a true modal is needed (the map's task modal, "More"
  * filters sheet on mobile still use `Dialog`).
  */
 export type PopoverProps = {
@@ -30,7 +30,13 @@ export type PopoverProps = {
   className?: string;
 };
 
-export const Popover = ({ label, badgeCount = 0, children, panelClassName, className }: PopoverProps) => {
+export const Popover = ({
+  label,
+  badgeCount = 0,
+  children,
+  panelClassName,
+  className,
+}: PopoverProps) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -57,7 +63,8 @@ export const Popover = ({ label, badgeCount = 0, children, panelClassName, class
     if (!open) return;
 
     const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current !== null && !rootRef.current.contains(event.target as Node)) setOpen(false);
+      if (rootRef.current !== null && !rootRef.current.contains(event.target as Node))
+        setOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
@@ -87,7 +94,9 @@ export const Popover = ({ label, badgeCount = 0, children, panelClassName, class
       >
         {label}
         {badgeCount > 0 ? (
-          <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{badgeCount}</span>
+          <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+            {badgeCount}
+          </span>
         ) : null}
         <ChevronDown className="size-3.5" aria-hidden="true" />
       </button>

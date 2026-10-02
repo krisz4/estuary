@@ -7,7 +7,7 @@ import type {
   TaskRef,
   TaskStats,
   TaskSummary,
-} from "@helpdesk/contracts";
+} from "@estuary/contracts";
 
 import type { ApiError } from "./api-client.js";
 
@@ -47,7 +47,7 @@ const snippet = (text: string, limit: number): string => {
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
 
-/** `TASK-000042 [in_progress] Fix login redirect · high · project helpdesk · claimed by agent:x until … · v7` */
+/** `TASK-000042 [in_progress] Fix login redirect · high · project estuary · claimed by agent:x until … · v7` */
 export const taskLine = (task: TaskLike): string => {
   const parts = [`${task.reference} [${task.status}] ${task.title}`, task.priority];
   if (task.project !== null) parts.push(`project ${task.project}`);
@@ -55,12 +55,13 @@ export const taskLine = (task: TaskLike): string => {
   if (task.claim !== null)
     parts.push(`claimed by ${task.claim.actor} until ${task.claim.expiresAt}`);
   if (task.openDependencyCount > 0) parts.push(`${task.openDependencyCount} open dependencies`);
+  if (task.needsTriage) parts.push("untriaged");
   parts.push(`v${task.version}`);
   return parts.join(" · ");
 };
 
 /**
- * One list row: `TASK-000042 [todo] Title · high · project helpdesk · labels web ·
+ * One list row: `TASK-000042 [todo] Title · high · project estuary · labels web ·
  * parent #12 · 3 subtasks · 1 open dependency · claimed by agent:x · v7 · updated 2026-09-25`.
  */
 export const listLine = (task: TaskSummary): string => {
@@ -72,6 +73,7 @@ export const listLine = (task: TaskSummary): string => {
   if (task.openDependencyCount > 0)
     parts.push(plural(task.openDependencyCount, "open dependency", "open dependencies"));
   if (task.claim !== null) parts.push(`claimed by ${task.claim.actor}`);
+  if (task.needsTriage) parts.push("untriaged");
   parts.push(`v${task.version}`, `updated ${task.updatedAt.slice(0, 10)}`);
   return parts.join(" · ");
 };
@@ -84,11 +86,14 @@ const listRow = (task: TaskSummary): string => {
   } else if (task.statusNote !== null) {
     lines.push(`  note: ${snippet(task.statusNote, LIST_NOTE_LIMIT)}`);
   }
+  if (task.concerns !== null) lines.push(`  concerns: ${snippet(task.concerns, LIST_NOTE_LIMIT)}`);
   return lines.join("\n");
 };
 
-const statusNoteLine = (task: TaskLike): string[] =>
-  task.statusNote === null ? [] : [`statusNote: ${task.statusNote}`];
+const statusNoteLine = (task: TaskLike): string[] => [
+  ...(task.statusNote === null ? [] : [`statusNote: ${task.statusNote}`]),
+  ...(task.concerns === null ? [] : [`concerns: ${task.concerns}`]),
+];
 
 /** `TASK-000007 [done] Title`, plus `(project web)` when it lives elsewhere. */
 const refLine = (ref: TaskRef, ownProject: string | null): string =>
@@ -180,6 +185,17 @@ export const formatTask = (
 };
 
 /**
+ * What a write returns: the heading, the task line (reference, status, `v` for
+ * the next `expectedVersion`), the status note, and the relations — which is
+ * where follow-ups filed by a hand-off show up. **No JSON**: the agent just sent
+ * the content, and echoing the whole task (description, criteria, comments)
+ * back after every transition was most of the workflow's token cost.
+ * `task_get` / `task_claim` / `task_next` still return the full task.
+ */
+export const formatWrite = (task: Task, heading: string): string =>
+  [heading, taskLine(task), ...statusNoteLine(task), ...relationLines(task)].join("\n");
+
+/**
  * One line (plus a description snippet) per task. With `verbose`, the page's
  * JSON follows, long free text cut down: a 100-row page of 5 000-character
  * descriptions would blow past Claude Code's MCP output limit, and nothing in a
@@ -209,11 +225,9 @@ export const formatTaskList = (page: PaginatedTasks, verbose = false): string =>
   return lines.join("\n");
 };
 
+/** A one-line receipt: the agent wrote the body, so it is not echoed back (see `formatWrite`). */
 export const formatComment = (comment: Comment): string =>
-  [
-    `Comment #${comment.id} (${comment.kind}) added to task ${comment.taskId}.`,
-    JSON.stringify(comment),
-  ].join("\n");
+  `Comment #${comment.id} (${comment.kind}) added to task ${comment.taskId}.`;
 
 export const formatEvents = (feed: EventsResponse): string => {
   const header =

@@ -33,9 +33,7 @@ describe("backToListPath", () => {
     second list route, and a task opened from it has to come back to it.
   */
   it("returns to the map's route when the map is the remembered view", () => {
-    expect(backToListPath({ from: "?priority=urgent" }, "map")).toBe(
-      "/tasks/map?priority=urgent",
-    );
+    expect(backToListPath({ from: "?priority=urgent" }, "map")).toBe("/tasks/map?priority=urgent");
     expect(backToListPath(null, "map")).toBe("/tasks/map");
   });
 });

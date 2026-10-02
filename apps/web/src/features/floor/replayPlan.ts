@@ -1,4 +1,4 @@
-import { TASK_STATUSES, type TaskEvent, type TaskStatus } from "@helpdesk/contracts";
+import { TASK_STATUSES, type TaskEvent, type TaskStatus } from "@estuary/contracts";
 import { TASK_STATUS_LABELS } from "@/lib/formatting";
 
 /**

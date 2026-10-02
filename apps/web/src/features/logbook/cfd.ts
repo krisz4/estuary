@@ -1,5 +1,11 @@
-import { TASK_STATUSES, type HistoryBucketRow, type TaskStatus } from "@helpdesk/contracts";
-import { LOGBOOK_ZONES, ZONE_LABELS, ZONE_STACK_ORDER, ZONE_STATUSES, type LogbookZone } from "@/features/logbook/zones";
+import { TASK_STATUSES, type HistoryBucketRow, type TaskStatus } from "@estuary/contracts";
+import {
+  LOGBOOK_ZONES,
+  ZONE_LABELS,
+  ZONE_STACK_ORDER,
+  ZONE_STATUSES,
+  type LogbookZone,
+} from "@/features/logbook/zones";
 
 /**
  * The cumulative flow diagram's data, in stacked-area form: for each bucket, a
