@@ -31,7 +31,13 @@ import { safeStorage } from "@/stores/safeStorage";
 export const PROJECT_SCOPE_STORAGE_KEY = "estuary.projectScope";
 
 /** The pathnames whose `project` param *is* the scope. */
-export const PROJECT_SCOPED_PATHS = ["/tasks", "/tasks/map", "/inbox", "/logbook"] as const;
+export const PROJECT_SCOPED_PATHS = [
+  "/tasks",
+  "/tasks/map",
+  "/inbox",
+  "/inbox/focus",
+  "/logbook",
+] as const;
 
 export const isProjectScopedPath = (pathname: string): boolean =>
   (PROJECT_SCOPED_PATHS as readonly string[]).includes(pathname);

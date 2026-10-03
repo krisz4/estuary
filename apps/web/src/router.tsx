@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { InboxPage } from "@/pages/inbox/InboxPage";
+import { InboxFocusPage } from "@/pages/inbox-focus/InboxFocusPage";
 import { LogbookPage } from "@/pages/logbook/LogbookPage";
 import { NotFoundPage } from "@/pages/not-found/NotFoundPage";
 import { TaskCreatePage } from "@/pages/task-create/TaskCreatePage";
@@ -67,6 +68,8 @@ export const routeChildren = [
   { path: "tasks/:taskId/edit", element: <TaskEditPage /> },
 
   { path: "inbox", element: <InboxPage /> },
+
+  { path: "inbox/focus", element: <InboxFocusPage /> },
 
   { path: "logbook", element: <LogbookPage /> },
 

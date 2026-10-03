@@ -67,9 +67,7 @@ const posted = (requests: MockRequest[], suffix: string) =>
   requests.filter((request) => request.method === "POST" && request.url.pathname.endsWith(suffix));
 
 const patched = (requests: MockRequest[], suffix: string) =>
-  requests.filter(
-    (request) => request.method === "PATCH" && request.url.pathname.endsWith(suffix),
-  );
+  requests.filter((request) => request.method === "PATCH" && request.url.pathname.endsWith(suffix));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -679,5 +677,32 @@ describe("InboxPage — blocked outside", () => {
       reason: PARK_REASON,
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("InboxPage — focus mode", () => {
+  it("links to focus mode in the inbox's scope, and per group with two or more items", async () => {
+    const secondAction = task(10, { status: "needs_user_action", title: "Renew the cert" });
+    renderInbox(
+      { "GET /tasks": inboxList([actionTask, secondAction, qaTask]) },
+      "/inbox?project=estuary",
+    );
+
+    expect(await screen.findByRole("link", { name: "Focus mode" })).toHaveAttribute(
+      "href",
+      "/inbox/focus?project=estuary",
+    );
+    expect(screen.getByRole("link", { name: "Focus on Act (2)" })).toHaveAttribute(
+      "href",
+      "/inbox/focus?project=estuary&kind=act",
+    );
+    // One Review item: stepping through a single card is not worth a link.
+    expect(screen.queryByRole("link", { name: /Focus on Review/ })).not.toBeInTheDocument();
+  });
+
+  it("offers no focus mode when nothing is waiting", async () => {
+    renderInbox({ "GET /tasks": inboxList([]) });
+    await screen.findByText("Nothing needs you");
+    expect(screen.queryByRole("link", { name: "Focus mode" })).not.toBeInTheDocument();
   });
 });

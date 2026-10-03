@@ -15,6 +15,7 @@ Each doc has YAML frontmatter (`type: Page`, `title`, `description`, `tags`, opt
 | `/tasks/:taskId` | [Task_Detail.md](./Task_Detail.md) | Detail view — status/claim/decision controls, dependencies, comments, activity, delete |
 | `/tasks/:taskId/edit` | [Task_Edit.md](./Task_Edit.md) | Edit an existing task, with version-conflict handling |
 | `/inbox` | [Inbox.md](./Inbox.md) | Everything waiting on a human — decisions, actions, QA, refinement, agent suggestions, outside-blocked |
+| `/inbox/focus` | [Inbox_Focus.md](./Inbox_Focus.md) | Focus mode — the attention queue one item at a time, with context, progress, skip/previous, keyboard shortcuts, and auto-advance |
 | `/logbook` | [Logbook.md](./Logbook.md) | History — since-you-left, cumulative flow, throughput, human wait, cycle time, agents, event log, archive |
 | `*` | [Not_Found.md](./Not_Found.md) | Unmatched routes |
 

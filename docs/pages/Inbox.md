@@ -3,7 +3,7 @@ type: Page
 title: Inbox
 description: Everything waiting on a human at /inbox — the whole attention queue, grouped by kind, clearable without opening the task.
 resource: apps/web/src/pages/inbox/
-tags: [tasks, inbox, decisions, qa, attention, needsTriage, projects]
+tags: [tasks, inbox, decisions, qa, attention, needsTriage, projects, focus]
 status: canonical
 ---
 # Page Review: Inbox
@@ -23,7 +23,7 @@ The queue for everything the [attention queue](../features/Attention_Queue.md) p
 
 | Component | Role on this page |
 | --------- | ----------------- |
-| `InboxItem` (`src/pages/inbox/InboxItem.tsx`) | One task, switched on its [attention kind](../features/Attention_Queue.md#the-six-kinds) into a decision/action/QA/refine/suggested/blocked layout — see [Behavior](#behavior--ui-flow). **Has a second consumer:** `/tasks/map`'s hero rail and its `#needs-you` section ([Tasks_Map.md](./Tasks_Map.md)) render this same component against their own `useInboxQuery` calls, rather than a lookalike copy of the controls — a change here (a new field, a new action, a copy edit) shows up in both places automatically. |
+| `InboxItem` (`src/pages/inbox/InboxItem.tsx`) | One task, switched on its [attention kind](../features/Attention_Queue.md#the-six-kinds) into a decision/action/QA/refine/suggested/blocked layout — see [Behavior](#behavior--ui-flow). **Has other consumers:** `/tasks/map`'s hero rail and its `#needs-you` section ([Tasks_Map.md](./Tasks_Map.md)) and [`/inbox/focus`](./Inbox_Focus.md) render this same component against their own `useInboxQuery` calls, rather than a lookalike copy of the controls — a change here (a new field, a new action, a copy edit) shows up in both places automatically. |
 | `groupByAttentionKind` (`src/pages/inbox/attentionGroups.ts`) | Partitions the loaded tasks by `attentionKindOf`, in `ATTENTION_KINDS` order, empty groups omitted — the one grouping both this page and the map's "Needs you" section use, so neither can drift from the other or from the server's own `?attention=true` filter |
 | `DecisionAnswer` (`src/features/tasks/`) | The question, context, options (with the recommended one starred), and a free-text answer — shared verbatim with [Task_Detail.md](./Task_Detail.md) |
 | `StatusNotePanel` | Renders the task's `statusNote` (instructions, or the QA summary) when present; a fallback line links to the task when it is not |
@@ -74,7 +74,8 @@ The queue for everything the [attention queue](../features/Attention_Queue.md) p
 8. **Context on every card**, regardless of group: "Follow-up of TASK-…" (linked) when the task has a `parentId`, a subtask count when it has children, "waits on N" when `openDependencyCount > 0`, and how long it has been waiting (`waiting since {relative}`, from `updatedAt`) — the same facts a person needs to decide whether to deal with this now or let it sit.
 9. Every clearing action removes the item from the inbox via the same `invalidateAfterWorkflowWrite` prefix every other workflow write uses — the item disappears once the poll or immediate invalidation refetches. The Accept action (a plain PATCH) invalidates through `tasks.all` like any other edit.
 10. There is no per-item navigation requirement: the reference and title are links to the full task, for anyone who wants more context than the inbox card gives, but every action here can be completed without following them.
-11. **Projects.** Unscoped, when the loaded items span two or more projects, a line under the heading reads "From billing-service (5), estuary (4), mobile-app (3)" — most items first — each linking to `/inbox?project=<slug>`. Counts are of the loaded items (so under the 100-item cap they describe what is shown). Scoped, the line reads "Showing estuary only. Show all projects" instead; it is omitted when the scoped inbox is empty, since the empty state says the same with the same link.
+11. **Focus mode.** The header's **Focus mode** button (shown when anything is waiting) opens [`/inbox/focus`](./Inbox_Focus.md) in the same project scope; each group with two or more items has a **Focus** link ("Focus on Act (2)") to `/inbox/focus?kind=<kind>`.
+12. **Projects.** Unscoped, when the loaded items span two or more projects, a line under the heading reads "From billing-service (5), estuary (4), mobile-app (3)" — most items first — each linking to `/inbox?project=<slug>`. Counts are of the loaded items (so under the 100-item cap they describe what is shown). Scoped, the line reads "Showing estuary only. Show all projects" instead; it is omitted when the scoped inbox is empty, since the empty state says the same with the same link.
 
 ## States
 
@@ -103,4 +104,5 @@ Single column at every width — the inbox is a list of self-contained cards, no
 - [../features/Task_Status_Lifecycle.md](../features/Task_Status_Lifecycle.md) — the ten statuses and what each transition requires
 - [../features/Comments.md](../features/Comments.md) — the `qa_feedback` comment kind a send-back writes
 - [Task_Detail.md](./Task_Detail.md) — the same `DecisionAnswer` control, and the full record once an item is cleared
+- [Inbox_Focus.md](./Inbox_Focus.md) — the same queue one item at a time
 - [Tasks_Map.md](./Tasks_Map.md) — the "Needs you" section uses the same `attention=true` query and `groupByAttentionKind`

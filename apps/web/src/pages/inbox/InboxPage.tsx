@@ -1,5 +1,5 @@
-import { type TaskSummary } from "@estuary/contracts";
-import { Check, Inbox, Map as MapIcon } from "lucide-react";
+import { type AttentionKind, type TaskSummary } from "@estuary/contracts";
+import { Check, Crosshair, Inbox, Map as MapIcon } from "lucide-react";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -56,8 +56,20 @@ export const InboxPage = () => {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <ReachEyebrow name="The pools" place="where work waits on you" />
-        <h1 className="text-2xl font-semibold text-foreground">Inbox</h1>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <ReachEyebrow name="The pools" place="where work waits on you" />
+            <h1 className="text-2xl font-semibold text-foreground">Inbox</h1>
+          </div>
+          {groups.length === 0 ? null : (
+            <Button asChild size="sm" className="shrink-0">
+              <Link to={focusHref(projects)}>
+                <Crosshair aria-hidden="true" />
+                Focus mode
+              </Link>
+            </Button>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
           Everything agents are waiting on you for: questions, manual steps, work to verify, and
           anything left unattended.
@@ -124,7 +136,7 @@ export const InboxPage = () => {
       ) : (
         <>
           {groups.map((group) => (
-            <InboxGroup key={group.kind} group={group} />
+            <InboxGroup key={group.kind} group={group} projects={projects} />
           ))}
           {total > tasks.length ? (
             <p className="text-sm text-muted-foreground">
@@ -174,7 +186,16 @@ const ProjectBreakdown = ({ tasks }: { tasks: TaskSummary[] }) => {
   );
 };
 
-const InboxGroup = ({ group }: { group: AttentionGroup }) => {
+/** `/inbox/focus`, in this inbox's project scope and optionally one kind. */
+const focusHref = (projects: readonly string[], kind?: AttentionKind) => {
+  const params = new URLSearchParams();
+  for (const project of projects) params.append("project", project);
+  if (kind !== undefined) params.set("kind", kind);
+  const search = params.toString();
+  return search === "" ? "/inbox/focus" : `/inbox/focus?${search}`;
+};
+
+const InboxGroup = ({ group, projects }: { group: AttentionGroup; projects: string[] }) => {
   const { kind, title, hint, tasks } = group;
   const headingId = `inbox-${kind}`;
   // Only `review` items with no `concerns` are routine — a flagged hand-off
@@ -190,7 +211,20 @@ const InboxGroup = ({ group }: { group: AttentionGroup }) => {
           </h2>
           <p className="text-sm text-muted-foreground">{hint}</p>
         </div>
-        {routineTasks.length >= 2 ? <ApproveAllRoutine tasks={routineTasks} /> : null}
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {tasks.length >= 2 ? (
+            <Button asChild variant="ghost" size="sm">
+              <Link
+                to={focusHref(projects, kind)}
+                aria-label={`Focus on ${title} (${tasks.length})`}
+              >
+                <Crosshair aria-hidden="true" />
+                Focus
+              </Link>
+            </Button>
+          ) : null}
+          {routineTasks.length >= 2 ? <ApproveAllRoutine tasks={routineTasks} /> : null}
+        </div>
       </div>
       <ul className="flex flex-col gap-3">
         {tasks.map((task) => (
