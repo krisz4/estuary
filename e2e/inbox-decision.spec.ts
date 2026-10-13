@@ -59,7 +59,7 @@ test("answers an agent's question from the inbox, and the task returns to To do 
   await expect(item).toBeVisible();
   // In the Decisions group, from the agent, with its question and options.
   await expect(
-    page.getByRole("region", { name: /^Decisions \(\d+\)$/ }).getByRole("article", {
+    page.getByRole("region", { name: /^Decide \(\d+\)$/ }).getByRole("article", {
       name: task.title,
     }),
   ).toBeVisible();

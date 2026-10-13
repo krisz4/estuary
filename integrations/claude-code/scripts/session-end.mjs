@@ -7,10 +7,9 @@
  *
  * **Only this session's tasks.** Two sessions in one checkout share an actor,
  * so "everything this actor holds" would pull work out from under the other
- * one. The candidates are the tasks this session's transcript touched through
- * the task tools (a `taskId` it passed, or the task `task_next` / `task_create`
- * returned); of those, only the ones still `in_progress` under this actor are
- * released.
+ * one. Candidates come only from successful ownership receipts in this
+ * session's transcript. The live claim must match both actor and receipt
+ * session id; observing a task or adding a comment never grants ownership.
  *
  * Skipped on `/clear`: the conversation goes on in a new session, and the
  * SessionStart hook reminds it of what it holds.
@@ -21,7 +20,7 @@
 import { readFileSync } from "node:fs";
 
 import { getJson, postJson, readHookInput, resolveIdentity } from "./identity.mjs";
-import { touchedTaskIds } from "./transcript.mjs";
+import { ownedTaskSessions } from "./transcript.mjs";
 
 const REASON =
   "Released automatically: the Claude Code session ended before handing this off. " +
@@ -31,7 +30,7 @@ const main = async () => {
   const input = readHookInput();
   if (input.reason === "clear" || typeof input.transcript_path !== "string") return;
 
-  const touched = touchedTaskIds(readFileSync(input.transcript_path, "utf8"));
+  const touched = ownedTaskSessions(readFileSync(input.transcript_path, "utf8"));
   if (touched.size === 0) return;
 
   const { actor } = resolveIdentity(input);
@@ -40,12 +39,18 @@ const main = async () => {
     actor,
   );
   for (const task of held.data) {
-    if (!touched.has(task.id)) continue;
+    const sessionId = touched.get(task.id);
+    if (sessionId === undefined || task.claim?.sessionId !== sessionId) continue;
     try {
-      await postJson(`/tasks/${task.id}/release`, actor, {
-        reason: REASON,
-        expectedVersion: task.version,
-      });
+      await postJson(
+        `/tasks/${task.id}/release`,
+        actor,
+        {
+          reason: REASON,
+          expectedVersion: task.version,
+        },
+        sessionId,
+      );
     } catch {
       // Someone moved it meanwhile (a human, a hand-off racing the exit): leave it.
     }

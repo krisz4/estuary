@@ -1,6 +1,13 @@
-import { ACTOR_HEADER, ANONYMOUS_ACTOR, actorSchema } from "@estuary/contracts";
+import {
+  CLAIM_SESSION_HEADER,
+  claimSessionIdSchema,
+  ACTOR_HEADER,
+  ANONYMOUS_ACTOR,
+  actorSchema,
+} from "@estuary/contracts";
 import type { NextFunction, Request, Response } from "express";
 
+import { rememberAgentSession } from "../services/system.service.js";
 import { validationError } from "../lib/errors.js";
 
 /**
@@ -28,6 +35,7 @@ declare global {
     interface Request {
       /** Set by the `actor` middleware on every `/api/v1` request. */
       actor: string;
+      claimSessionId?: string;
     }
   }
 }
@@ -35,6 +43,19 @@ declare global {
 const HEADER_KEY = ACTOR_HEADER.toLowerCase();
 
 export const actor = (req: Request, _res: Response, next: NextFunction): void => {
+  const session = req.get(CLAIM_SESSION_HEADER);
+  if (session !== undefined) {
+    const parsedSession = claimSessionIdSchema.safeParse(session);
+    if (!parsedSession.success) {
+      next(
+        validationError({
+          [CLAIM_SESSION_HEADER]: parsedSession.error.issues.map((issue) => issue.message),
+        }),
+      );
+      return;
+    }
+    req.claimSessionId = parsedSession.data;
+  }
   const raw = req.headers[HEADER_KEY];
   const value = Array.isArray(raw) ? raw[0] : raw;
 
@@ -56,5 +77,7 @@ export const actor = (req: Request, _res: Response, next: NextFunction): void =>
   }
 
   req.actor = parsed.data;
+  if (req.claimSessionId !== undefined && req.actor.startsWith("agent:"))
+    rememberAgentSession(req.actor, req.claimSessionId);
   next();
 };

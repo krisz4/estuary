@@ -34,7 +34,7 @@ export const NeedsYouCard = ({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        {kind === null ? null : <KindPill kind={kind} />}
+        {kind === null ? null : <KindPill kind={kind} verified={task.status === "verified"} />}
         <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground">
           {task.reference}
         </span>

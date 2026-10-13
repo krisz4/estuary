@@ -65,6 +65,7 @@ const EXPECTED_STATUS_COUNTS: Record<TaskStatus, number> = {
   needs_user_decision: 4,
   needs_user_action: 3,
   needs_qa: 5,
+  verified: 2,
   done: 14,
   deferred: 2,
 };
@@ -76,11 +77,18 @@ const NOTE_REQUIRED: readonly TaskStatus[] = [
   "needs_user_decision",
   "needs_user_action",
   "needs_qa",
+  "verified",
   "deferred",
 ];
 
 /** Statuses that need acceptance criteria. */
-const CRITERIA_REQUIRED: readonly TaskStatus[] = ["todo", "in_progress", "needs_qa", "done"];
+const CRITERIA_REQUIRED: readonly TaskStatus[] = [
+  "todo",
+  "in_progress",
+  "needs_qa",
+  "verified",
+  "done",
+];
 
 /* ------------------------------------------------------------------ *
  * Generation — no database
@@ -263,7 +271,7 @@ describe("buildSeedTasks", () => {
         if (CRITERIA_REQUIRED.includes(task.status)) {
           expect(task.acceptanceCriteria, key).toBeTruthy();
         }
-        if (task.status === "needs_qa" || task.status === "done") {
+        if (task.status === "needs_qa" || task.status === "verified" || task.status === "done") {
           expect(JSON.parse(task.links).length, key).toBeGreaterThan(0);
         }
       }
@@ -280,7 +288,9 @@ describe("buildSeedTasks", () => {
         // `completedAt` iff done; `startedAt` never cleared once set.
         expect(task.completedAt !== null, key).toBe(task.status === "done");
         if (
-          ["in_progress", "blocked", "needs_user_action", "needs_qa", "done"].includes(task.status)
+          ["in_progress", "blocked", "needs_user_action", "needs_qa", "verified", "done"].includes(
+            task.status,
+          )
         ) {
           expect(task.startedAt, key).not.toBeNull();
         }

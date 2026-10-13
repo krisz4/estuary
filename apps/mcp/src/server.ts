@@ -21,10 +21,10 @@ export const buildInstructions = (config: Config): string =>
         : `; this repository's project is "${config.defaultProject}".`),
     "Statuses: backlog (captured, not ready) · needs_refinement (unclear; statusNote says what is missing) · todo (ready, has acceptance criteria) · " +
       "in_progress (claimed by whoever works it) · blocked (waiting on other tasks or an outside event) · needs_user_decision / needs_user_action (waiting on a human) · " +
-      "needs_qa (work finished, awaiting human verification) · done (verified; humans only) · deferred (parked on purpose, with a reason).",
+      "needs_qa (work finished, awaiting human verification) · verified (the agent QA'd it with passing evidence; awaiting human sign-off) · done (closed by a human) · deferred (parked on purpose, with a reason).",
     "Work loop: task_next (or task_claim a named task) → read acceptance criteria and comments → task_heartbeat at least every 10 minutes → " +
-      "task_comment kind=progress at milestones → finish with exactly one of task_submit_for_qa, task_request_decision, task_request_action, task_block, or task_release.",
-    "Rules: agents never mark tasks done — hand off with task_submit_for_qa. Never leave a task claimed and idle. " +
+      "task_comment kind=progress at milestones → finish with exactly one of task_submit_verified, task_submit_for_qa, task_request_decision, task_request_action, task_block, or task_release.",
+    "Rules: agents never mark tasks done. Hand off with task_submit_verified when every check and criterion passed and you QA'd it on a device (or it needs no device check and the checks prove it), else task_submit_for_qa. Never leave a task claimed and idle. " +
       "Pass expectedVersion from your last read on writes. File follow-ups you discover as new backlog tasks instead of widening the current one — task_list q=… first, so you do not file a duplicate.",
   ].join("\n");
 

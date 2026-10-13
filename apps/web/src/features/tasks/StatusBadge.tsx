@@ -35,13 +35,17 @@ export const STATUS_TONES: Record<TaskStatus, BadgeTone> = {
   needs_user_decision: "attention",
   needs_user_action: "attention",
   needs_qa: "attention",
+  verified: "success",
   done: "success",
   deferred: "neutral",
 };
 
 const RECEDES = "bg-muted text-muted-foreground";
 
+// Verified waits on a human like Needs QA, but reads green: the agent has
+// already checked it. The ring tells it apart from a finished (Done) task.
 const OVERRIDES: Partial<Record<TaskStatus, string>> = {
+  verified: "ring-1 ring-inset ring-success/50",
   backlog: RECEDES,
   deferred: RECEDES,
 };

@@ -7,8 +7,11 @@ import { describe, expect, it } from "vitest";
  * share an actor), so the transcript reading is what must be right.
  */
 
-type TranscriptModule = { touchedTaskIds: (transcript: string) => Set<number> };
-const { touchedTaskIds } = (await import(
+type TranscriptModule = {
+  ownedTaskSessions: (transcript: string) => Map<number, string>;
+  touchedTaskIds: (transcript: string) => Set<number>;
+};
+const { touchedTaskIds, ownedTaskSessions } = (await import(
   new URL("../../../integrations/claude-code/scripts/transcript.mjs", import.meta.url).href
 )) as TranscriptModule;
 
@@ -59,4 +62,25 @@ describe("touchedTaskIds", () => {
     ].join("\n");
     expect(touchedTaskIds(transcript).size).toBe(0);
   });
+});
+
+it("SessionEnd only releases successful ownership receipts, never observed tasks", () => {
+  const transcript = [
+    toolUse("read", `${TOOL}task_get`, { taskId: 42 }),
+    toolResult("read", JSON.stringify({ id: 42, claim: { sessionId: "another-session" } })),
+    toolUse("claim", `${TOOL}task_claim`, { taskId: 43 }),
+    toolResult("claim", JSON.stringify({ id: 43, claim: { sessionId: "this-session" } })),
+    toolUse("move", `${TOOL}task_transition`, { taskId: 44, to: "in_progress" }),
+    toolResult("move", 'claimReceipt: {"taskId":44,"sessionId":"this-session"}'),
+    toolUse("replay", `${TOOL}task_create`, { transition: { to: "in_progress" } }),
+    toolResult("replay", JSON.stringify({ id: 45, claim: { sessionId: "another-session" } })),
+    toolUse("create", `${TOOL}task_create`, { transition: { to: "in_progress" } }),
+    toolResult("create", 'claimReceipt: {"taskId":46,"sessionId":"this-session"}'),
+    JSON.stringify({ message: { content: "malformed content" } }),
+  ].join("\n");
+  expect([...ownedTaskSessions(transcript)]).toEqual([
+    [43, "this-session"],
+    [44, "this-session"],
+    [46, "this-session"],
+  ]);
 });

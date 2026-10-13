@@ -1,7 +1,9 @@
+import { agentConnectionsSchema, readinessSchema } from "@estuary/contracts";
 import { z } from "zod";
 
 import {
   INTERNAL_ERROR_RESPONSE,
+  registerV1Path,
   defaultErrorResponse,
   errorResponse,
   registry,
@@ -39,6 +41,17 @@ export const healthResponseSchema = z
  * side effect, for the reason given at the top of `tasks.openapi.ts`.
  */
 export function registerSystemPaths(): void {
+  for (const [path, schema, summary] of [
+    ["/api/v1/system/agents", agentConnectionsSchema, "Recent agent sessions (last five minutes)"],
+    ["/api/v1/system/ready", readinessSchema, "Database readiness probe"],
+  ] as const)
+    registerV1Path({
+      method: "get",
+      path,
+      tags: ["System"],
+      summary,
+      responses: { 200: { description: summary, content: { "application/json": { schema } } } },
+    });
   registry.registerPath({
     method: "get",
     path: "/health",

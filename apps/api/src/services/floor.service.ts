@@ -1,5 +1,7 @@
+import { getTaskStats } from "./task.service.js";
 import {
   formatReference,
+  attentionKindOf,
   HUMAN_ATTENTION_STATUSES,
   parseGithubUrl,
   parseSearchTerms,
@@ -84,6 +86,8 @@ const pickFilterFields = (query: FloorQuery): TaskWhereQuery => ({
   assigneeIsNull: query.assigneeIsNull,
   createdBy: query.createdBy,
   claimedBy: query.claimedBy,
+  attention: query.attention,
+  snoozed: query.snoozed,
   parentId: query.parentId,
   parentIsNull: query.parentIsNull,
   dependsOn: query.dependsOn,
@@ -286,6 +290,7 @@ const taskSelect = {
   title: true,
   status: true,
   statusNote: true,
+  needsTriage: true,
   priority: true,
   project: true,
   assignee: true,
@@ -503,6 +508,19 @@ export async function getFloorSnapshot(query: FloorQuery): Promise<FloorSnapshot
       truncated,
       olderClosedCount,
       statusCounts,
+      needsAttention:
+        at === null
+          ? (await getTaskStats(query.project)).needsAttention
+          : visibleRows.filter(
+              (row) =>
+                attentionKindOf({
+                  status: replayedStatus.get(row.id) ?? (row.status as TaskStatus),
+                  needsTriage: row.needsTriage,
+                  openDependencyCount: [...(graph.dependsOnOf.get(row.id) ?? [])].filter(
+                    (id) => statusOf.get(id) !== "done",
+                  ).length,
+                }) !== null,
+            ).length,
       matchCount,
       shippedSince: shippedSince.toISOString(),
       at: at === null ? null : at.toISOString(),

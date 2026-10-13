@@ -53,3 +53,50 @@ export const touchedTaskIds = (transcript) => {
   }
   return ids;
 };
+
+/** Only successful tools that take ownership yield receipts. Observing a task never owns it. */
+export const ownedTaskSessions = (transcript) => {
+  const calls = new Set();
+  const receiptOnly = new Set();
+  const owned = new Map();
+  for (const line of transcript.split("\n")) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const content = entry?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part?.type === "tool_use") {
+        const tool = taskTool(part.name);
+        if (tool === "task_create" && part.input?.transition?.to === "in_progress") {
+          calls.add(part.id);
+          receiptOnly.add(part.id);
+        }
+        if (
+          tool === "task_claim" ||
+          tool === "task_next" ||
+          (tool === "task_transition" && part.input?.to === "in_progress")
+        )
+          calls.add(part.id);
+      }
+      if (part?.type !== "tool_result" || !calls.has(part.tool_use_id) || part.is_error) continue;
+      for (const row of textOf(part.content).split("\n")) {
+        if (receiptOnly.has(part.tool_use_id) && !row.startsWith("claimReceipt: ")) continue;
+        let data;
+        try {
+          data = JSON.parse(row.replace(/^claimReceipt: /, ""));
+        } catch {
+          continue;
+        }
+        const task = data.task ?? data;
+        const id = toId(task.taskId ?? task.id);
+        const session = task.sessionId ?? task.claim?.sessionId;
+        if (id !== undefined && typeof session === "string") owned.set(id, session);
+      }
+    }
+  }
+  return owned;
+};

@@ -34,7 +34,7 @@ Claude Code ──stdio (JSON-RPC)──► apps/mcp ──HTTP /api/v1 + X-Acto
 ```
 
 - **Inputs are the contract schemas.** Tool input schemas are composed from `@estuary/contracts` (`createTaskInputSchema`, `transitionInputSchema`, `decisionRequestSchema`, …), so the model sees the API's own bounds and the SDK rejects a bad call before any request. The API still validates everything.
-- **Every request** carries `X-Actor: $TASKS_ACTOR` (or the derived per-checkout actor, below) and, when set, `Authorization: Bearer $TASKS_API_TOKEN`.
+- **Every request** carries a process-specific `X-Claim-Session`, `X-Actor: $TASKS_ACTOR` (or the derived per-checkout actor, below) and, when set, `Authorization: Bearer $TASKS_API_TOKEN`.
 - **Read results** are text: a summary line (`TASK-000042 [in_progress] Title · high · project estuary · labels web · claimed by agent:x until … · v7`), the `statusNote`, the open decision and any answered ones, parent/subtasks/dependencies/dependents (with their project when it differs), the live state of GitHub links, then the JSON. `task_get` includes the 10 most recent comments by default (`commentLimit`, 0–200, and a line saying how many older ones were left out). `task_list` is compact by default — one line per task (reference, status, title, priority, project, labels, parent, subtask count, open dependencies, claim holder, version, updated date, a marker for `needsTriage`, and `concerns` when set) plus a 160-character description snippet — and appends the page as JSON only with `verbose: true` (Claude Code caps MCP output at 25k tokens by default).
 - **Write results are compact one-line confirmations** — e.g. `TASK-000042 → needs_qa (v8)`, or `task_comment`'s `Comment #118 (progress) added to task 42.` — rather than echoing the full task or comment JSON back: the caller already knows what it sent, and a write tool's job is to confirm the state landed, not to resend the payload at the model's expense.
 - **Errors** come back as `isError` results with the API's `code`, `message`, `details`, `requestId`, and a one-line hint for the codes an agent can act on. An unreachable API yields "Task manager API not reachable at <url> … Is it running (`pnpm dev:api`)?".
@@ -44,7 +44,7 @@ Claude Code ──stdio (JSON-RPC)──► apps/mcp ──HTTP /api/v1 + X-Acto
 
 | Tool | API call | Use |
 | ---- | -------- | --- |
-| `task_list` | `GET /tasks` | Search/filter (`q` terms AND; `label`, `parentIsNull`, `dependsOn`, `dependencyOf`, …). `attention: true` answers "what needs me?" in one call — see [Attention_Queue.md](./Attention_Queue.md) — instead of naming the three human statuses by hand |
+| `task_list` | `GET /tasks` | Search/filter (`q` terms AND; `label`, `parentIsNull`, `dependsOn`, `dependencyOf`, …). `attention: true` answers "what needs me?" in one call — see [Attention_Queue.md](./Attention_Queue.md) — instead of naming the human statuses by hand |
 | `task_get` | `GET /tasks/:id` (+ `GET /tasks/:id/github`) | Full task incl. recent comments, decisions, dependencies, GitHub link state; accepts `42` or `"TASK-000042"` |
 | `task_create` | `POST /tasks` (+ `POST /tasks/:id/transition`) | File a task; optional `transition` applied after (see below) |
 | `task_update` | `PATCH /tasks/:id` | Edit fields (never status) |
@@ -54,7 +54,8 @@ Claude Code ──stdio (JSON-RPC)──► apps/mcp ──HTTP /api/v1 + X-Acto
 | `task_heartbeat` | `POST /tasks/:id/heartbeat` | Extend the lease |
 | `task_release` | `POST /tasks/:id/release` | Give a task up → `todo`. `followUps?` files the same shape as `task_submit_for_qa`'s — see [Attention_Queue.md](./Attention_Queue.md) |
 | `task_comment` | `POST /tasks/:id/comments` | `kind`: `note`, `progress`, `qa_feedback` |
-| `task_submit_for_qa` | transition → `needs_qa` | Finish work (agents cannot mark done). `concerns?` (what a reviewer must not miss — omit for a routine hand-off) and `followUps?` (work found but not done, filed as subtasks) — see [Attention_Queue.md](./Attention_Queue.md) |
+| `task_submit_for_qa` | transition → `needs_qa` | Finish work for human review (anything failed, skipped, or worth a look). `concerns?` (what a reviewer must not miss — omit for a routine hand-off) and `followUps?` (work found but not done, filed as subtasks) — see [Attention_Queue.md](./Attention_Queue.md) |
+| `task_submit_verified` | transition → `verified` | Hand over work you QA'd yourself. `summary` and `verification` are required; `verification.qa` is required too (device scenarios all passed, or `not_needed` + reason) and everything must pass or the call is a 422 — use `task_submit_for_qa` instead. `links?`, `followUps?`; no `concerns`. A human still signs it off to `done` |
 | `task_request_decision` | transition → `needs_user_decision` | Ask a human to choose |
 | `task_request_action` | transition → `needs_user_action` | Ask a human to do something |
 | `task_block` | transition → `blocked` | Waiting on tasks (`blockedBy`) or an outside event |
@@ -64,12 +65,12 @@ Claude Code ──stdio (JSON-RPC)──► apps/mcp ──HTTP /api/v1 + X-Acto
 | `task_import_github_issue` | `POST /integrations/github/import` | Turn a GitHub issue (URL, `owner/repo#n`, or `#n` for the origin repo) into a task; needs the GitHub integration |
 | `task_stats` | `GET /tasks/stats` | Counts per status + `needsAttention` |
 
-The four hand-off tools are deliberately redundant with `task_transition`: agents choose tools by name, and `task_submit_for_qa` makes the right ending obvious where "transition to needs_qa" does not.
+The hand-off tools are deliberately redundant with `task_transition`: agents choose tools by name, and `task_submit_for_qa` makes the right ending obvious where "transition to needs_qa" does not.
 
 ### Behaviour the tools add on top of the API
 
 - **Default project.** `task_create` and `task_next` use the first valid slug of: `TASKS_DEFAULT_PROJECT`; the repository name of `git remote get-url origin` (`git@github.com:owner/repo.git`, `https://…/repo(.git)`, `ssh://…`); the main checkout's directory name (parent of `git rev-parse --git-common-dir`, the same from every worktree); the project directory's name. Git runs in `CLAUDE_PROJECT_DIR` with a short timeout, and any failure (no git, no remote) falls through — so a worktree at `.claude/worktrees/agent-a1b2` still files under `estuary`. `task_next` accepts `allProjects: true` to look everywhere, and `label` to stay in one monorepo workspace. `task_list`, `task_stats`, and `task_events` never apply it — a read must not silently hide work.
-- **Derived actor.** With `TASKS_ACTOR` empty, the actor is `agent:claude-code@<project>` in a main checkout and `agent:claude-code@<project>/<worktree>` in a linked worktree (worktree = the checkout's directory name), cut to 64 characters with a hash suffix if longer. It is stable across restarts of the same checkout, so a resumed session still owns its claims, and parallel sessions in different worktrees cannot take over each other's. **Two sessions in the same checkout share it** — set `TASKS_ACTOR` per session if you run that way. The plugin's SessionStart hook derives the same actor (a dependency-free twin of `apps/mcp/src/config.ts`) to list the tasks you still hold.
+- **Derived actor.** With `TASKS_ACTOR` empty, attribution is `agent:<client>@<project>` in a main checkout and `agent:<client>@<project>/<worktree>` in a linked worktree, cut to 64 characters with a hash suffix if longer. `TASKS_CLIENT` defaults to `claude-code`. Attribution remains stable across restarts; ownership uses the separate process session id. Restarting can resume a live claim only by retaining its `TASKS_SESSION_ID`. The plugin’s SessionStart hook lists attribution-matching tasks as context and tells a new session to check ownership before resuming.
 - **Idempotency key, always.** `task_create` derives one from project + title (`mcp:<project>:<title-slug>`) when the caller sends none, so a retried call, a resumed session, or a second agent noticing the same follow-up gets the existing task back (200) instead of a duplicate — while that task is open. Once it is `done` or `deferred` the API retires the key and creates a fresh task (201). Filing a second open task under an existing title needs an explicit key.
 - **GitHub, best-effort.** When a task has GitHub links, `task_get` asks `GET /tasks/:id/github` and prints one line per link (`PR owner/repo#12 merged · checks success`). A failure prints nothing; `INTEGRATION_NOT_CONFIGURED` is remembered for the life of the server so a disabled integration costs one request, once.
 - **Create + transition is not atomic.** `task_create` with `transition` makes two requests, the second guarded by `expectedVersion` = the created version. If it fails, the error says the task **was created** and to use `task_transition` — never to create again. On an idempotent replay the transition runs only if the task is still in its creation status: a task that has moved on (claimed, handed to QA) is not dragged back.
@@ -147,7 +148,7 @@ Run the API where agents can reach it (see [../operations/DOCKER.md](../operatio
 | Token | `api_token=<API_TOKEN value>` | `TASKS_API_TOKEN=<API_TOKEN value>` |
 | Identity | `actor=agent:<machine-or-agent-name>` | `TASKS_ACTOR=agent:<machine-or-agent-name>` |
 
-Give each agent (or machine) a distinct actor name: claims, the "your claimed tasks" reminder, and the audit trail all key off it. The URL must include `/api/v1`; in the Docker stack the web origin works too, because nginx proxies `/api/` to the API.
+Actor names label the audit trail and claimed-task reminders. Each MCP process has a separate claim session, so concurrent sessions can share a checkout’s actor without sharing ownership. The URL must include `/api/v1`; in the Docker stack the web origin works too, because nginx proxies `/api/` to the API.
 
 ## SessionStart hook
 
@@ -157,7 +158,15 @@ The list has no `claimedBy` filter, so the hook fetches up to 100 `in_progress` 
 
 ## SessionEnd hook
 
-On session end for every reason **except** `clear`, the plugin runs `scripts/session-end.mjs`: it reads the tasks this session's own `task_*` tool calls touched out of the transcript, keeps the ones still `in_progress` and claimed by this checkout's actor, and `POST /tasks/:id/release`s each back to `todo` with reason `"Released automatically: the Claude Code session ended before handing this off. Read the progress comments and continue."`. This is what keeps unfinished work from being stranded `in_progress` until its lease expires — a session that crashes or is closed mid-task now hands it back immediately instead of making the next agent (or a human) wait out `CLAIM_LEASE_MINUTES`. Like the SessionStart hook, any error (API unreachable, malformed transcript) exits 0 silently — it never blocks a session ending. Actor/project derivation is shared with `session-start.mjs` via `scripts/identity.mjs`, so both hooks agree on which actor's claims are "this session's own". See [Attention_Queue.md](./Attention_Queue.md).
+On session end except `clear`, `scripts/session-end.mjs` reads successful ownership receipts from this transcript (`task_claim`, `task_next`, `task_transition` to `in_progress`, or create-and-transition with its own session receipt). It releases only tasks whose live actor and session id both match the receipt, sending the displayed version and session header. Reads and comments cannot grant ownership. The hook never blocks session ending, and failed or conflicting releases leave the task alone. Agents should explicitly release with a checkpoint when stopping; the automatic release preserves the last stored checkpoint.
+
+## Connecting other clients
+
+The browser’s [/connect](../pages/Connect.md) screen provides Codex TOML and Claude Code / Cursor / generic MCP JSON configuration, checks readiness, and shows recent agent activity. `task_ping` tests the API and database. `TASKS_CLIENT` controls default actor attribution; every server process gets a random claim session. For unreleased development features, build with `pnpm --filter estuary-mcp build` and configure `command = "node"`, `args = ["/absolute/path/to/estuary/apps/mcp/dist/index.js"]` instead of the published package command. The Claude Code plugin has the equivalent `server_path` option.
+
+Set `TASKS_SESSION_ID` to the original session id to resume a live claim after restarting the MCP process. Concurrent processes must use distinct ids. Checkpoints store branch, commit, completed work, and remaining work; read them before resuming. Actor and session headers are coordination metadata, not authentication; the optional shared API token remains the access gate.
+
+QA submissions accept `verification` (tested commit, command results, criterion results). The inbox shows this evidence and live GitHub link checks. Only handoffs with all reported checks and criteria passing and no concerns qualify for batch approval; missing or failed evidence requires individual review.
 
 ## Troubleshooting
 
@@ -169,7 +178,7 @@ On session end for every reason **except** `clear`, the plugin runs `scripts/ses
 | Every tool returns "Task manager API not reachable at …" | The API is not running (`pnpm dev:api`) or `TASKS_API_URL` points elsewhere. `curl <url-without-/api/v1>/health` to check |
 | "… returned 200 with a non-JSON body" / "no error envelope" | `TASKS_API_URL` points at the web app or a proxy page, not the API; it must end in `/api/v1` |
 | `UNAUTHORIZED` on every call | The server has `API_TOKEN` set and `TASKS_API_TOKEN` is missing or different |
-| `ACTOR_NOT_PERMITTED` on a transition | An agent tried `done`. Use `task_submit_for_qa`; a human marks it done (or the server sets `AGENTS_MAY_COMPLETE=true`) |
+| `ACTOR_NOT_PERMITTED` on a transition | An agent tried `done`. Agents cannot mark tasks done: hand over with `task_submit_verified` (passing QA evidence) or `task_submit_for_qa` (or the server sets `AGENTS_MAY_COMPLETE=true` to let agents close) |
 | `TASK_ALREADY_CLAIMED` | Someone else holds a live lease. Pick another task; a human can release it from the UI |
 | `task_next` says nothing to claim | No `todo` with finished dependencies in the default project. `allProjects: true`, or refine backlog tasks into `todo` |
 | Tools listed twice | Both `.mcp.json` and the plugin are active in this repo — disable one |

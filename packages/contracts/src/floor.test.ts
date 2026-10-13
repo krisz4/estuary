@@ -45,6 +45,7 @@ const meta = {
     needs_user_decision: 0,
     needs_user_action: 0,
     needs_qa: 0,
+    verified: 0,
     done: 0,
     deferred: 0,
   },

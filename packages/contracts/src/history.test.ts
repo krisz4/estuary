@@ -20,6 +20,7 @@ const statusCounts = {
   needs_user_decision: 0,
   needs_user_action: 0,
   needs_qa: 0,
+  verified: 0,
   done: 0,
   deferred: 0,
 };
@@ -199,8 +200,13 @@ describe("historyResponseSchema", () => {
 });
 
 describe("constants", () => {
-  it("HUMAN_WAIT_STATUSES is needs_user_decision, needs_user_action, needs_qa", () => {
-    expect(HUMAN_WAIT_STATUSES).toEqual(["needs_user_decision", "needs_user_action", "needs_qa"]);
+  it("HUMAN_WAIT_STATUSES is needs_user_decision, needs_user_action, needs_qa, verified", () => {
+    expect(HUMAN_WAIT_STATUSES).toEqual([
+      "needs_user_decision",
+      "needs_user_action",
+      "needs_qa",
+      "verified",
+    ]);
   });
 
   it("HISTORY_BUCKETS is hour, day, week", () => {

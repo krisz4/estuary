@@ -184,3 +184,14 @@ No production orchestration, no reverse proxy with TLS, no multi-replica setup. 
 
 - [../engineering/ENVIRONMENT_VARIABLES.md](../engineering/ENVIRONMENT_VARIABLES.md)
 - [../engineering/DATABASE.md](../engineering/DATABASE.md)
+
+## Online backups
+
+The API image includes `scripts/database.mjs`. From the running stack:
+
+```sh
+docker compose exec api node scripts/database.mjs backup /data/estuary-backup.db
+docker compose exec api node scripts/database.mjs verify /data/estuary-backup.db
+```
+
+Use a new filename for every snapshot, and copy the verified snapshot off the volume with your normal backup tooling. For restore, write a new file with `restore BACKUP NEW_DATABASE`, stop the API, update `DATABASE_URL` to that file, and restart so pending migrations deploy. The restore command refuses existing destinations and never replaces a live database. See [Database operations](../engineering/DATABASE.md#backup-verify-and-restore).

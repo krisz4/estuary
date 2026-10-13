@@ -46,3 +46,7 @@ The same as a single `DELETE /tasks/:id` ([Tasks.md](./Tasks.md)), for each task
 Started by `src/server.ts` (never by `createApp()`, so tests and the seed never run it): once at boot, then every six hours. The timer is `unref()`ed and stopped on shutdown; a failed pass is logged and retried at the next tick. `DONE_RETENTION_DAYS=0` turns it off — the manual endpoint still works. The E2E API process runs with `0`, so no spec races a background delete.
 
 The seed's oldest task is 58 days old, so a freshly seeded database loses nothing to the default.
+
+## Export before cleanup
+
+The tasks toolbar and cleanup confirmation offer **Export tasks**. `GET /api/v1/tasks/export[?project=…]` returns one transactionally consistent JSON document with `format: "estuary-export"`, version 1, an export timestamp, full tasks (including comments, decisions, checkpoints, and evidence), and events. Project scope is supported; other list filters do not restrict an export. Deleted-task events remain included in their recorded project. This is an archive format, not a database restore/import operation. Use the verified SQLite backup workflow for full disaster recovery.

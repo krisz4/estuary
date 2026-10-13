@@ -73,6 +73,7 @@ export const OPEN_STATUS_LABELS = [
   "Needs decision",
   "Needs action",
   "Needs QA",
+  "Verified",
 ];
 
 const suffix = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

@@ -52,6 +52,10 @@ import {
  * per drag that cannot return anything new.
  */
 export const queryKeys = {
+  system: {
+    ready: () => ["system", "ready"] as const,
+    agents: () => ["system", "agents"] as const,
+  },
   tasks: {
     all: ["tasks"] as const,
     lists: () => [...queryKeys.tasks.all, "list"] as const,
@@ -61,6 +65,8 @@ export const queryKeys = {
      * so `{page:1,status:"todo"}` and `{status:"todo",page:1}` are one entry.
      */
     list: (params: TaskListQueryInput) => [...queryKeys.tasks.lists(), params] as const,
+    inboxPages: (params: TaskListQueryInput) =>
+      [...queryKeys.tasks.list(params), "focus-pages"] as const,
     details: () => [...queryKeys.tasks.all, "detail"] as const,
     detail: (taskId: number) => [...queryKeys.tasks.details(), taskId] as const,
     facets: () => [...queryKeys.tasks.all, "facets"] as const,

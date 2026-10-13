@@ -19,12 +19,12 @@ status: canonical
 
 ## What it creates
 
-**62 tasks** across three projects, plus everything they would have accumulated had they really been worked through the API: **85 comments**, **7 decisions**, **8 dependencies**, and **327 events**. Runs are reproducible. The same `now` always gives the same rows and ids.
+**64 tasks** across three projects, plus everything they would have accumulated had they really been worked through the API: **89 comments**, **7 decisions**, **8 dependencies**, and **340 events**. Runs are reproducible. The same `now` always gives the same rows and ids.
 
 | Dimension | Shape |
 | --------- | ----- |
-| Count | 62 tasks: three full pages and a partial fourth at the default `pageSize=20` |
-| Status | Every one of the ten statuses. More in the plan and closed lanes, a handful in each attention status (table below) |
+| Count | 64 tasks: three full pages and a partial fourth at the default `pageSize=20` |
+| Status | Every status. More in the plan and closed lanes, a handful in each attention status (table below) |
 | Projects | `estuary` 22, `billing-service` 21, `mobile-app` 17, plus 2 with **no** project. Null is a state every screen has to render |
 | Creators | Agents `agent:claude-code` (18), `agent:claude-code-ci` (8), `agent:claude-code-nightly` (2); humans `human:dana` (11), `human:krisz` (10), `human:marco` (8), `human:lena` (5) |
 | Priority | low 14 / medium 22 / high 20 / urgent 6, so severity sorting is visibly not alphabetical |
@@ -49,6 +49,7 @@ status: canonical
 | `needs_user_decision` | 4 | Exactly one **open** `Decision`: question, 3 options, a `recommendedOption` that is one of the labels, and context. `statusNote` is the question |
 | `needs_user_action` | 3 | Step-by-step instructions for the human in `statusNote` |
 | `needs_qa` | 5 | A change summary with verification steps in `statusNote`, plus links |
+| `verified` | 2 | An agent QA'd its own work: `statusNote` summary, a stored `verification` (one `device` QA run with scenarios, notes, photo/doc evidence; one `not_needed` with a reason), plus links. The `task.status_changed` event carries the verification |
 | `done` | 14 | `completedAt` and links. Each went through `needs_qa` and was closed by a human. Two were **sent back from QA once** (a `qa_feedback` comment and a trip back to `todo`) before passing. One carries an answered decision |
 | `deferred` | 2 | The reason it is parked, in `statusNote` |
 

@@ -12,7 +12,7 @@ Prefer this index (or the frontmatter) before opening every file.
 | --- | ----------- |
 | [Tasks.md](./Tasks.md) | The Task resource: fields, CRUD endpoints, validation, delete semantics |
 | [Task_Numbering.md](./Task_Numbering.md) | The integer primary key **is** the task number, displayed as `TASK-000042` |
-| [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) | The ten statuses, what a transition into each requires, side effects |
+| [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) | The eleven statuses, what a transition into each requires, side effects |
 | [Task_Workflow_API.md](./Task_Workflow_API.md) | Every endpoint incl. transitions, claims/`next`, decisions, dependencies, events; versions and idempotency |
 | [Actors.md](./Actors.md) | `X-Actor` attribution, the optional `API_TOKEN`, and the agent-vs-human rules |
 | [Agent_Integration.md](./Agent_Integration.md) | The MCP server (`apps/mcp`), its tools, the Claude Code plugin + `task-workflow` skill, and setup for this repo, other repos, and self-hosted servers |

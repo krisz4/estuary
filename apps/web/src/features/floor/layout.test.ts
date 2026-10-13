@@ -525,7 +525,9 @@ describe("buildMapLayout — done work settles", () => {
   });
 
   it("shows at most MAX_LOOSE_DONE loose, the most recent ones", () => {
-    const tasks = Array.from({ length: MAX_LOOSE_DONE + 4 }, (_, i) => shipped((i + 1) * 60 * 1000));
+    const tasks = Array.from({ length: MAX_LOOSE_DONE + 4 }, (_, i) =>
+      shipped((i + 1) * 60 * 1000),
+    );
     const layout = buildMapLayout({ ...baseInput, tasks, maxPerCluster: 30, now });
     const loose = layout.clusters.done.beads.map((bead) => bead.task.id);
     expect(loose).toHaveLength(MAX_LOOSE_DONE);
@@ -534,7 +536,10 @@ describe("buildMapLayout — done work settles", () => {
   });
 
   it("does not settle other stations by age", () => {
-    const stale = task({ status: "todo", updatedAt: new Date(now - 10 * DONE_SETTLE_MS).toISOString() });
+    const stale = task({
+      status: "todo",
+      updatedAt: new Date(now - 10 * DONE_SETTLE_MS).toISOString(),
+    });
     const layout = buildMapLayout({ ...baseInput, tasks: [stale], maxPerCluster: 30, now });
     expect(layout.clusters.todo.beads).toHaveLength(1);
     expect(layout.clusters.todo.shoal).toBeNull();

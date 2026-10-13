@@ -58,6 +58,7 @@ describe("routes/ contains no Prisma", () => {
       "routes/history.openapi.ts",
       "routes/history.route.ts",
       "routes/system.openapi.ts",
+      "routes/system.route.ts",
       "routes/tasks.openapi.ts",
       "routes/tasks.route.ts",
     ]);
@@ -81,8 +82,10 @@ describe("services/ contains no HTTP", () => {
       "services/floor.service.ts",
       "services/github.service.ts",
       "services/history.service.ts",
+      "services/system.service.ts",
       "services/task-cleanup.service.ts",
       "services/task-events.ts",
+      "services/task-export.service.ts",
       "services/task-guards.ts",
       "services/task-query.ts",
       "services/task-read.ts",
@@ -168,6 +171,7 @@ describe("stage-8 route rules", () => {
       "routes/floor.route.ts",
       "routes/github.route.ts",
       "routes/history.route.ts",
+      "routes/system.route.ts",
       "routes/tasks.route.ts",
     ]);
 

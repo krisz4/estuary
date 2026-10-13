@@ -13,6 +13,13 @@ const decision = {
   options: [{ label: "stdio" }, { label: "http" }],
 };
 
+const verification = {
+  commit: "abcdef1",
+  checks: [{ command: "pnpm test", result: "passed" }],
+  criteria: [{ criterion: "Tools are listed", result: "passed" }],
+  qa: { method: "not_needed", reason: "MCP-only change; covered by tools.test.ts" },
+};
+
 /**
  * The smallest valid payload for each target status. Everything below is
  * phrased as a variation on one of these, so a status whose requirements change
@@ -27,6 +34,7 @@ const MINIMAL: Record<TaskStatus, Record<string, unknown>> = {
   needs_user_decision: { to: "needs_user_decision", decision },
   needs_user_action: { to: "needs_user_action", instructions: "Add ANTHROPIC_API_KEY to CI." },
   needs_qa: { to: "needs_qa", summary: "Added the five MCP tools; run `pnpm test`." },
+  verified: { to: "verified", summary: "Added the five MCP tools.", verification },
   done: { to: "done" },
   deferred: { to: "deferred", reason: "Parked until the v2 API lands." },
 };
@@ -36,6 +44,57 @@ const issuePaths = (payload: Record<string, unknown>) =>
   parse(payload).error?.issues.map((issue) => issue.path);
 
 describe("transitionInputSchema", () => {
+  it.each([
+    ["no qa", { ...verification, qa: undefined }],
+    [
+      "a check that did not run",
+      { ...verification, checks: [{ command: "pnpm test", result: "not_run" }] },
+    ],
+    [
+      "an unchecked criterion",
+      { ...verification, criteria: [{ criterion: "Works", result: "not_checked" }] },
+    ],
+    [
+      "a failed device scenario",
+      {
+        ...verification,
+        qa: {
+          method: "device",
+          target: "Pixel 8 emulator",
+          scenarios: [{ scenario: "Open", result: "failed" }],
+        },
+      },
+    ],
+  ])("refuses verified with %s, pointing at verification", (_, evidence) => {
+    expect(issuePaths({ ...MINIMAL.verified, verification: evidence })).toEqual([["verification"]]);
+  });
+
+  it.each(["javascript:alert(1)", "file:///tmp/shot.png", "not a url"])(
+    "refuses QA evidence at %s",
+    (url) => {
+      const qa = { ...verification.qa, evidence: [{ kind: "photo", url }] };
+      expect(parse({ ...MINIMAL.verified, verification: { ...verification, qa } }).success).toBe(
+        false,
+      );
+    },
+  );
+
+  it("accepts verified with on-device QA", () => {
+    const qa = {
+      method: "device",
+      target: "iPhone 16 simulator, iOS 18.4",
+      scenarios: [{ scenario: "Open the inbox", result: "passed" }],
+      notes: "Approved two items; the badge dropped from 2 to 0.",
+      evidence: [
+        { kind: "photo", url: "https://example.com/inbox.png", description: "Inbox at 360px" },
+        { kind: "doc", url: "https://example.com/docs/inbox" },
+      ],
+    };
+    expect(parse({ ...MINIMAL.verified, verification: { ...verification, qa } }).success).toBe(
+      true,
+    );
+  });
+
   it("has a minimal payload for every status, so the table below covers them all", () => {
     expect(Object.keys(MINIMAL)).toEqual([...TASK_STATUSES]);
   });
@@ -65,6 +124,8 @@ describe("transitionInputSchema", () => {
     ["needs_user_decision", "decision"],
     ["needs_user_action", "instructions"],
     ["needs_qa", "summary"],
+    ["verified", "summary"],
+    ["verified", "verification"],
     ["deferred", "reason"],
   ] as const)("requires %s to carry %s, naming the field", (status, field) => {
     const { [field]: _dropped, ...rest } = MINIMAL[status];

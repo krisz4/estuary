@@ -40,3 +40,5 @@ Route order matters: `/tasks/new`, `/tasks/board`, and `/tasks/map` are declared
 ## Related
 
 - Domain behavior behind these screens: [../features/README.md](../features/README.md)
+
+- [Connect an agent](./Connect.md) — `/connect`, readiness, client configuration, and a first handoff.

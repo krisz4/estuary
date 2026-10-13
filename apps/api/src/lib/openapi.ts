@@ -5,6 +5,8 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import {
   ACTOR_HEADER,
+  CLAIM_SESSION_HEADER,
+  claimSessionIdSchema,
   ANONYMOUS_ACTOR,
   apiErrorResponseSchema,
   apiErrorSchema,
@@ -176,6 +178,10 @@ export const BEARER_AUTH = "bearerAuth";
  */
 export const actorHeaders = (): z.ZodObject =>
   z.object({
+    [CLAIM_SESSION_HEADER]: claimSessionIdSchema.optional().meta({
+      description:
+        "Session-specific ownership for claims. Send the same value on every request from that session.",
+    }),
     [ACTOR_HEADER]: z
       .string()
       .optional()

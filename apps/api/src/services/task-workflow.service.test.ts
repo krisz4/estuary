@@ -321,6 +321,132 @@ describe("transitionTask", () => {
       expect((await row(task.id)).status).toBe("needs_qa");
     });
 
+    const checked = {
+      commit: "abc1234",
+      checks: [{ command: "pnpm test", result: "passed" as const }],
+      criteria: [{ criterion: "It works", result: "passed" as const }],
+    };
+    const onDevice = {
+      ...checked,
+      qa: {
+        method: "device" as const,
+        target: "iPhone 16 simulator, iOS 18.4",
+        scenarios: [{ scenario: "Open the inbox", result: "passed" as const }],
+      },
+    };
+
+    it("refuses an agent moving to done even with evidence (done takes no verification)", async () => {
+      env.AGENTS_MAY_COMPLETE = false;
+      const task = await makeTask({ status: "needs_qa" });
+
+      expect(() => transitionInputSchema.parse({ to: "done", verification: onDevice })).toThrow();
+      await expectApiError(
+        () => transition(task.id, { to: "done" }, AGENT),
+        "ACTOR_NOT_PERMITTED",
+        403,
+      );
+    });
+
+    it("lets an agent verify a task it QA'd on a device: stores evidence, releases the claim, files followUps, merges links", async () => {
+      const task = await makeTask({
+        ...claimedBy(AGENT),
+        links: [{ label: "Branch", url: "https://example.com/tree/x" }],
+      });
+
+      const moved = await transition(
+        task.id,
+        {
+          to: "verified",
+          summary: "QA'd on the simulator",
+          verification: onDevice,
+          links: [
+            { label: "Branch again", url: "https://example.com/tree/x" },
+            { label: "PR", url: "https://example.com/pull/9" },
+          ],
+          followUps: [{ title: "Polish the empty state", description: "Empty state looks bare." }],
+        },
+        AGENT,
+      );
+
+      expect(moved.status).toBe("verified");
+      expect(moved.statusNote).toBe("QA'd on the simulator");
+      expect(moved.verification).toEqual(onDevice);
+      expect(moved.claim).toBeNull();
+      expect(moved.links.map((link) => link.url)).toEqual([
+        "https://example.com/tree/x",
+        "https://example.com/pull/9",
+      ]);
+      const followUp = await prisma.task.findFirst({ where: { parentId: task.id } });
+      expect(followUp?.title).toBe("Polish the empty state");
+      const events = await eventsFor(task.id);
+      expect(events.at(-1)?.payload).toMatchObject({ to: "verified", verification: onDevice });
+    });
+
+    it("accepts not_needed QA for verified", async () => {
+      const task = await makeTask(claimedBy(AGENT));
+      const verification = {
+        ...checked,
+        qa: { method: "not_needed" as const, reason: "API-only; covered by route tests" },
+      };
+
+      const moved = await transition(
+        task.id,
+        { to: "verified", summary: "Checks prove it", verification },
+        AGENT,
+      );
+      expect(moved.status).toBe("verified");
+    });
+
+    it.each([
+      ["no QA", checked],
+      [
+        "a failed device scenario",
+        {
+          ...onDevice,
+          qa: { ...onDevice.qa, scenarios: [{ scenario: "Open", result: "failed" as const }] },
+        },
+      ],
+      [
+        "a check that did not run",
+        { ...onDevice, checks: [{ command: "pnpm test", result: "not_run" as const }] },
+      ],
+    ])("rejects verified with %s as a VALIDATION_ERROR on verification", (_, verification) => {
+      const result = transitionInputSchema.safeParse({
+        to: "verified",
+        summary: "x",
+        verification,
+      });
+      expect(result.success).toBe(false);
+      expect(JSON.stringify(result.error?.issues)).toContain("verification");
+    });
+
+    it("lets a human move a task to verified and then done, keeping the verification", async () => {
+      const task = await makeTask({ status: "in_progress" });
+      await transition(
+        task.id,
+        { to: "verified", summary: "Checked", verification: onDevice },
+        HUMAN,
+      );
+
+      const done = await transition(task.id, { to: "done" }, HUMAN);
+
+      expect(done.status).toBe("done");
+      expect(done.verification).toEqual(onDevice);
+    });
+
+    it("drops the verification when a verified task goes back to todo", async () => {
+      const task = await makeTask({ status: "in_progress" });
+      await transition(
+        task.id,
+        { to: "verified", summary: "Checked", verification: onDevice },
+        HUMAN,
+      );
+
+      const back = await transition(task.id, { to: "todo" }, HUMAN);
+
+      expect(back.verification).toBeNull();
+    });
+
     it("lets an agent complete when AGENTS_MAY_COMPLETE is on", async () => {
       env.AGENTS_MAY_COMPLETE = true;
       const task = await makeTask({ status: "needs_qa" });

@@ -4,6 +4,7 @@ import type {
   TaskLink,
   TaskPriority,
   TaskStatus,
+  Verification,
 } from "@estuary/contracts";
 
 /**
@@ -125,6 +126,8 @@ export interface SeedTaskTemplate {
   statusNote?: string;
   /** `needs_qa` only: what the reviewer must not miss. Omitted = a routine hand-off. */
   concerns?: string;
+  /** `verified` only: the evidence the agent verified its own work with (must qualify). */
+  verification?: Verification;
   /** `done` only: the summary it was handed to QA with. */
   qaSummary?: string;
   /** `done` only: sent back from QA once with this `qa_feedback` comment… */
@@ -204,6 +207,96 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
     statusNote:
       "Tried it from a real Claude Code session; claims and releases show up in the events feed.",
     labels: ["mcp"],
+  },
+  {
+    key: "task-card-keyboard-nav",
+    title: "Make the mobile task cards reachable by keyboard and screen reader",
+    description:
+      "Below the md breakpoint the task table collapses to stacked cards, and the cards are plain divs with click handlers: no focus ring, no Enter to open.",
+    project: "estuary",
+    status: "verified",
+    priority: "medium",
+    createdBy: HUMANS.krisz,
+    daysAgo: 4,
+    acceptanceCriteria:
+      "- Each card is a link with a visible focus ring\n- Tab order follows visual order at 360px\n- Screen reader announces title, status and priority",
+    statusNote:
+      "Cards are now anchors with focus-visible rings and an aria-label built from title, status and priority. Ran the card list on a phone-sized Chromium and walked it with the keyboard.",
+    verification: {
+      commit: "9f3c2ab41d7e",
+      checks: [
+        { command: "pnpm --filter @estuary/web test", result: "passed", output: "212 passed" },
+        { command: "pnpm typecheck", result: "passed" },
+      ],
+      criteria: [
+        { criterion: "Each card is a link with a visible focus ring", result: "passed" },
+        { criterion: "Tab order follows visual order at 360px", result: "passed" },
+        { criterion: "Screen reader announces title, status and priority", result: "passed" },
+      ],
+      qa: {
+        method: "device",
+        target: "Chromium, 360x800 viewport, macOS VoiceOver",
+        scenarios: [
+          {
+            scenario: "Tab through the first 10 cards on /tasks; focus ring visible on each",
+            result: "passed",
+          },
+          { scenario: "Press Enter on a focused card; task detail opens", result: "passed" },
+          {
+            scenario: "VoiceOver reads 'Fix flaky login test, in progress, high priority'",
+            result: "passed",
+          },
+        ],
+        notes: "No horizontal scroll at 360px; focus ring contrast is readable on the dark theme.",
+        evidence: [
+          {
+            kind: "photo",
+            url: "https://example-org.github.io/estuary-evidence/task-card-focus-360.png",
+            description: "Focused card at 360px",
+          },
+          {
+            kind: "doc",
+            url: "https://example-org.github.io/estuary-evidence/task-card-voiceover.md",
+            description: "VoiceOver transcript",
+          },
+        ],
+      },
+    },
+    labels: ["web"],
+  },
+  {
+    key: "mcp-readme-env-table",
+    title: "Document every MCP environment variable in the README",
+    description:
+      "apps/mcp reads four environment variables but the README only mentions two. Add the full table with defaults.",
+    project: "estuary",
+    status: "verified",
+    priority: "low",
+    createdBy: AGENTS.claudeCode,
+    daysAgo: 3,
+    acceptanceCriteria:
+      "- README lists every variable read in config.ts with its default\n- env.example matches the table",
+    statusNote:
+      "Added the table and synced env.example. Docs-only change; a test asserts the README lists every variable config.ts reads.",
+    verification: {
+      commit: "c41e7d09a2b5",
+      checks: [
+        { command: "pnpm --filter estuary-mcp test", result: "passed", output: "38 passed" },
+      ],
+      criteria: [
+        {
+          criterion: "README lists every variable read in config.ts with its default",
+          result: "passed",
+        },
+        { criterion: "env.example matches the table", result: "passed" },
+      ],
+      qa: {
+        method: "not_needed",
+        reason:
+          "Docs-only change with no UI or runtime behavior; the README-vs-config test covers it.",
+      },
+    },
+    labels: ["mcp", "docs"],
   },
   {
     key: "mcp-decision-tools",
@@ -1316,7 +1409,7 @@ export const TASK_TEMPLATES: readonly SeedTaskTemplate[] = [
 /**
  * `progress` comments an agent leaves while it holds a task. Drawn by the PRNG
  * for every stretch of `in_progress`, so threads read like a working log without
- * 62 bespoke ones. Worded to fit any task on purpose.
+ * 64 bespoke ones. Worded to fit any task on purpose.
  */
 export const PROGRESS_NOTES: readonly string[] = [
   "Picked this up. Reading the existing code and tests before changing anything.",
@@ -1356,6 +1449,6 @@ export const PROGRESS_COUNT_WEIGHTS: readonly Weighted<number>[] = [
  */
 export const PRNG_SEED = 24_073;
 
-export const SEED_TASK_COUNT = 62;
+export const SEED_TASK_COUNT = 64;
 
 export const SEED_WINDOW_DAYS = 60;

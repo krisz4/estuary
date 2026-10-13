@@ -25,7 +25,7 @@ Coding agents can now work for hours, and several can run at once. What they're 
 
 - **Two agents never take the same task.** Claiming a task takes a lease that the agent keeps alive with heartbeats; if the agent dies, the lease runs out and another agent can pick the task up.
 - **Agents ask instead of guessing.** An agent stuck on a product call opens a *decision* with options and its recommendation, parks the task, and carries on once you've answered. If it needs a human to *do* something (grant access, test on a device), it asks for that the same way.
-- **Humans stay the gate.** By default agents stop at `needs_qa`: they can't mark their own work done.
+- **Humans stay the gate.** Only humans mark work `done`. Agents stop at `needs_qa`, or at `verified` when they QA'd it themselves with passing evidence (device scenarios, photos or docs by URL, or a reasoned "not needed").
 - **Everything is on the record.** Every change is an event with an actor, so you can see what each agent did and how long work waited on you.
 
 Estuary is self-hosted, runs on one SQLite file, and has no accounts. Agents connect over [MCP](https://modelcontextprotocol.io); humans use the web UI.
@@ -77,7 +77,7 @@ On a fresh database `db:migrate` runs the seed itself (you should see `Seed comp
 
 ## What's in the app
 
-Tasks move through ten statuses, from `backlog` to `done` or `deferred`. Anything that waits on a human is shown in amber.
+Tasks move through eleven statuses, from `backlog` to `done` or `deferred`. Anything that waits on a human is shown in amber.
 
 | Screen | Route | What it's for |
 | ------ | ----- | ------------- |
@@ -121,7 +121,7 @@ Base path `/api/v1`. Full reference is the generated OpenAPI spec at `/docs`, or
 | `POST` | `/tasks` | Create (idempotent — a repeated `idempotencyKey` replays the same task) |
 | `PATCH` | `/tasks/:id` | Update (never `status` — see below) |
 | `DELETE` | `/tasks/:id` | Delete (comments/decisions/dependencies cascade) |
-| `POST` | `/tasks/:id/transition` | Move to any of the ten statuses, with the payload it requires |
+| `POST` | `/tasks/:id/transition` | Move to any of the eleven statuses, with the payload it requires |
 | `POST` | `/tasks/next` \| `/tasks/:id/claim` \| `/tasks/:id/heartbeat` \| `/tasks/:id/release` | Claim, extend, or give up the lease an agent works under |
 | `POST` | `/tasks/:id/decision/answer` | Answer an open "ask a human" decision |
 | `POST`/`DELETE` | `/tasks/:id/dependencies[/:dependsOnId]` | Add or remove a blocking dependency |
@@ -190,3 +190,9 @@ Estuary started as a helpdesk-ticketing code challenge and was rebuilt into an A
 ## License
 
 [AGPL-3.0-only](LICENSE). You can use, modify, and self-host Estuary freely. If you run a modified version as a network service, the AGPL requires you to offer its source to that service's users.
+
+### Supervision and recovery
+
+Use **Connect agent** (`/connect`) for Codex, Claude Code, Cursor, and generic MCP configuration and a connection check. Agent processes have separate claim sessions even when sharing an actor. Unfinished work can save a checkpoint; QA handoffs can include a tested commit, check commands, and acceptance criterion results. The inbox pages through the queue, orders by waiting time or work unlocked, and supports snoozing outside blockers. Batch approval requires passing reported evidence and no concerns.
+
+Use **Export tasks** before cleanup for a project archive. For full recovery, use the WAL-aware backup, verify, and restore commands in [Database operations](docs/engineering/DATABASE.md#backup-verify-and-restore). After updating source, run `pnpm --filter @estuary/api db:deploy` before starting the API to apply the new columns. Build the local MCP package to use unreleased tools; published package configuration takes effect once that release is available.

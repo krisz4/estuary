@@ -99,7 +99,7 @@ describe("TaskFilterBar chip groups", () => {
     expect(status).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "To do" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Done" })).not.toBeChecked();
-    // All ten statuses, not the helpdesk's four.
+    // All eleven statuses, not the helpdesk's four.
     expect(
       within(status)
         .getAllByRole("checkbox")
@@ -113,6 +113,7 @@ describe("TaskFilterBar chip groups", () => {
       "Needs decision",
       "Needs action",
       "Needs QA",
+      "Verified",
       "Done",
       "Deferred",
     ]);
@@ -203,7 +204,7 @@ describe("TaskFilterBar status presets", () => {
     expect(patchAgainst(params())).toEqual({ status: [...OPEN_STATUSES] });
     expect(OPEN_STATUSES).not.toContain("done");
     expect(OPEN_STATUSES).not.toContain("deferred");
-    expect(OPEN_STATUSES).toHaveLength(8);
+    expect(OPEN_STATUSES).toHaveLength(9);
   });
 
   it("selects the inbox statuses with one click", async () => {
@@ -213,14 +214,16 @@ describe("TaskFilterBar status presets", () => {
     await user.click(screen.getByRole("button", { name: "Needs you" }));
 
     expect(patchAgainst(params())).toEqual({
-      status: ["needs_user_decision", "needs_user_action", "needs_qa"],
+      status: ["needs_user_decision", "needs_user_action", "needs_qa", "verified"],
     });
   });
 
   it("shows itself pressed when the selection is exactly its set, and clears on a second press", async () => {
     const user = userEvent.setup();
     const { patchAgainst } = renderBar({
-      params: params({ status: ["needs_qa", "needs_user_action", "needs_user_decision"] }),
+      params: params({
+        status: ["verified", "needs_qa", "needs_user_action", "needs_user_decision"],
+      }),
     });
 
     const preset = screen.getByRole("button", { name: "Needs you" });

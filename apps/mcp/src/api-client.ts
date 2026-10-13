@@ -1,4 +1,10 @@
-import { ACTOR_HEADER, apiErrorResponseSchema, type ApiErrorCode } from "@estuary/contracts";
+import { randomUUID } from "node:crypto";
+import {
+  CLAIM_SESSION_HEADER,
+  ACTOR_HEADER,
+  apiErrorResponseSchema,
+  type ApiErrorCode,
+} from "@estuary/contracts";
 
 import type { Config } from "./config.js";
 
@@ -85,10 +91,13 @@ export const toQueryString = (query: Record<string, QueryValue> | undefined): st
 };
 
 export class ApiClient {
+  readonly sessionId: string;
   constructor(
-    private readonly config: Pick<Config, "apiUrl" | "actor" | "token">,
+    private readonly config: Pick<Config, "apiUrl" | "actor" | "token" | "sessionId">,
     private readonly fetchImpl: FetchLike = fetch,
-  ) {}
+  ) {
+    this.sessionId = config.sessionId ?? randomUUID();
+  }
 
   get baseUrl(): string {
     return this.config.apiUrl;
@@ -106,6 +115,7 @@ export class ApiClient {
     const headers: Record<string, string> = {
       Accept: "application/json",
       [ACTOR_HEADER]: this.config.actor,
+      [CLAIM_SESSION_HEADER]: this.sessionId,
     };
     if (this.config.token !== undefined) headers.Authorization = `Bearer ${this.config.token}`;
     if (options.body !== undefined) headers["Content-Type"] = "application/json";

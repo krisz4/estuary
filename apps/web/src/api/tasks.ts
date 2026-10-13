@@ -1,4 +1,5 @@
 import {
+  useInfiniteQuery,
   keepPreviousData,
   useMutation,
   useQuery,
@@ -169,12 +170,22 @@ export const useTasksQuery = (params: TaskListParams): UseQueryResult<PaginatedT
 };
 
 /** `INBOX_QUERY`, narrowed to the given projects (all when empty). */
-export const toInboxQuery = (project: readonly string[]): QueryInput =>
-  project.length > 0 ? { ...INBOX_QUERY, project: [...project] } : INBOX_QUERY;
+export type InboxOptions = { page?: number; pageSize?: number; sort?: string; snoozed?: boolean };
+export const toInboxQuery = (
+  project: readonly string[],
+  options: InboxOptions = {},
+): QueryInput => ({
+  ...INBOX_QUERY,
+  ...options,
+  ...(project.length > 0 ? { project: [...project] } : {}),
+});
 
 /** The attention queue (`?attention=true`) — the inbox page and the map's "Needs you". */
-export const useInboxQuery = (project: readonly string[] = []): UseQueryResult<PaginatedTasks> => {
-  const query = toInboxQuery(project);
+export const useInboxQuery = (
+  project: readonly string[] = [],
+  options: InboxOptions = {},
+): UseQueryResult<PaginatedTasks> => {
+  const query = toInboxQuery(project, options);
   return useQuery({
     queryKey: queryKeys.tasks.list(query),
     queryFn: ({ signal }) => listTasks(query, signal),
@@ -413,7 +424,12 @@ export type SendBackResult = { task: Task; commentError: unknown };
  * `acceptanceCriteria` is for a task that has none yet: `→ todo` requires them,
  * and a task can reach `needs_qa` without ever having been `todo`.
  */
-export type SendBackVariables = { taskId: number; reason: string; acceptanceCriteria?: string };
+export type SendBackVariables = {
+  taskId: number;
+  reason: string;
+  acceptanceCriteria?: string;
+  expectedVersion?: number;
+};
 
 export const useSendBackMutation = (): UseMutationResult<
   SendBackResult,
@@ -423,10 +439,11 @@ export const useSendBackMutation = (): UseMutationResult<
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ taskId, reason, acceptanceCriteria }) => {
+    mutationFn: async ({ taskId, reason, acceptanceCriteria, expectedVersion }) => {
       const task = await transitionTask(taskId, {
         to: "todo",
         reason,
+        ...(expectedVersion === undefined ? {} : { expectedVersion }),
         ...(acceptanceCriteria === undefined ? {} : { acceptanceCriteria }),
       });
       try {
@@ -545,5 +562,17 @@ export const useArchiveQuery = (query: ArchiveQuery): UseQueryResult<PaginatedTa
     queryKey: queryKeys.tasks.list(wire),
     queryFn: ({ signal }) => listTasks(wire, signal),
     placeholderData: keepPreviousData,
+  });
+};
+
+/** Focus mode retains loaded pages and can reach every attention item. */
+export const useInfiniteInboxQuery = (project: readonly string[]) => {
+  const query = toInboxQuery(project);
+  return useInfiniteQuery({
+    queryKey: queryKeys.tasks.inboxPages(query),
+    initialPageParam: 1,
+    queryFn: ({ pageParam, signal }) => listTasks({ ...query, page: pageParam }, signal),
+    getNextPageParam: (last) => (last.meta.hasNextPage ? last.meta.page + 1 : undefined),
+    refetchInterval: POLL_INTERVAL_MS,
   });
 };

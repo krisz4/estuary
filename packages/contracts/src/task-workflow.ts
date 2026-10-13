@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { checkpointSchema, qualifiesForVerified, verificationSchema } from "./handoff.js";
 import { decisionRequestSchema } from "./decision.js";
 import {
   acceptanceCriteriaInputSchema,
@@ -80,7 +81,8 @@ const followUps = z
  * There is no from→to table. Any status may move to any other; the payload is
  * the gate. The one exception is actor-based: an `agent:` actor may not move a
  * task to `done` unless the server runs with `AGENTS_MAY_COMPLETE=true`
- * (`ACTOR_NOT_PERMITTED`, 403). Agents hand finished work to `needs_qa`.
+ * (`ACTOR_NOT_PERMITTED`, 403). Agents hand finished work to `needs_qa`, or to
+ * `verified` when they QA'd it themselves with passing evidence.
  *
  * `reason` / `instructions` / `summary` become the task's `statusNote`.
  */
@@ -149,6 +151,7 @@ export const transitionInputSchema = z.discriminatedUnion("to", [
       to: z.literal("needs_qa"),
       /** What changed and how to verify it. */
       summary: noteField("Summarise what changed and how to verify it"),
+      verification: verificationSchema.optional(),
       /** Appended to the task's links (PR, branch, commit). */
       links: taskLinksInputSchema.optional(),
       /**
@@ -162,6 +165,26 @@ export const transitionInputSchema = z.discriminatedUnion("to", [
         .min(1)
         .max(TASK_CONCERNS_MAX, `Must be at most ${TASK_CONCERNS_MAX} characters`)
         .optional(),
+      followUps,
+      ...base,
+    })
+    .strict(),
+  z
+    .object({
+      to: z.literal("verified"),
+      /** What changed and how it was verified. */
+      summary: noteField("Summarise what changed and how you verified it"),
+      /**
+       * Required, and must pass `qualifiesForVerified`: every check, criterion,
+       * and device scenario passed, with `qa` saying how it was QA'd. Anything
+       * less is a `needs_qa` hand-off.
+       */
+      verification: verificationSchema.refine(qualifiesForVerified, {
+        message:
+          "Every check, criterion, and device scenario must have passed, with qa: " +
+          "{method: device, target, scenarios} or {method: not_needed, reason}. Otherwise hand off to needs_qa",
+      }),
+      links: taskLinksInputSchema.optional(),
       followUps,
       ...base,
     })
@@ -220,6 +243,7 @@ export type ClaimTaskInput = z.infer<typeof claimTaskInputSchema>;
 export const releaseTaskInputSchema = z
   .object({
     reason: note.optional(),
+    checkpoint: checkpointSchema.optional(),
     followUps,
     expectedVersion: expectedVersionSchema,
   })

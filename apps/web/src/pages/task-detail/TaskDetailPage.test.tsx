@@ -143,9 +143,7 @@ describe("TaskDetailPage — concerns and needsTriage", () => {
 
     await heading();
     expect(screen.getByText(/Don.t miss this/)).toBeInTheDocument();
-    expect(
-      screen.getByText("The retry logic is untested under load."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("The retry logic is untested under load.")).toBeInTheDocument();
   });
 
   it("offers Accept for an agent-filed task nobody has triaged, and clears needsTriage", async () => {
@@ -235,7 +233,10 @@ describe("TaskDetailPage — status change", () => {
     });
     // Never a PATCH: status is not an editable field any more.
     expect(requests.some((r) => r.method === "PATCH")).toBe(false);
-    expect(requests.find((r) => r.method === "POST")?.body).toEqual({ to: "in_progress" });
+    expect(requests.find((r) => r.method === "POST")?.body).toEqual({
+      expectedVersion: 3,
+      to: "in_progress",
+    });
 
     await waitFor(() => {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks.lists() });
@@ -274,6 +275,7 @@ describe("TaskDetailPage — status change", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(requests.find((r) => r.method === "POST")?.body).toEqual({
+      expectedVersion: 3,
       to: "blocked",
       reason: "Waiting on the CDN team.",
       blockedBy: [12, 13],
@@ -377,7 +379,11 @@ describe("TaskDetailPage — decisions", () => {
     await user.click(recommended);
 
     await waitFor(() => expect(requests.some((r) => r.method === "POST")).toBe(true));
-    expect(requests.find((r) => r.method === "POST")?.body).toEqual({ choice: "Token bucket" });
+    expect(requests.find((r) => r.method === "POST")?.body).toEqual({
+      expectedVersion: 3,
+      decisionId: 7,
+      choice: "Token bucket",
+    });
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Answered — TASK-000042 is back in To do"),
     );

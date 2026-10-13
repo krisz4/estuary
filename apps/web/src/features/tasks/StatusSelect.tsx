@@ -1,7 +1,7 @@
 import { type TaskStatus } from "@estuary/contracts";
 import { Field, Select } from "@/components/ui";
 import { isTaskStatus, statusChangeErrorMessage } from "@/lib/statusTransition";
-import { statusOptions } from "@/lib/formatting";
+import { manualStatusOptions, statusOptions } from "@/lib/formatting";
 
 /**
  * The inline status control on the task detail page.
@@ -29,7 +29,8 @@ export const StatusSelect = ({ value, onChange, isPending = false, error }: Stat
   <Field label="Status" error={statusChangeErrorMessage(error)}>
     {(field) => (
       <Select<TaskStatus>
-        options={statusOptions}
+        // A task already `verified` must still render its own value.
+        options={value === "verified" ? statusOptions : manualStatusOptions}
         value={value}
         disabled={isPending}
         onValueChange={(next) => {

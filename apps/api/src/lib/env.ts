@@ -148,7 +148,8 @@ const envSchema = z.object({
 
   /**
    * Whether an `agent:` actor may move a task to `done`. Off by default: agents
-   * hand finished work to `needs_qa` and a human closes it. Turn it on for a
+   * hand finished work to `needs_qa` (or `verified` when they QA'd it with passing
+   * evidence) and a human closes it. Turn it on for a
    * fully autonomous setup where a QA agent does the closing.
    */
   AGENTS_MAY_COMPLETE: booleanFromString(false),

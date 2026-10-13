@@ -25,6 +25,7 @@ const STATUS_ZONE_CLASS: Record<TaskStatus, string> = {
   todo: "border-border bg-map-panel-2 text-foreground",
   in_progress: "border-map-ok/60 bg-map-ok/10 text-foreground",
   needs_qa: "border-map-ok/60 bg-map-ok/10 text-foreground",
+  verified: "border-success/60 bg-success-subtle text-success-subtle-foreground",
   blocked: "border-map-pool-block/60 bg-map-pool-block/10 text-foreground",
   needs_user_decision: "border-attention/60 bg-attention-subtle text-attention-subtle-foreground",
   needs_user_action: "border-attention/60 bg-attention-subtle text-attention-subtle-foreground",

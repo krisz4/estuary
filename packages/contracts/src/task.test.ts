@@ -45,6 +45,7 @@ describe("enums", () => {
       "needs_user_decision",
       "needs_user_action",
       "needs_qa",
+      "verified",
       "done",
       "deferred",
     ]);
@@ -73,11 +74,12 @@ describe("status sets", () => {
     expect(new Set(laned)).toEqual(new Set(TASK_STATUSES));
   });
 
-  it("makes the inbox exactly the three statuses waiting on a human", () => {
+  it("makes the inbox exactly the statuses waiting on a human", () => {
     expect([...HUMAN_ATTENTION_STATUSES]).toEqual([
       "needs_user_decision",
       "needs_user_action",
       "needs_qa",
+      "verified",
     ]);
   });
 
@@ -667,6 +669,7 @@ describe("attentionKindOf", () => {
     expect(kind("needs_user_decision")).toBe("decide");
     expect(kind("needs_user_action")).toBe("act");
     expect(kind("needs_qa")).toBe("review");
+    expect(kind("verified")).toBe("review");
     expect(kind("needs_refinement")).toBe("refine");
     expect(kind("todo", true)).toBe("suggested");
     expect(kind("backlog", true)).toBe("suggested");

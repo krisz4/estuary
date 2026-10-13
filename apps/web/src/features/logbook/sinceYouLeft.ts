@@ -71,10 +71,15 @@ export const sinceYouLeftSummary = (
       else if (to === "needs_user_action") {
         actionsRequested += 1;
         if (actorKindOf(event.actor) === "agent") bumpAsked(event.actor);
-      } else if (to === "needs_qa") qaRequested += 1;
+      } else if (to === "needs_qa" || to === "verified") qaRequested += 1;
       // Same definition `GET /stats/history` uses for a bucket's `sentBack`:
       // out of `needs_qa` to anything but `done`/`deferred`.
-      if (from === "needs_qa" && to !== "done" && to !== "deferred" && to !== undefined)
+      if (
+        (from === "needs_qa" || from === "verified") &&
+        to !== "done" &&
+        to !== "deferred" &&
+        to !== undefined
+      )
         sentBack += 1;
     } else if (event.type === "decision.requested") {
       decisionsRequested += 1;

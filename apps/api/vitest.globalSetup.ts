@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,6 +122,7 @@ export async function setup(): Promise<void> {
   removeRunDir(runDir);
   removeAbandonedRunDirs(runDir);
   mkdirSync(runDir, { recursive: true });
+  writeFileSync(templateDbPath(), "", { flag: "wx" });
 
   execFileSync(prismaBin(), ["migrate", "deploy"], {
     cwd: API_ROOT,

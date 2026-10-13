@@ -1,3 +1,4 @@
+import { ConnectPage } from "@/pages/connect/ConnectPage";
 import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { InboxPage } from "@/pages/inbox/InboxPage";
@@ -67,6 +68,7 @@ export const routeChildren = [
 
   { path: "tasks/:taskId/edit", element: <TaskEditPage /> },
 
+  { path: "connect", element: <ConnectPage /> },
   { path: "inbox", element: <InboxPage /> },
 
   { path: "inbox/focus", element: <InboxFocusPage /> },

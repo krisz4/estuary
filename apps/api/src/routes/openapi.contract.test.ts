@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   ACTOR_HEADER,
+  CLAIM_SESSION_HEADER,
   API_ERROR_CODES,
   eventsQuerySchema,
   floorQuerySchema,
@@ -283,6 +284,7 @@ describe("the list query is documented from the real schema", () => {
     parentId: "42",
     parentIsNull: undefined, // exclusive with `parentId`; probed on its own below
     attention: "true",
+    snoozed: "true",
     dependsOn: "7",
     dependencyOf: "7",
     q: "printer",
@@ -320,6 +322,7 @@ describe("the list query is documented from the real schema", () => {
 
     expect(query.map((parameter) => parameter.name).sort()).toEqual(expectedNames);
     expect(parameters.filter((parameter) => parameter.in !== "query").map((p) => p.name)).toEqual([
+      CLAIM_SESSION_HEADER,
       ACTOR_HEADER,
     ]);
   });
@@ -388,6 +391,7 @@ describe("the other query surfaces are documented from their schemas", () => {
         "project",
         "q",
         "shipped",
+        "snoozed",
         "status",
       ],
     ],
@@ -447,7 +451,7 @@ describe("cross-cutting request metadata", () => {
       expect(
         headers.map((header) => header.name),
         `${method} ${path}`,
-      ).toEqual([ACTOR_HEADER]);
+      ).toEqual([CLAIM_SESSION_HEADER, ACTOR_HEADER]);
     }
   });
 

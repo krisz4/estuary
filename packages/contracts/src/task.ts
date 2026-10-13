@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { checkpointSchema, claimSessionIdSchema, verificationSchema } from "./handoff.js";
 import { storedActorSchema } from "./actor.js";
 import { commentSchema } from "./comment.js";
 import { decisionSchema } from "./decision.js";
@@ -27,6 +28,7 @@ export const TASK_STATUSES = [
   "needs_user_decision",
   "needs_user_action",
   "needs_qa",
+  "verified",
   "done",
   "deferred",
 ] as const;
@@ -39,7 +41,7 @@ export type TaskStatus = z.infer<typeof taskStatusSchema>;
  */
 export const TASK_STATUS_LANES = {
   plan: ["backlog", "needs_refinement", "todo"],
-  doing: ["in_progress", "needs_qa"],
+  doing: ["in_progress", "needs_qa", "verified"],
   waiting: ["blocked", "needs_user_decision", "needs_user_action"],
   closed: ["done", "deferred"],
 } as const satisfies Record<string, readonly TaskStatus[]>;
@@ -50,6 +52,17 @@ export const HUMAN_ATTENTION_STATUSES = [
   "needs_user_decision",
   "needs_user_action",
   "needs_qa",
+  "verified",
+] as const satisfies readonly TaskStatus[];
+
+/**
+ * Finished work waiting for a person to close it: `needs_qa` (the person QAs
+ * it) and `verified` (the agent QA'd it with passing evidence; the person signs
+ * it off). Only a human moves either to `done` — see `transitionInputSchema`.
+ */
+export const REVIEW_TASK_STATUSES = [
+  "needs_qa",
+  "verified",
 ] as const satisfies readonly TaskStatus[];
 
 /* ------------------------------------------------------------------ *
@@ -58,12 +71,13 @@ export const HUMAN_ATTENTION_STATUSES = [
 
 /**
  * Why a task is in front of a human, in the order the inbox shows the groups.
- * The three `HUMAN_ATTENTION_STATUSES` are where an agent explicitly stopped;
+ * The `HUMAN_ATTENTION_STATUSES` are where an agent explicitly stopped;
  * the rest are where work would otherwise sit unseen:
  *
  * | Kind | Matches |
  * | ---- | ------- |
- * | `decide` / `act` / `review` | `needs_user_decision` / `needs_user_action` / `needs_qa` |
+ * | `decide` / `act` | `needs_user_decision` / `needs_user_action` |
+ * | `review` | `needs_qa` or `verified` — finished work a person closes |
  * | `refine` | `needs_refinement` — someone has to say what "done" means |
  * | `suggested` | `backlog` / `todo` that an agent filed and no person has looked at (`needsTriage`) |
  * | `blocked` | `blocked` on an outside reason only — no unfinished dependency will ever unblock it |
@@ -96,6 +110,7 @@ export const attentionKindOf = (task: {
     case "needs_user_action":
       return "act";
     case "needs_qa":
+    case "verified":
       return "review";
     case "needs_refinement":
       return "refine";
@@ -377,6 +392,8 @@ export const updateTaskInputSchema = z
      * clears it anyway; this is for the write that changes nothing else.
      */
     needsTriage: z.boolean().optional(),
+    checkpoint: checkpointSchema.nullable().optional(),
+    snoozedUntil: z.iso.datetime().nullable().optional(),
     expectedVersion: expectedVersionSchema,
   })
   .strict();
@@ -398,6 +415,7 @@ export const hasAtLeastOneField = (input: UpdateTaskInput): boolean =>
 export const taskClaimSchema = z
   .object({
     actor: storedActorSchema,
+    sessionId: claimSessionIdSchema.nullable().optional(),
     expiresAt: z.iso.datetime(),
   })
   .strict();
@@ -443,6 +461,12 @@ export const taskSummarySchema = z
      * hand-off. Cleared when the task leaves `needs_qa`.
      */
     concerns: z.string().nullable(),
+    verification: verificationSchema.nullable().optional(),
+    checkpoint: checkpointSchema.nullable().optional(),
+    attentionSince: z.iso.datetime().nullable().optional(),
+    snoozedUntil: z.iso.datetime().nullable().optional(),
+    dependentCount: z.number().int().nonnegative().optional(),
+    unlocksCount: z.number().int().nonnegative().optional(),
     /**
      * An agent filed this and no person has looked at it yet. Cleared by any
      * human write and by a claim (someone is doing it, so it was not ignored).

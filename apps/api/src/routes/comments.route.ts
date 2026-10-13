@@ -37,7 +37,7 @@ commentsRouter.post(
     const taskId = parseTaskId(req.params.taskId);
     const input = createCommentInputSchema.parse(req.body);
 
-    const comment = await addComment(taskId, input, req.actor);
+    const comment = await addComment(taskId, input, req.actor, req.claimSessionId);
 
     res.status(201).location(`${req.baseUrl}/${comment.id}`).json(comment);
   }),

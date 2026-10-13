@@ -43,7 +43,7 @@ const main = async () => {
       );
     }
     lines.push(
-      "Resume each one (task_get, then task_heartbeat while working) or hand it off / task_release it — never leave it idle.",
+      "Claims belong to the MCP session that acquired them. Read their checkpoints; resume only with that session, or ask a human to release a previous session’s claim before claiming it again.",
     );
   }
   if (stats.needsAttention > 0) {

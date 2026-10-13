@@ -57,6 +57,11 @@ const FRAMING: Record<TaskStatus, Framing> = {
     icon: ClipboardCheck,
     className: "border-primary/40 bg-primary-subtle/40",
   },
+  verified: {
+    heading: "Verification summary",
+    icon: ClipboardCheck,
+    className: "border-success/40 bg-success-subtle/40",
+  },
   done: { heading: "Closing note", icon: MessageSquareText, className: NEUTRAL },
   deferred: { heading: "Deferred because…", icon: PauseCircle, className: NEUTRAL },
 };

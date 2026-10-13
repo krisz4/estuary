@@ -9,7 +9,7 @@ import { TASK_STATUS_LABELS } from "@/lib/formatting";
  * Where a task sits on the river — a compact strip of the Map, for task
  * detail. The four reaches are the Map's own regions (`MAP_REGIONS`:
  * headwaters → the reach → the lagoon → the mouth), so a task shown "in the
- * reach" here is in the reach on the map too. Each of the ten statuses is a
+ * reach" here is in the reach on the map too. Each of the eleven statuses is a
  * station on the water, and the task is the bead at its own station.
  *
  * It orients the reader and nothing more. The statuses are not a line a task
@@ -128,7 +128,10 @@ export const StatusCourse = ({ status, className }: StatusCourseProps) => {
             >
               <span className={cn("absolute inset-0 animate-ripple rounded-full", bead)} />
               <span
-                className={cn("relative block size-3.5 rounded-full shadow-sm ring-2 ring-card", bead)}
+                className={cn(
+                  "relative block size-3.5 rounded-full shadow-sm ring-2 ring-card",
+                  bead,
+                )}
               />
             </span>
           ) : (

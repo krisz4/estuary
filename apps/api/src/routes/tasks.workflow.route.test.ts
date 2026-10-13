@@ -158,6 +158,60 @@ describe("POST /api/v1/tasks/:taskId/transition", () => {
       expect((await transition(task.id, { to: "done" }, HUMAN)).status).toBe(200);
     });
 
+    it("is 422 when the done payload carries verification", async () => {
+      const task = await makeTask({ status: "needs_qa" });
+
+      const res = await transition(task.id, { to: "done", verification: {} }, AGENT);
+
+      expectError(res, 422, "VALIDATION_ERROR");
+    });
+
+    const passing = {
+      commit: "abc1234",
+      checks: [{ command: "pnpm test", result: "passed" }],
+      criteria: [{ criterion: "It works", result: "passed" }],
+      qa: {
+        method: "device",
+        target: "Pixel 8 emulator",
+        scenarios: [{ scenario: "Approve from the inbox", result: "passed" }],
+      },
+    };
+
+    it("may move to verified with passing device QA, and a human then closes it", async () => {
+      env.AGENTS_MAY_COMPLETE = false;
+      const task = await makeTask(claimedBy(AGENT));
+
+      const res = await transition(
+        task.id,
+        { to: "verified", summary: "QA'd", verification: passing },
+        AGENT,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("verified");
+      expect(res.body.verification).toEqual(passing);
+
+      const done = await transition(task.id, { to: "done" }, HUMAN);
+      expect(done.status).toBe(200);
+      expect(done.body.verification).toEqual(passing);
+    });
+
+    it("is 422 on verification when a device scenario failed", async () => {
+      const task = await makeTask(claimedBy(AGENT));
+      const failing = {
+        ...passing,
+        qa: { ...passing.qa, scenarios: [{ scenario: "Approve", result: "failed" }] },
+      };
+
+      const res = await transition(
+        task.id,
+        { to: "verified", summary: "QA'd", verification: failing },
+        AGENT,
+      );
+
+      expectError(res, 422, "VALIDATION_ERROR");
+      expect(Object.keys(res.body.error.details)).toContain("verification");
+    });
+
     it("is allowed when the server runs with AGENTS_MAY_COMPLETE", async () => {
       env.AGENTS_MAY_COMPLETE = true;
       const task = await makeTask({ status: "needs_qa" });

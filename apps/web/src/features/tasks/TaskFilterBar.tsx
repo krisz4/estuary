@@ -105,7 +105,7 @@ export const creatorLabel = (actor: string): string =>
 
 /**
  * Every status except the closed lane — "what is still live". The quick
- * filter that replaced the helpdesk's default "open" chip: with ten statuses,
+ * filter that replaced the helpdesk's default "open" chip: with eleven statuses,
  * ticking seven by hand is not a filter anyone would use.
  */
 export const OPEN_STATUSES: readonly TaskStatus[] = TASK_STATUSES.filter(

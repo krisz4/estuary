@@ -31,16 +31,16 @@ A range producing more than `HISTORY_MAX_BUCKETS` (400) buckets is `VALIDATION_E
 Each `buckets[]` row covers `[start, end)`:
 
 - `created` / `completed` / `deferred`: `task.created` events, and `task.status_changed` events with `to: "done"` / `to: "deferred"`, whose `createdAt` falls in the bucket.
-- `sentBack`: `task.status_changed` events with `from: "needs_qa"` and `to` anything but `done` or `deferred` — a QA rejection.
+- `sentBack`: `task.status_changed` events with `from` `needs_qa` or `verified` and `to` anything but `done`, `deferred`, or the other review status — a QA rejection.
 - `statusCounts`: **a full replay from the beginning of the event log**, not just the requested window — the cumulative-flow diagram's whole point is that an old task already `done` before `from` still occupies the `done` column in every bucket. One task in, or with a deleted `task.deleted` event, drops out of every later bucket's counts.
-- `humanWait`: percentiles over stints in a human-wait status (`needs_user_decision`, `needs_user_action`, `needs_qa`) that **ended** in this bucket.
+- `humanWait`: percentiles over stints in a human-wait status (`needs_user_decision`, `needs_user_action`, `needs_qa`, `verified`) that **ended** in this bucket.
 
 ## Totals, cycle times, longest waits, agents
 
 - **`totals`** sums the per-bucket counts over the whole aligned range, plus `decisionsRequested` / `decisionsAnswered` (`decision.requested` / `decision.answered` event counts) and range-wide `humanWait` / `cycleTime` percentiles.
-- **`cycleTimes`** (newest finished first, capped at `HISTORY_MAX_CYCLE_TIMES`): one entry per pass from `in_progress` to `needs_qa` or `done` that finished in range, attributed to whichever actor made that closing transition. A task sent back and resubmitted produces a second, independent pass.
+- **`cycleTimes`** (newest finished first, capped at `HISTORY_MAX_CYCLE_TIMES`): one entry per pass from `in_progress` to `needs_qa`, `verified`, or `done` that finished in range, attributed to whichever actor made that closing transition. A task sent back and resubmitted produces a second, independent pass.
 - **`longestWaits`** (longest first, capped at `HISTORY_LONGEST_WAITS`): stints in a human-wait status that overlap the range, including ones still open (`endedAt: null`) — an open stint's duration is measured against *now*, not the range's `to`, since it is genuinely still waiting.
-- **`agents`**: actors whose stored value starts `agent:` and did anything in range, most `submitted` first. `submitted` counts that actor's `→ needs_qa` transitions; `approved` / `sentBack` count what happened next to those same submissions (`needs_qa → done` / `needs_qa → anything else`, matching the `sentBack` rule above) — a `needs_qa → deferred` outcome counts as neither. `claims` / `releases` count that actor's `task.claimed` / `task.released` events; there is no separate "lease expired" event type, so an abandoned claim that simply times out is not counted here.
+- **`agents`**: actors whose stored value starts `agent:` and did anything in range, most `submitted` first. `submitted` counts that actor's `→ needs_qa` or `→ verified` transitions; `approved` / `sentBack` count what happened next to those same submissions (`needs_qa|verified → done` / out of review to anything else, matching the `sentBack` rule above) — a `→ deferred` outcome counts as neither. `claims` / `releases` count that actor's `task.claimed` / `task.released` events; there is no separate "lease expired" event type, so an abandoned claim that simply times out is not counted here.
 - **`title`** on a `cycleTimes` or `longestWaits` row is `null` when the task has since been deleted — looked up from the current `Task` table, not stored on the event.
 
 ## Performance

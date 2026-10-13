@@ -169,6 +169,40 @@ describe("completed / deferred / sentBack", () => {
   });
 });
 
+describe("verified", () => {
+  it("treats verified like needs_qa: sentBack out of it, approved into done", async () => {
+    const events: [number, string, string][] = [
+      [1, "in_progress", "verified"],
+      [1, "verified", "done"],
+      [2, "in_progress", "verified"],
+      [2, "verified", "todo"],
+    ];
+    for (const [taskId, from, to] of events) {
+      await makeEvent({
+        taskId,
+        type: "task.status_changed",
+        actor: "agent:claude-code",
+        payload: { from, to },
+        createdAt: day(1),
+      });
+    }
+
+    const result = await history({
+      from: "2026-01-01T00:00:00Z",
+      to: "2026-01-02T00:00:00Z",
+      bucket: "day",
+    });
+
+    expect(result.totals.completed).toBe(1);
+    expect(result.totals.sentBack).toBe(1);
+    const agent = result.agents.find((entry) => entry.actor === "agent:claude-code");
+    expect(agent?.submitted).toBe(2);
+    expect(agent?.approved).toBe(1);
+    expect(agent?.sentBack).toBe(1);
+    expect(result.cycleTimes.length).toBe(0);
+  });
+});
+
 describe("cycle time", () => {
   it("measures in_progress -> needs_qa|done, attributed to the actor who moved it out", async () => {
     const { task } = await createTask(

@@ -50,8 +50,13 @@ export const AppHeader = () => {
         would mean two "Inbox" links for a screen reader and for every test.
       */}
       <div className="mx-auto flex max-w-[1760px] flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2.5 md:px-6 lg:h-16 lg:flex-nowrap lg:gap-x-3 lg:py-0">
+        {/*
+          Home is the map — the landing page `/` redirects to — not the list.
+          Linking here rather than to `/` keeps the project scope, which the
+          index redirect would drop.
+        */}
         <Link
-          to={`/tasks${projectScopeSearch(project)}`}
+          to={`/tasks/map${projectScopeSearch(project)}`}
           aria-label="Estuary"
           className="group flex shrink-0 items-center gap-2.5 rounded-lg pr-1"
         >
@@ -73,6 +78,9 @@ export const AppHeader = () => {
         </div>
 
         <div className="order-2 ml-auto flex items-center gap-1 lg:order-none sm:gap-1.5">
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/connect">Connect agent</Link>
+          </Button>
           <ThemeToggle />
           <SessionControl />
 

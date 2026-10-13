@@ -53,8 +53,7 @@ export const AppLayout = () => {
 
       <footer className="border-t border-border py-6">
         <Container className="text-xs text-muted-foreground">
-          Estuary — one flow for the work humans and AI agents share, from headwaters to the
-          mouth.
+          Estuary — one flow for the work humans and AI agents share, from headwaters to the mouth.
         </Container>
       </footer>
 

@@ -81,6 +81,7 @@
               "needs_user_decision",
               "needs_user_action",
               "needs_qa",
+              "verified",
               "done",
               "deferred"
             ]
@@ -96,6 +97,288 @@
               "string",
               "null"
             ]
+          },
+          "verification": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "commit": {
+                "type": "string",
+                "minLength": 7,
+                "maxLength": 64,
+                "pattern": "^[a-fA-F0-9]+$"
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "result": {
+                      "type": "string",
+                      "enum": [
+                        "passed",
+                        "failed",
+                        "not_run"
+                      ]
+                    },
+                    "output": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    }
+                  },
+                  "required": [
+                    "command",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 30
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "criterion": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "result": {
+                      "type": "string",
+                      "enum": [
+                        "passed",
+                        "failed",
+                        "not_checked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "criterion",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 30
+              },
+              "qa": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "device"
+                        ]
+                      },
+                      "target": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "scenarios": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "scenario": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "result": {
+                              "type": "string",
+                              "enum": [
+                                "passed",
+                                "failed"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "scenario",
+                            "result"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 1,
+                        "maxItems": 30
+                      },
+                      "notes": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "photo",
+                                "video",
+                                "doc",
+                                "link"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "maxLength": 2000,
+                              "format": "uri"
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 20
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "target",
+                      "scenarios"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "not_needed"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "photo",
+                                "video",
+                                "doc",
+                                "link"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "maxLength": 2000,
+                              "format": "uri"
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 20
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "commit",
+              "checks",
+              "criteria"
+            ],
+            "additionalProperties": false
+          },
+          "checkpoint": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 250
+              },
+              "commit": {
+                "type": "string",
+                "minLength": 7,
+                "maxLength": 64,
+                "pattern": "^[a-fA-F0-9]+$"
+              },
+              "completed": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "remaining": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "completed",
+              "remaining"
+            ],
+            "additionalProperties": false
+          },
+          "attentionSince": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "snoozedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "dependentCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unlocksCount": {
+            "type": "integer",
+            "minimum": 0
           },
           "needsTriage": {
             "type": "boolean"
@@ -180,6 +463,15 @@
               "actor": {
                 "type": "string",
                 "minLength": 1
+              },
+              "sessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9._:-]+$"
               },
               "expiresAt": {
                 "type": "string",
@@ -544,6 +836,60 @@
         "additionalProperties": false,
         "description": "One entry in the append-only change log. `payload` is type-specific: branch on `type` first. `taskId` is not a foreign key, so events outlive their task."
       },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "VALIDATION_ERROR",
+                  "AT_LEAST_ONE_FIELD",
+                  "UNAUTHORIZED",
+                  "ACTOR_NOT_PERMITTED",
+                  "TASK_NOT_FOUND",
+                  "COMMENT_NOT_FOUND",
+                  "VERSION_CONFLICT",
+                  "TASK_ALREADY_CLAIMED",
+                  "NOT_CLAIM_HOLDER",
+                  "DEPENDENCY_CYCLE",
+                  "NO_OPEN_DECISION",
+                  "INTEGRATION_NOT_CONFIGURED",
+                  "INVALID_WEBHOOK_SIGNATURE",
+                  "GITHUB_NOT_FOUND",
+                  "GITHUB_UNAVAILABLE",
+                  "MALFORMED_JSON",
+                  "PAYLOAD_TOO_LARGE",
+                  "NOT_FOUND",
+                  "INTERNAL_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {},
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "requestId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "description": "The error envelope. Clients branch on error.code, never on the HTTP status alone."
+      },
       "PaginatedTasks": {
         "type": "object",
         "properties": {
@@ -576,6 +922,7 @@
                     "needs_user_decision",
                     "needs_user_action",
                     "needs_qa",
+                    "verified",
                     "done",
                     "deferred"
                   ]
@@ -591,6 +938,288 @@
                     "string",
                     "null"
                   ]
+                },
+                "verification": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "commit": {
+                      "type": "string",
+                      "minLength": 7,
+                      "maxLength": 64,
+                      "pattern": "^[a-fA-F0-9]+$"
+                    },
+                    "checks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "command": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          },
+                          "result": {
+                            "type": "string",
+                            "enum": [
+                              "passed",
+                              "failed",
+                              "not_run"
+                            ]
+                          },
+                          "output": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          }
+                        },
+                        "required": [
+                          "command",
+                          "result"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 30
+                    },
+                    "criteria": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "criterion": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          },
+                          "result": {
+                            "type": "string",
+                            "enum": [
+                              "passed",
+                              "failed",
+                              "not_checked"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "criterion",
+                          "result"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 30
+                    },
+                    "qa": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "method": {
+                              "type": "string",
+                              "enum": [
+                                "device"
+                              ]
+                            },
+                            "target": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "scenarios": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "scenario": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  },
+                                  "result": {
+                                    "type": "string",
+                                    "enum": [
+                                      "passed",
+                                      "failed"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "scenario",
+                                  "result"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "minItems": 1,
+                              "maxItems": 30
+                            },
+                            "notes": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "evidence": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "photo",
+                                      "video",
+                                      "doc",
+                                      "link"
+                                    ]
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "maxLength": 2000,
+                                    "format": "uri"
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "maxItems": 20
+                            }
+                          },
+                          "required": [
+                            "method",
+                            "target",
+                            "scenarios"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "method": {
+                              "type": "string",
+                              "enum": [
+                                "not_needed"
+                              ]
+                            },
+                            "reason": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "evidence": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "photo",
+                                      "video",
+                                      "doc",
+                                      "link"
+                                    ]
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "maxLength": 2000,
+                                    "format": "uri"
+                                  },
+                                  "description": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "maxItems": 20
+                            }
+                          },
+                          "required": [
+                            "method",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "commit",
+                    "checks",
+                    "criteria"
+                  ],
+                  "additionalProperties": false
+                },
+                "checkpoint": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "branch": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 250
+                    },
+                    "commit": {
+                      "type": "string",
+                      "minLength": 7,
+                      "maxLength": 64,
+                      "pattern": "^[a-fA-F0-9]+$"
+                    },
+                    "completed": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "remaining": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    }
+                  },
+                  "required": [
+                    "completed",
+                    "remaining"
+                  ],
+                  "additionalProperties": false
+                },
+                "attentionSince": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "snoozedUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "dependentCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "unlocksCount": {
+                  "type": "integer",
+                  "minimum": 0
                 },
                 "needsTriage": {
                   "type": "boolean"
@@ -675,6 +1304,15 @@
                     "actor": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "sessionId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[a-zA-Z0-9._:-]+$"
                     },
                     "expiresAt": {
                       "type": "string",
@@ -908,60 +1546,6 @@
         "additionalProperties": false,
         "description": "The list envelope. List responses are always { data, meta }; single resources are returned directly."
       },
-      "ErrorResponse": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "VALIDATION_ERROR",
-                  "AT_LEAST_ONE_FIELD",
-                  "UNAUTHORIZED",
-                  "ACTOR_NOT_PERMITTED",
-                  "TASK_NOT_FOUND",
-                  "COMMENT_NOT_FOUND",
-                  "VERSION_CONFLICT",
-                  "TASK_ALREADY_CLAIMED",
-                  "NOT_CLAIM_HOLDER",
-                  "DEPENDENCY_CYCLE",
-                  "NO_OPEN_DECISION",
-                  "INTEGRATION_NOT_CONFIGURED",
-                  "INVALID_WEBHOOK_SIGNATURE",
-                  "GITHUB_NOT_FOUND",
-                  "GITHUB_UNAVAILABLE",
-                  "MALFORMED_JSON",
-                  "PAYLOAD_TOO_LARGE",
-                  "NOT_FOUND",
-                  "INTERNAL_ERROR"
-                ]
-              },
-              "message": {
-                "type": "string",
-                "minLength": 1
-              },
-              "details": {},
-              "requestId": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "requestId"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "additionalProperties": false,
-        "description": "The error envelope. Clients branch on error.code, never on the HTTP status alone."
-      },
       "Task": {
         "type": "object",
         "properties": {
@@ -989,6 +1573,7 @@
               "needs_user_decision",
               "needs_user_action",
               "needs_qa",
+              "verified",
               "done",
               "deferred"
             ]
@@ -1004,6 +1589,288 @@
               "string",
               "null"
             ]
+          },
+          "verification": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "commit": {
+                "type": "string",
+                "minLength": 7,
+                "maxLength": 64,
+                "pattern": "^[a-fA-F0-9]+$"
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "result": {
+                      "type": "string",
+                      "enum": [
+                        "passed",
+                        "failed",
+                        "not_run"
+                      ]
+                    },
+                    "output": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    }
+                  },
+                  "required": [
+                    "command",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 30
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "criterion": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "result": {
+                      "type": "string",
+                      "enum": [
+                        "passed",
+                        "failed",
+                        "not_checked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "criterion",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 30
+              },
+              "qa": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "device"
+                        ]
+                      },
+                      "target": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "scenarios": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "scenario": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "result": {
+                              "type": "string",
+                              "enum": [
+                                "passed",
+                                "failed"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "scenario",
+                            "result"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 1,
+                        "maxItems": 30
+                      },
+                      "notes": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "photo",
+                                "video",
+                                "doc",
+                                "link"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "maxLength": 2000,
+                              "format": "uri"
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 20
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "target",
+                      "scenarios"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "not_needed"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "photo",
+                                "video",
+                                "doc",
+                                "link"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "maxLength": 2000,
+                              "format": "uri"
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 20
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "commit",
+              "checks",
+              "criteria"
+            ],
+            "additionalProperties": false
+          },
+          "checkpoint": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 250
+              },
+              "commit": {
+                "type": "string",
+                "minLength": 7,
+                "maxLength": 64,
+                "pattern": "^[a-fA-F0-9]+$"
+              },
+              "completed": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "remaining": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "completed",
+              "remaining"
+            ],
+            "additionalProperties": false
+          },
+          "attentionSince": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "snoozedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "dependentCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unlocksCount": {
+            "type": "integer",
+            "minimum": 0
           },
           "needsTriage": {
             "type": "boolean"
@@ -1088,6 +1955,15 @@
               "actor": {
                 "type": "string",
                 "minLength": 1
+              },
+              "sessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9._:-]+$"
               },
               "expiresAt": {
                 "type": "string",
@@ -1425,6 +2301,7 @@
                   "needs_user_decision",
                   "needs_user_action",
                   "needs_qa",
+                  "verified",
                   "done",
                   "deferred"
                 ]
@@ -1471,6 +2348,7 @@
                     "needs_user_decision",
                     "needs_user_action",
                     "needs_qa",
+                    "verified",
                     "done",
                     "deferred"
                   ]
@@ -1518,6 +2396,7 @@
                     "needs_user_decision",
                     "needs_user_action",
                     "needs_qa",
+                    "verified",
                     "done",
                     "deferred"
                   ]
@@ -1565,6 +2444,7 @@
                     "needs_user_decision",
                     "needs_user_action",
                     "needs_qa",
+                    "verified",
                     "done",
                     "deferred"
                   ]
@@ -1699,6 +2579,10 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "verified": {
+                "type": "integer",
+                "minimum": 0
+              },
               "done": {
                 "type": "integer",
                 "minimum": 0
@@ -1781,6 +2665,7 @@
                   "needs_user_decision",
                   "needs_user_action",
                   "needs_qa",
+                  "verified",
                   "done",
                   "deferred"
                 ]
@@ -1796,6 +2681,288 @@
                   "string",
                   "null"
                 ]
+              },
+              "verification": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "commit": {
+                    "type": "string",
+                    "minLength": 7,
+                    "maxLength": 64,
+                    "pattern": "^[a-fA-F0-9]+$"
+                  },
+                  "checks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        },
+                        "result": {
+                          "type": "string",
+                          "enum": [
+                            "passed",
+                            "failed",
+                            "not_run"
+                          ]
+                        },
+                        "output": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        }
+                      },
+                      "required": [
+                        "command",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 30
+                  },
+                  "criteria": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "criterion": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        },
+                        "result": {
+                          "type": "string",
+                          "enum": [
+                            "passed",
+                            "failed",
+                            "not_checked"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "criterion",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 30
+                  },
+                  "qa": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "method": {
+                            "type": "string",
+                            "enum": [
+                              "device"
+                            ]
+                          },
+                          "target": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          },
+                          "scenarios": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "scenario": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                },
+                                "result": {
+                                  "type": "string",
+                                  "enum": [
+                                    "passed",
+                                    "failed"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "scenario",
+                                "result"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "minItems": 1,
+                            "maxItems": 30
+                          },
+                          "notes": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "photo",
+                                    "video",
+                                    "doc",
+                                    "link"
+                                  ]
+                                },
+                                "url": {
+                                  "type": "string",
+                                  "maxLength": 2000,
+                                  "format": "uri"
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "method",
+                          "target",
+                          "scenarios"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "method": {
+                            "type": "string",
+                            "enum": [
+                              "not_needed"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "photo",
+                                    "video",
+                                    "doc",
+                                    "link"
+                                  ]
+                                },
+                                "url": {
+                                  "type": "string",
+                                  "maxLength": 2000,
+                                  "format": "uri"
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "method",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "commit",
+                  "checks",
+                  "criteria"
+                ],
+                "additionalProperties": false
+              },
+              "checkpoint": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "branch": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 250
+                  },
+                  "commit": {
+                    "type": "string",
+                    "minLength": 7,
+                    "maxLength": 64,
+                    "pattern": "^[a-fA-F0-9]+$"
+                  },
+                  "completed": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "remaining": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "completed",
+                  "remaining"
+                ],
+                "additionalProperties": false
+              },
+              "attentionSince": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "snoozedUntil": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "dependentCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unlocksCount": {
+                "type": "integer",
+                "minimum": 0
               },
               "needsTriage": {
                 "type": "boolean"
@@ -1880,6 +3047,15 @@
                   "actor": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "sessionId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[a-zA-Z0-9._:-]+$"
                   },
                   "expiresAt": {
                     "type": "string",
@@ -2217,6 +3393,7 @@
                       "needs_user_decision",
                       "needs_user_action",
                       "needs_qa",
+                      "verified",
                       "done",
                       "deferred"
                     ]
@@ -2263,6 +3440,7 @@
                         "needs_user_decision",
                         "needs_user_action",
                         "needs_qa",
+                        "verified",
                         "done",
                         "deferred"
                       ]
@@ -2310,6 +3488,7 @@
                         "needs_user_decision",
                         "needs_user_action",
                         "needs_qa",
+                        "verified",
                         "done",
                         "deferred"
                       ]
@@ -2357,6 +3536,7 @@
                         "needs_user_decision",
                         "needs_user_action",
                         "needs_qa",
+                        "verified",
                         "done",
                         "deferred"
                       ]
@@ -2599,6 +3779,7 @@
                     "needs_user_decision",
                     "needs_user_action",
                     "needs_qa",
+                    "verified",
                     "done",
                     "deferred"
                   ]
@@ -2660,6 +3841,15 @@
                     "actor": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "sessionId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[a-zA-Z0-9._:-]+$"
                     },
                     "expiresAt": {
                       "type": "string",
@@ -2786,6 +3976,7 @@
                     "needs_user_decision",
                     "needs_user_action",
                     "needs_qa",
+                    "verified",
                     "done",
                     "deferred"
                   ]
@@ -2856,6 +4047,10 @@
                     "type": "integer",
                     "minimum": 0
                   },
+                  "verified": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
                   "done": {
                     "type": "integer",
                     "minimum": 0
@@ -2865,6 +4060,10 @@
                     "minimum": 0
                   }
                 }
+              },
+              "needsAttention": {
+                "type": "integer",
+                "minimum": 0
               },
               "matchCount": {
                 "type": "integer",
@@ -3109,6 +4308,10 @@
                       "type": "integer",
                       "minimum": 0
                     },
+                    "verified": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
                     "done": {
                       "type": "integer",
                       "minimum": 0
@@ -3331,6 +4534,7 @@
                     "needs_user_decision",
                     "needs_user_action",
                     "needs_qa",
+                    "verified",
                     "done",
                     "deferred"
                   ]
@@ -3453,6 +4657,1262 @@
     "parameters": {}
   },
   "paths": {
+    "/api/v1/tasks/export": {
+      "get": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Export tasks, comments, decisions and events as JSON",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+              },
+              "minItems": 1,
+              "description": "Repeatable. Count only tasks in these projects; omit to count every task."
+            },
+            "required": false,
+            "description": "Repeatable. Count only tasks in these projects; omit to count every task.",
+            "name": "project",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consistent snapshot in the requested project scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "format": {
+                      "type": "string",
+                      "enum": [
+                        "estuary-export"
+                      ]
+                    },
+                    "version": {
+                      "type": "number",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "exportedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "reference": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "backlog",
+                              "needs_refinement",
+                              "todo",
+                              "in_progress",
+                              "blocked",
+                              "needs_user_decision",
+                              "needs_user_action",
+                              "needs_qa",
+                              "verified",
+                              "done",
+                              "deferred"
+                            ]
+                          },
+                          "statusNote": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "concerns": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "verification": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "commit": {
+                                "type": "string",
+                                "minLength": 7,
+                                "maxLength": 64,
+                                "pattern": "^[a-fA-F0-9]+$"
+                              },
+                              "checks": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "command": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "result": {
+                                      "type": "string",
+                                      "enum": [
+                                        "passed",
+                                        "failed",
+                                        "not_run"
+                                      ]
+                                    },
+                                    "output": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    }
+                                  },
+                                  "required": [
+                                    "command",
+                                    "result"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "minItems": 1,
+                                "maxItems": 30
+                              },
+                              "criteria": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "criterion": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "result": {
+                                      "type": "string",
+                                      "enum": [
+                                        "passed",
+                                        "failed",
+                                        "not_checked"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "criterion",
+                                    "result"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "minItems": 1,
+                                "maxItems": 30
+                              },
+                              "qa": {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "method": {
+                                        "type": "string",
+                                        "enum": [
+                                          "device"
+                                        ]
+                                      },
+                                      "target": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2000
+                                      },
+                                      "scenarios": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "scenario": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 2000
+                                            },
+                                            "result": {
+                                              "type": "string",
+                                              "enum": [
+                                                "passed",
+                                                "failed"
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "scenario",
+                                            "result"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 30
+                                      },
+                                      "notes": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2000
+                                      },
+                                      "evidence": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "photo",
+                                                "video",
+                                                "doc",
+                                                "link"
+                                              ]
+                                            },
+                                            "url": {
+                                              "type": "string",
+                                              "maxLength": 2000,
+                                              "format": "uri"
+                                            },
+                                            "description": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 2000
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "url"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "maxItems": 20
+                                      }
+                                    },
+                                    "required": [
+                                      "method",
+                                      "target",
+                                      "scenarios"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "method": {
+                                        "type": "string",
+                                        "enum": [
+                                          "not_needed"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2000
+                                      },
+                                      "evidence": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "photo",
+                                                "video",
+                                                "doc",
+                                                "link"
+                                              ]
+                                            },
+                                            "url": {
+                                              "type": "string",
+                                              "maxLength": 2000,
+                                              "format": "uri"
+                                            },
+                                            "description": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 2000
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "url"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "maxItems": 20
+                                      }
+                                    },
+                                    "required": [
+                                      "method",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "commit",
+                              "checks",
+                              "criteria"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "checkpoint": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "branch": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 250
+                              },
+                              "commit": {
+                                "type": "string",
+                                "minLength": 7,
+                                "maxLength": 64,
+                                "pattern": "^[a-fA-F0-9]+$"
+                              },
+                              "completed": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2000
+                              },
+                              "remaining": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2000
+                              }
+                            },
+                            "required": [
+                              "completed",
+                              "remaining"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "attentionSince": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "snoozedUntil": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "dependentCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "unlocksCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "needsTriage": {
+                            "type": "boolean"
+                          },
+                          "priority": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high",
+                              "urgent"
+                            ]
+                          },
+                          "project": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "assignee": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "acceptanceCriteria": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "links": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                },
+                                "url": {
+                                  "type": "string",
+                                  "maxLength": 2000,
+                                  "format": "uri"
+                                }
+                              },
+                              "required": [
+                                "label",
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "labels": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "parentId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "exclusiveMinimum": 0
+                          },
+                          "childCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "createdBy": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "claim": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "actor": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "sessionId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "minLength": 1,
+                                "maxLength": 128,
+                                "pattern": "^[a-zA-Z0-9._:-]+$"
+                              },
+                              "expiresAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "actor",
+                              "expiresAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "openDependencyCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "openDecision": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "taskId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "open",
+                                  "answered",
+                                  "withdrawn"
+                                ]
+                              },
+                              "question": {
+                                "type": "string"
+                              },
+                              "options": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 120
+                                    },
+                                    "description": {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    }
+                                  },
+                                  "required": [
+                                    "label"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "recommendedOption": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "context": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "requestedBy": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "choice": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "answeredBy": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "minLength": 1
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "answeredAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "taskId",
+                              "status",
+                              "question",
+                              "options",
+                              "recommendedOption",
+                              "context",
+                              "requestedBy",
+                              "choice",
+                              "note",
+                              "answeredBy",
+                              "createdAt",
+                              "answeredAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "startedAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "completedAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "commentCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "comments": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "taskId": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "author": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "note",
+                                    "progress",
+                                    "qa_feedback"
+                                  ]
+                                },
+                                "body": {
+                                  "type": "string"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "taskId",
+                                "author",
+                                "kind",
+                                "body",
+                                "createdAt"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "decisions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "taskId": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "open",
+                                    "answered",
+                                    "withdrawn"
+                                  ]
+                                },
+                                "question": {
+                                  "type": "string"
+                                },
+                                "options": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "label": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 120
+                                      },
+                                      "description": {
+                                        "type": "string",
+                                        "maxLength": 1000
+                                      }
+                                    },
+                                    "required": [
+                                      "label"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "recommendedOption": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "context": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "requestedBy": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "choice": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "note": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "answeredBy": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "minLength": 1
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "answeredAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "taskId",
+                                "status",
+                                "question",
+                                "options",
+                                "recommendedOption",
+                                "context",
+                                "requestedBy",
+                                "choice",
+                                "note",
+                                "answeredBy",
+                                "createdAt",
+                                "answeredAt"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "parent": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "reference": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "backlog",
+                                  "needs_refinement",
+                                  "todo",
+                                  "in_progress",
+                                  "blocked",
+                                  "needs_user_decision",
+                                  "needs_user_action",
+                                  "needs_qa",
+                                  "verified",
+                                  "done",
+                                  "deferred"
+                                ]
+                              },
+                              "project": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "reference",
+                              "title",
+                              "status",
+                              "project"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "children": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "reference": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "backlog",
+                                    "needs_refinement",
+                                    "todo",
+                                    "in_progress",
+                                    "blocked",
+                                    "needs_user_decision",
+                                    "needs_user_action",
+                                    "needs_qa",
+                                    "verified",
+                                    "done",
+                                    "deferred"
+                                  ]
+                                },
+                                "project": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "reference",
+                                "title",
+                                "status",
+                                "project"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "dependencies": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "reference": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "backlog",
+                                    "needs_refinement",
+                                    "todo",
+                                    "in_progress",
+                                    "blocked",
+                                    "needs_user_decision",
+                                    "needs_user_action",
+                                    "needs_qa",
+                                    "verified",
+                                    "done",
+                                    "deferred"
+                                  ]
+                                },
+                                "project": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "reference",
+                                "title",
+                                "status",
+                                "project"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "dependents": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "reference": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "backlog",
+                                    "needs_refinement",
+                                    "todo",
+                                    "in_progress",
+                                    "blocked",
+                                    "needs_user_decision",
+                                    "needs_user_action",
+                                    "needs_qa",
+                                    "verified",
+                                    "done",
+                                    "deferred"
+                                  ]
+                                },
+                                "project": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "reference",
+                                "title",
+                                "status",
+                                "project"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "reference",
+                          "title",
+                          "description",
+                          "status",
+                          "statusNote",
+                          "concerns",
+                          "needsTriage",
+                          "priority",
+                          "project",
+                          "assignee",
+                          "acceptanceCriteria",
+                          "links",
+                          "labels",
+                          "parentId",
+                          "childCount",
+                          "createdBy",
+                          "claim",
+                          "version",
+                          "openDependencyCount",
+                          "openDecision",
+                          "createdAt",
+                          "updatedAt",
+                          "startedAt",
+                          "completedAt",
+                          "commentCount",
+                          "comments",
+                          "decisions",
+                          "parent",
+                          "children",
+                          "dependencies",
+                          "dependents"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "taskId": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "taskTitle": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "project": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "task.created",
+                              "task.updated",
+                              "task.deleted",
+                              "task.status_changed",
+                              "task.claimed",
+                              "task.released",
+                              "comment.created",
+                              "comment.deleted",
+                              "decision.requested",
+                              "decision.answered",
+                              "decision.withdrawn",
+                              "dependency.added",
+                              "dependency.removed",
+                              "github.pull_request"
+                            ]
+                          },
+                          "actor": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "payload": {
+                            "type": "object",
+                            "additionalProperties": {}
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "taskId",
+                          "taskTitle",
+                          "project",
+                          "type",
+                          "actor",
+                          "payload",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "format",
+                    "version",
+                    "exportedAt",
+                    "tasks",
+                    "events"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid project filter. `details` maps field name to messages. A malformed X-Actor header is also a VALIDATION_ERROR, with details[\"X-Actor\"].",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks": {
       "get": {
         "tags": [
@@ -3503,6 +5963,10 @@
                 "createdAt:desc",
                 "updatedAt:asc",
                 "updatedAt:desc",
+                "attentionSince:asc",
+                "attentionSince:desc",
+                "unlocksCount:asc",
+                "unlocksCount:desc",
                 "title:asc",
                 "title:desc",
                 "status:asc",
@@ -3534,6 +5998,7 @@
                   "needs_user_decision",
                   "needs_user_action",
                   "needs_qa",
+                  "verified",
                   "done",
                   "deferred"
                 ]
@@ -3676,6 +6141,29 @@
           },
           {
             "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "true",
+                    "false"
+                  ]
+                }
+              ],
+              "description": "With attention=true, select future-snoozed blockers instead of active attention items."
+            },
+            "required": false,
+            "description": "With attention=true, select future-snoozed blockers instead of active attention items.",
+            "name": "snoozed",
+            "in": "query"
+          },
+          {
+            "schema": {
               "type": "string",
               "pattern": "^\\d{1,15}$",
               "description": "Only the direct subtasks of this task id. Decimal digits only."
@@ -3763,6 +6251,19 @@
             "description": "Inclusive upper bound, YYYY-MM-DD, UTC — the named day is included.",
             "name": "createdTo",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -3935,6 +6436,19 @@
           {}
         ],
         "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
           {
             "schema": {
               "type": "string",
@@ -4324,6 +6838,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -4512,6 +7039,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -4693,6 +7233,19 @@
             "description": "Task id, which is also the task number: 42 is TASK-000042. Decimal digits only — a non-numeric segment is a 404, never a 422.",
             "name": "taskId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -4921,6 +7474,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -5019,6 +7585,47 @@
                   },
                   "needsTriage": {
                     "type": "boolean"
+                  },
+                  "checkpoint": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "branch": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 250
+                      },
+                      "commit": {
+                        "type": "string",
+                        "minLength": 7,
+                        "maxLength": 64,
+                        "pattern": "^[a-fA-F0-9]+$"
+                      },
+                      "completed": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "remaining": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
+                    },
+                    "required": [
+                      "completed",
+                      "remaining"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "snoozedUntil": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
                   },
                   "expectedVersion": {
                     "type": "integer",
@@ -5370,6 +7977,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -5615,6 +8235,19 @@
           {}
         ],
         "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
           {
             "schema": {
               "type": "string",
@@ -5943,6 +8576,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -6225,7 +8871,7 @@
           "Workflow"
         ],
         "summary": "Change a task's status",
-        "description": "The only way a status changes. There is no from→to table: any status may move to any other, and **what the target requires is the shape of the payload**, discriminated on `to`:\n\n| to | requires |\n| -- | -------- |\n| needs_refinement | `reason` |\n| todo | `acceptanceCriteria`, unless the task already has some |\n| blocked | `reason` or a non-empty `blockedBy` (added as dependencies) |\n| needs_user_decision | `decision`: question, 2–6 options, optional recommendation |\n| needs_user_action | `instructions` |\n| needs_qa | `summary`; optional `links` are appended |\n| deferred | `reason` |\n\nThe reason / instructions / summary / question becomes `statusNote`, replacing the previous one. Entering in_progress claims the task for the caller; leaving it drops the claim. Leaving needs_user_decision withdraws the open decision. Reaching done stamps completedAt and unblocks dependents whose dependencies are now all done. A needs_qa hand-off may carry concerns (what a reviewer must not miss; omit for routine work) and followUps, each filed as a needsTriage subtask — todo with acceptance criteria, needs_refinement without. A person's transition, a claim, done, or deferred clears needsTriage.\n\nAn `agent:` actor may not move a task to done unless the server runs with AGENTS_MAY_COMPLETE=true.",
+        "description": "The only way a status changes. There is no from→to table: any status may move to any other, and **what the target requires is the shape of the payload**, discriminated on `to`:\n\n| to | requires |\n| -- | -------- |\n| needs_refinement | `reason` |\n| todo | `acceptanceCriteria`, unless the task already has some |\n| blocked | `reason` or a non-empty `blockedBy` (added as dependencies) |\n| needs_user_decision | `decision`: question, 2–6 options, optional recommendation |\n| needs_user_action | `instructions` |\n| needs_qa | `summary`; optional `links` are appended |\n| verified | `summary` and `verification` — every check, criterion, and device scenario passed, with `qa` evidence; optional `links`, `followUps` |\n| done | nothing |\n| deferred | `reason` |\n\nThe reason / instructions / summary / question becomes `statusNote`, replacing the previous one. Entering in_progress claims the task for the caller; leaving it drops the claim. Leaving needs_user_decision withdraws the open decision. Reaching done stamps completedAt and unblocks dependents whose dependencies are now all done. A needs_qa hand-off may carry concerns (what a reviewer must not miss; omit for routine work) and followUps, each filed as a needsTriage subtask — todo with acceptance criteria, needs_refinement without. A person's transition, a claim, done, or deferred clears needsTriage.\n\nAn `agent:` actor may not move a task to done unless the server runs with AGENTS_MAY_COMPLETE=true. An agent that QA'd its own work uses verified, with `verification` whose checks and criteria all passed and whose `qa` is `{ method: \"device\", target, scenarios }` (every scenario passed) or `{ method: \"not_needed\", reason }`. A human then moves verified (or needs_qa) to done, which keeps the stored verification.",
         "security": [
           {
             "bearerAuth": []
@@ -6244,6 +8890,19 @@
             "description": "Task id, which is also the task number: 42 is TASK-000042. Decimal digits only — a non-numeric segment is a 404, never a 422.",
             "name": "taskId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -6506,6 +9165,229 @@
                         "minLength": 1,
                         "maxLength": 5000
                       },
+                      "verification": {
+                        "type": "object",
+                        "properties": {
+                          "commit": {
+                            "type": "string",
+                            "minLength": 7,
+                            "maxLength": 64,
+                            "pattern": "^[a-fA-F0-9]+$"
+                          },
+                          "checks": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "command": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                },
+                                "result": {
+                                  "type": "string",
+                                  "enum": [
+                                    "passed",
+                                    "failed",
+                                    "not_run"
+                                  ]
+                                },
+                                "output": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                }
+                              },
+                              "required": [
+                                "command",
+                                "result"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "minItems": 1,
+                            "maxItems": 30
+                          },
+                          "criteria": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "criterion": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                },
+                                "result": {
+                                  "type": "string",
+                                  "enum": [
+                                    "passed",
+                                    "failed",
+                                    "not_checked"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "criterion",
+                                "result"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "minItems": 1,
+                            "maxItems": 30
+                          },
+                          "qa": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "device"
+                                    ]
+                                  },
+                                  "target": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  },
+                                  "scenarios": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "scenario": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        },
+                                        "result": {
+                                          "type": "string",
+                                          "enum": [
+                                            "passed",
+                                            "failed"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "scenario",
+                                        "result"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "minItems": 1,
+                                    "maxItems": 30
+                                  },
+                                  "notes": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "photo",
+                                            "video",
+                                            "doc",
+                                            "link"
+                                          ]
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2000,
+                                          "format": "uri"
+                                        },
+                                        "description": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        }
+                                      },
+                                      "required": [
+                                        "kind",
+                                        "url"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "maxItems": 20
+                                  }
+                                },
+                                "required": [
+                                  "method",
+                                  "target",
+                                  "scenarios"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_needed"
+                                    ]
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "photo",
+                                            "video",
+                                            "doc",
+                                            "link"
+                                          ]
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2000,
+                                          "format": "uri"
+                                        },
+                                        "description": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        }
+                                      },
+                                      "required": [
+                                        "kind",
+                                        "url"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "maxItems": 20
+                                  }
+                                },
+                                "required": [
+                                  "method",
+                                  "reason"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "commit",
+                          "checks",
+                          "criteria"
+                        ],
+                        "additionalProperties": false
+                      },
                       "links": {
                         "type": "array",
                         "items": {
@@ -6588,6 +9470,324 @@
                     "required": [
                       "to",
                       "summary"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "to": {
+                        "type": "string",
+                        "enum": [
+                          "verified"
+                        ]
+                      },
+                      "summary": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 5000
+                      },
+                      "verification": {
+                        "type": "object",
+                        "properties": {
+                          "commit": {
+                            "type": "string",
+                            "minLength": 7,
+                            "maxLength": 64,
+                            "pattern": "^[a-fA-F0-9]+$"
+                          },
+                          "checks": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "command": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                },
+                                "result": {
+                                  "type": "string",
+                                  "enum": [
+                                    "passed",
+                                    "failed",
+                                    "not_run"
+                                  ]
+                                },
+                                "output": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                }
+                              },
+                              "required": [
+                                "command",
+                                "result"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "minItems": 1,
+                            "maxItems": 30
+                          },
+                          "criteria": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "criterion": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                },
+                                "result": {
+                                  "type": "string",
+                                  "enum": [
+                                    "passed",
+                                    "failed",
+                                    "not_checked"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "criterion",
+                                "result"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "minItems": 1,
+                            "maxItems": 30
+                          },
+                          "qa": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "device"
+                                    ]
+                                  },
+                                  "target": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  },
+                                  "scenarios": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "scenario": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        },
+                                        "result": {
+                                          "type": "string",
+                                          "enum": [
+                                            "passed",
+                                            "failed"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "scenario",
+                                        "result"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "minItems": 1,
+                                    "maxItems": 30
+                                  },
+                                  "notes": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "photo",
+                                            "video",
+                                            "doc",
+                                            "link"
+                                          ]
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2000,
+                                          "format": "uri"
+                                        },
+                                        "description": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        }
+                                      },
+                                      "required": [
+                                        "kind",
+                                        "url"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "maxItems": 20
+                                  }
+                                },
+                                "required": [
+                                  "method",
+                                  "target",
+                                  "scenarios"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_needed"
+                                    ]
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "photo",
+                                            "video",
+                                            "doc",
+                                            "link"
+                                          ]
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2000,
+                                          "format": "uri"
+                                        },
+                                        "description": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        }
+                                      },
+                                      "required": [
+                                        "kind",
+                                        "url"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "maxItems": 20
+                                  }
+                                },
+                                "required": [
+                                  "method",
+                                  "reason"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "commit",
+                          "checks",
+                          "criteria"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "links": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "url": {
+                              "type": "string",
+                              "maxLength": 2000,
+                              "format": "uri"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 20
+                      },
+                      "followUps": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string",
+                              "minLength": 5,
+                              "maxLength": 120
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 10,
+                              "maxLength": 5000
+                            },
+                            "acceptanceCriteria": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 5000
+                            },
+                            "missing": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 5000
+                            },
+                            "priority": {
+                              "type": "string",
+                              "enum": [
+                                "low",
+                                "medium",
+                                "high",
+                                "urgent"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 10
+                      },
+                      "expectedVersion": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "to",
+                      "summary",
+                      "verification"
                     ],
                     "additionalProperties": false
                   },
@@ -6739,7 +9939,7 @@
             }
           },
           "403": {
-            "description": "ACTOR_NOT_PERMITTED: an agent tried to move the task to done while AGENTS_MAY_COMPLETE is off. Agents hand finished work to needs_qa.",
+            "description": "ACTOR_NOT_PERMITTED: an agent tried to move the task to done while AGENTS_MAY_COMPLETE is off. Agents hand work to needs_qa or verified.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7024,6 +10224,19 @@
             "description": "Task id, which is also the task number: 42 is TASK-000042. Decimal digits only — a non-numeric segment is a 404, never a 422.",
             "name": "taskId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -7395,6 +10608,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -7662,6 +10888,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -7682,6 +10921,37 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 5000
+                  },
+                  "checkpoint": {
+                    "type": "object",
+                    "properties": {
+                      "branch": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 250
+                      },
+                      "commit": {
+                        "type": "string",
+                        "minLength": 7,
+                        "maxLength": 64,
+                        "pattern": "^[a-fA-F0-9]+$"
+                      },
+                      "completed": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "remaining": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
+                    },
+                    "required": [
+                      "completed",
+                      "remaining"
+                    ],
+                    "additionalProperties": false
                   },
                   "followUps": {
                     "type": "array",
@@ -8079,6 +11349,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -8095,6 +11378,14 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "decisionId": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
                   "choice": {
                     "type": "string",
                     "minLength": 1,
@@ -8448,6 +11739,19 @@
             "description": "Task id, which is also the task number: 42 is TASK-000042. Decimal digits only — a non-numeric segment is a 404, never a 422.",
             "name": "taskId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -8836,6 +12140,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -9100,6 +12417,19 @@
             "description": "Id of the parent task.",
             "name": "taskId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -9463,6 +12793,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -9810,6 +13153,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -9994,6 +13350,7 @@
                   "needs_user_decision",
                   "needs_user_action",
                   "needs_qa",
+                  "verified",
                   "done",
                   "deferred"
                 ]
@@ -10136,6 +13493,29 @@
           },
           {
             "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "true",
+                    "false"
+                  ]
+                }
+              ],
+              "description": "With attention=true, select future-snoozed blockers instead of active attention items."
+            },
+            "required": false,
+            "description": "With attention=true, select future-snoozed blockers instead of active attention items.",
+            "name": "snoozed",
+            "in": "query"
+          },
+          {
+            "schema": {
               "type": "string",
               "pattern": "^\\d{1,15}$",
               "description": "Only the direct subtasks of this task id. Decimal digits only."
@@ -10249,6 +13629,19 @@
             "description": "Replay: the floor as it stood at this instant. Status and existence are replayed from task.status_changed events; titles, priority, and labels are today's values, and claims are always null.",
             "name": "at",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -10426,6 +13819,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -10596,6 +14002,19 @@
           {}
         ],
         "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
           {
             "schema": {
               "type": "string",
@@ -11010,6 +14429,19 @@
             "required": true,
             "name": "taskId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
           },
           {
             "schema": {
@@ -11571,6 +15003,19 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
               "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
               "example": "agent:claude-code"
             },
@@ -11646,6 +15091,347 @@
                           "type": "string",
                           "enum": [
                             "VALIDATION_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/agents": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Recent agent sessions (last five minutes)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent agent sessions (last five minutes)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "actor": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "sessionId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[a-zA-Z0-9._:-]+$"
+                          },
+                          "lastSeenAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "actor",
+                          "sessionId",
+                          "lastSeenAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error. The body carries a requestId and never a stack trace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "details": {},
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Any other failure. Every error response in this API uses the ErrorResponse envelope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/ready": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Database readiness probe",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9._:-]+$",
+              "description": "Session-specific ownership for claims. Send the same value on every request from that session."
+            },
+            "required": false,
+            "description": "Session-specific ownership for claims. Send the same value on every request from that session.",
+            "name": "X-Claim-Session",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+              "example": "agent:claude-code"
+            },
+            "required": false,
+            "description": "Who is acting: `agent:<name>` or `human:<name>` (case-insensitive; stored lowercase). Recorded on every write — createdBy, comment author, event actor, claim holder. Absent means `human:anonymous`. Malformed is a 422 VALIDATION_ERROR with details[\"X-Actor\"]. `system:` is reserved for the server.",
+            "name": "X-Actor",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Database readiness probe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    },
+                    "database": {
+                      "type": "string",
+                      "enum": [
+                        "reachable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "database"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The server runs with API_TOKEN set and the request carried no `Authorization: Bearer <token>`, or the wrong one. Never returned by a server without API_TOKEN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED"
                           ]
                         },
                         "message": {

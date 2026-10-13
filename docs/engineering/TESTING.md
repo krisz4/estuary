@@ -51,7 +51,7 @@ Fixtures are explicit builders — `makeTask({ status: "blocked", priority: "urg
 - Patch: stale `expectedVersion` → 409 `VERSION_CONFLICT` with `{ expected, current }`; another agent's live claim → 409 `TASK_ALREADY_CLAIMED`; a human is let through; a task cannot become its own ancestor.
 - Patch: clearing `assignee` to `""` makes the task appear under `assigneeIsNull=true`.
 - Delete: 204; comments, decisions, and dependency rows cascade; **the task's events survive**, plus `task.deleted`; twice → 404; blocked dependents waiting only on it are unblocked.
-- Facets: distinct non-null `assignees`, `projects`, `creators`, sorted. Stats: all ten status keys, `needsAttention`, the `project` filter.
+- Facets: distinct non-null `assignees`, `projects`, `creators`, sorted. Stats: all eleven status keys, `needsAttention`, the `project` filter.
 
 ### List query ([../features/Task_Query_Filter_Sort_Page.md](../features/Task_Query_Filter_Sort_Page.md))
 
@@ -73,7 +73,7 @@ This section carries the most weight.
 - Transition: every target status succeeds with its payload, and **each missing requirement is a 422 on its field** (`reason`, `decision`, `instructions`, `summary`, …). `todo` passes on stored *or* supplied criteria and fails with neither. `statusNote` is replaced every time. `startedAt` is stamped only the first time; `completedAt` is set on `done` and cleared on reopening. Each transition records `task.status_changed`.
 - Claims: entering `in_progress` claims for the caller, leaving it drops the claim; another agent is refused with `TASK_ALREADY_CLAIMED`; a human may override. **An expired lease serializes as `claim: null` and is claimable by anyone** — arranged by moving `claimExpiresAt` into the past in the database.
 - Heartbeat: holder only (`NOT_CLAIM_HOLDER` otherwise), allowed on the holder's own expired lease, **no version bump**. Release: holder or human → `todo`; another agent → 409.
-- Agents and `done`: 403 `ACTOR_NOT_PERMITTED` unless `AGENTS_MAY_COMPLETE` (toggled on `env` in the test and restored).
+- Agents and `done`: 403 `ACTOR_NOT_PERMITTED` unless `AGENTS_MAY_COMPLETE` (toggled on `env` in the test and restored). `verified` needs `summary` + a `verification` passing `qualifiesForVerified` (else 422 on `verification`); a failed device scenario fails it.
 - `needs_qa` merges links, skipping known URLs. `blocked` + `blockedBy` adds dependencies; self / missing → 422 on `blockedBy`, a loop → 409 `DEPENDENCY_CYCLE`, and a failure rolls the whole transition back.
 - `next`: priority, then oldest; skips `todo` tasks with unfinished (including `deferred`) dependencies; reclaims an expired `in_progress` task with a "Reclaimed from …" note; honours `project` / `minPriority`; `{ task: null }` when empty. **Many agents calling at once never receive the same task.** Two forced interleavings (a `findMany` spy): a heartbeat landing between the candidate read and the claim must not let `next` steal the task, and unrelated writes bumping every candidate's version must not make `next` answer `null`.
 - Decisions: `→ needs_user_decision` creates one open decision and withdraws an older one; leaving another way withdraws it; answering with a choice and/or note moves the task to `todo` with the answer as `statusNote`; a choice that is not an option → 422 on `choice`; `NO_OPEN_DECISION` otherwise.
@@ -113,7 +113,7 @@ This section carries the most weight.
 - Bucket alignment to UTC boundaries; a range over `HISTORY_MAX_BUCKETS` → 422.
 - `statusCounts` is a full replay from the start of the event log, not just the requested window.
 - `cycleTimes`/`longestWaits` caps, and an open (`endedAt: null`) wait measured against now, not the range's `to`.
-- Per-agent `submitted`/`approved`/`sentBack` counts attribute a `needs_qa` outcome to the actor who made the closing transition, not the one who submitted it.
+- Per-agent `submitted`/`approved`/`sentBack` counts attribute a `needs_qa` / `verified` outcome to the actor who made the closing transition, not the one who submitted it.
 
 ### Concurrency ([DATABASE.md](./DATABASE.md) § Concurrent writes)
 

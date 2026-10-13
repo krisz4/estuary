@@ -8,8 +8,9 @@ import { z } from "zod";
  * header, so the audit trail can tell an agent's change from a human's. It is
  * attribution, not identity: nothing stops a caller from claiming any label, and
  * nothing here should ever be read as a permission check it cannot back up. The
- * one rule that keys off the kind — agents stop at `needs_qa` unless
- * `AGENTS_MAY_COMPLETE` is on — is a guard against a well-behaved agent
+ * one rule that keys off the kind — agents stop at `needs_qa` / `verified`,
+ * and only a human moves a task to `done` unless `AGENTS_MAY_COMPLETE` is on —
+ * is a guard against a well-behaved agent
  * overreaching, not against a hostile one.
  *
  * Canonical form is `kind:name`, lowercase, e.g. `agent:claude-code` or

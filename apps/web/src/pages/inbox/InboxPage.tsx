@@ -1,9 +1,11 @@
-import { type AttentionKind, type TaskSummary } from "@estuary/contracts";
+import { hasPassingVerification, type AttentionKind, type TaskSummary } from "@estuary/contracts";
 import { Check, Crosshair, Inbox, Map as MapIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useInboxQuery, useTransitionTaskMutation } from "@/api/tasks";
+import { Pagination } from "@/components/Pagination";
+import { Select } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { ReachEyebrow } from "@/components/ReachEyebrow";
@@ -43,15 +45,47 @@ import { projectScopeSearch, useRememberProjectScope } from "@/stores/projectSco
 export const InboxPage = () => {
   useDocumentTitle("Inbox");
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = Math.max(1, Math.min(10000, Math.floor(Number(searchParams.get("page")) || 1)));
+  const pageSize = [10, 20, 50, 100].includes(Number(searchParams.get("pageSize")))
+    ? Number(searchParams.get("pageSize"))
+    : 100;
+  const sort = ["priority:desc", "attentionSince:asc", "unlocksCount:desc"].includes(
+    searchParams.get("sort") ?? "",
+  )
+    ? searchParams.get("sort")!
+    : "priority:desc";
+  const snoozed = searchParams.get("snoozed") === "true";
+  const change = (values: Record<string, string | number>) =>
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      for (const [key, value] of Object.entries(values)) next.set(key, String(value));
+      return next;
+    });
   const projects = parseProjects(searchParams.getAll("project"));
   useRememberProjectScope(projects);
 
-  const { data, error, isPending, isFetching, refetch } = useInboxQuery(projects);
+  const { data, error, isPending, isFetching, refetch } = useInboxQuery(projects, {
+    page,
+    pageSize,
+    sort,
+    ...(snoozed ? { snoozed: true } : {}),
+  });
   const tasks = data?.data ?? [];
   const total = data?.meta.total ?? 0;
 
   const groups = groupByAttentionKind(tasks);
+  useEffect(() => {
+    if (data !== undefined && data.data.length === 0 && page > data.meta.totalPages)
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          next.set("page", String(data.meta.totalPages));
+          return next;
+        },
+        { replace: true },
+      );
+  }, [data, page, setSearchParams]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -92,6 +126,21 @@ export const InboxPage = () => {
         )}
       </header>
 
+      <div className="flex flex-wrap gap-2">
+        <Select
+          aria-label="Order inbox"
+          value={sort}
+          options={[
+            { value: "priority:desc", label: "Highest priority" },
+            { value: "attentionSince:asc", label: "Longest waiting" },
+            { value: "unlocksCount:desc", label: "Most work unlocked" },
+          ]}
+          onValueChange={(value) => change({ sort: value, page: 1 })}
+        />
+        <Button variant="outline" onClick={() => change({ snoozed: String(!snoozed), page: 1 })}>
+          {snoozed ? "Show active inbox" : "Show snoozed blockers"}
+        </Button>
+      </div>
       {/* Announced, not shown twice: the group headings carry the visible counts. */}
       <p aria-live="polite" className="sr-only">
         {data === undefined ? "" : `${formatCount(total, "task")} waiting on you`}
@@ -110,11 +159,17 @@ export const InboxPage = () => {
         <EmptyState
           art="still-water"
           title={
-            projects.length > 0
-              ? `Nothing in ${projects.join(", ")} needs you`
-              : "Nothing needs you"
+            snoozed
+              ? "No snoozed blockers"
+              : projects.length > 0
+                ? `Nothing in ${projects.join(", ")} needs you`
+                : "Nothing needs you"
           }
-          description="Slack water: no questions, manual steps, or work waiting for review. When an agent needs a human, it shows up here."
+          description={
+            snoozed
+              ? "Snoozed external blockers appear here until their reminder time. They return to the active inbox automatically."
+              : "Slack water: no questions, manual steps, or work waiting for review. When an agent needs a human, it shows up here."
+          }
           action={
             projects.length > 0 ? (
               <Button asChild variant="outline">
@@ -138,10 +193,12 @@ export const InboxPage = () => {
           {groups.map((group) => (
             <InboxGroup key={group.kind} group={group} projects={projects} />
           ))}
-          {total > tasks.length ? (
-            <p className="text-sm text-muted-foreground">
-              Showing the {tasks.length} most urgent of {total}. Clear some to see the rest.
-            </p>
+          {data !== undefined && total > pageSize ? (
+            <Pagination
+              meta={data.meta}
+              onPageChange={(value) => change({ page: value })}
+              onPageSizeChange={(value) => change({ pageSize: value, page: 1 })}
+            />
           ) : null}
         </>
       )}
@@ -200,7 +257,10 @@ const InboxGroup = ({ group, projects }: { group: AttentionGroup; projects: stri
   const headingId = `inbox-${kind}`;
   // Only `review` items with no `concerns` are routine — a flagged hand-off
   // is never swept up in the batch, however many routine siblings it has.
-  const routineTasks = kind === "review" ? tasks.filter((task) => task.concerns === null) : [];
+  const routineTasks =
+    kind === "review"
+      ? tasks.filter((task) => task.concerns === null && hasPassingVerification(task.verification))
+      : [];
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -239,27 +299,31 @@ const InboxGroup = ({ group, projects }: { group: AttentionGroup; projects: stri
 
 /**
  * "Approve all routine (N)" — the Review group's header action, only shown
- * with two or more routine (no `concerns`) hand-offs. Transitions each to
+ * with two or more hand-offs carrying passing evidence and no concerns. Transitions each to
  * `done` in turn and reports one toast summarising the outcome; a task
  * flagged with `concerns` is never in `tasks` here, so it can never be swept
  * into a batch approval.
  *
  * One confirm step, listing what will be approved: it is a bulk move to
- * `done`, and "routine" only means the agent raised no concerns — hand-offs
- * filed before `concerns` existed count as routine too.
+ * `done`. Capture the displayed task versions when the dialog opens so a
+ * refreshed hand-off cannot replace the evidence the human is confirming.
  */
 const ApproveAllRoutine = ({ tasks }: { tasks: TaskSummary[] }) => {
   const mutation = useTransitionTaskMutation();
   const [isRunning, setIsRunning] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [reviewedTasks, setReviewedTasks] = useState<TaskSummary[]>([]);
 
   const run = async () => {
     setIsRunning(true);
     let approved = 0;
     let failed = 0;
-    for (const task of tasks) {
+    for (const task of reviewedTasks) {
       try {
-        await mutation.mutateAsync({ taskId: task.id, input: { to: "done" } });
+        await mutation.mutateAsync({
+          taskId: task.id,
+          input: { to: "done", expectedVersion: task.version },
+        });
         approved += 1;
       } catch {
         failed += 1;
@@ -285,7 +349,10 @@ const ApproveAllRoutine = ({ tasks }: { tasks: TaskSummary[] }) => {
         variant="outline"
         size="sm"
         isLoading={isRunning}
-        onClick={() => setConfirming(true)}
+        onClick={() => {
+          setReviewedTasks([...tasks]);
+          setConfirming(true);
+        }}
         className="shrink-0"
       >
         <Check aria-hidden="true" />
@@ -294,13 +361,14 @@ const ApproveAllRoutine = ({ tasks }: { tasks: TaskSummary[] }) => {
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title={`Approve ${formatCount(tasks.length, "task")}?`}
+        title={`Approve ${formatCount(reviewedTasks.length, "task")}?`}
         description={
           <>
-            No agent raised concerns on these. Each moves to done.
+            Each has reported passing checks and acceptance criteria, a tested commit, and no
+            concerns. Confirm that evidence before moving them to done.
             {/* Spans, not a list: the description renders inside a <p>. */}
             <span className="mt-2 block max-h-60 overflow-y-auto text-left">
-              {tasks.map((task) => (
+              {reviewedTasks.map((task) => (
                 <span key={task.id} className="block truncate">
                   <span className="font-mono text-xs">{task.reference}</span> {task.title}
                 </span>

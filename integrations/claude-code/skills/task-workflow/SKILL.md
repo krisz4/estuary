@@ -8,7 +8,7 @@ when_to_use: 'Triggers: "work the next task", "pick up TASK-42", "file a follow-
 
 The task manager is the shared board between you, other agents, and the humans who review your work. Its rules are enforced by the API; this skill is how to work *with* them instead of bouncing off them. Tools come from the `tasks` MCP server.
 
-**Who you are.** Unless `TASKS_ACTOR` is set, your actor is derived per checkout: `agent:claude-code@<project>`, or `agent:claude-code@<project>/<worktree>` in a git worktree — so sessions in different worktrees never take over each other's claims, and a restarted session in the same checkout still owns its own. The project is the `origin` repo's name (the same from every worktree). The SessionStart context names both. Two sessions in the *same* checkout share an actor.
+**Who you are.** Actor attribution is stable per checkout (`agent:claude-code@<project>[/<worktree>]` by default). Claim ownership is separate: each MCP process creates a unique session id and sends it as `X-Claim-Session`. Two sessions sharing an actor cannot renew, release, or change each other's live session-bound claims. To resume a live claim after restart, configure the original `TASKS_SESSION_ID`; otherwise wait for expiry or ask the human to release it. Read the task's checkpoint and progress comments before resuming.
 
 ## Statuses — where work belongs
 
@@ -23,7 +23,8 @@ Pick the first row whose signal matches. New work defaults to **backlog**; **tod
 | `needs_user_action` | A human must *do* something you cannot: grant access, create a secret or account, approve externally, test on hardware. | exact `instructions` |
 | `in_progress` | You (or another agent) are working it now. Reached by claiming, never by filing. | a live claim |
 | `needs_qa` | The work is finished and meets the acceptance criteria; a human verifies. | `summary` (+ PR/branch links) |
-| `done` | A human verified it. **Agents never set this** (`ACTOR_NOT_PERMITTED`). | — |
+| `verified` | The work is finished and you QA'd it yourself with passing evidence; a human signs off. | `summary`, `verification` incl. `qa` |
+| `done` | Signed off. **Humans only** — never set it yourself (`ACTOR_NOT_PERMITTED`). | — |
 | `backlog` | Worth doing, not ready or not now — the default for new work. | — |
 | `deferred` | No other status applies and it is deliberately parked (out of scope for now, superseded, won't fix yet). | `reason` — always |
 
@@ -34,7 +35,8 @@ Pick the first row whose signal matches. New work defaults to **backlog**; **tod
 3. **Keep the lease alive.** `task_heartbeat` at least every 10 minutes of work and before anything long (test suites, builds). A lapsed lease lets another agent take the task over.
 4. **Log milestones.** `task_comment` with `kind: "progress"` when you choose an approach, finish a meaningful part, or hit a surprise — enough for another agent to resume from.
 5. **Finish with exactly one hand-off** — each of these releases your claim:
-   - `task_submit_for_qa` — acceptance criteria met. `summary`: what changed, how to verify (commands, URLs, screens). `links`: PR / branch / commit. `concerns`: **only** when a reviewer must look at something specific (a deviation, a risk, a shortcut, a check you could not run) — omit it for routine work, which the human then approves in one click. `followUps`: see below. Put the reference (`TASK-000042`) in the PR title or branch name: with the GitHub webhook connected, that links the PR to the task by itself.
+   - `task_submit_for_qa` — acceptance criteria met. `summary`: what changed, how to verify (commands, URLs, screens). `links`: PR / branch / commit. `concerns`: **only** when a reviewer must look at something specific (a deviation, a risk, a shortcut, a check you could not run) — omit it for routine work, which the human then approves in one click. `verification`: the tested commit, every check command with `passed` / `failed` / `not_run`, and each acceptance criterion with `passed` / `failed` / `not_checked`. Report results accurately. Batch approval requires all reported checks and criteria passing and no concerns; missing evidence always requires individual review. `followUps`: see below. Put the reference (`TASK-000042`) in the PR title or branch name: with the GitHub webhook connected, that links the PR to the task by itself.
+   - `task_submit_verified` — you QA'd the work yourself and **everything** passed: every check `passed`, every criterion `passed`, and `qa` present. `summary`, `links`, `followUps` as above (no `concerns`). `verification` has the same shape as above plus `qa`: either `{ method: "device", target, scenarios: [{ scenario, result }], notes?, evidence? }` for anything a user can see (exercise it on a running simulator, emulator, phone, or browser — with argent's tools where available — and report each scenario `passed` / `failed`), or `{ method: "not_needed", reason }` for non-visual changes the checks fully prove (API-only, refactor under tests). Attach `evidence` as URLs — `{ kind: "photo"|"video"|"doc"|"link", url, description? }`, up to 20 (screenshots, recordings, a doc or PR comment); Estuary stores no files. Anything failed, skipped, or unchecked, any concern, or anything the human should look at: use `task_submit_for_qa` instead. When unsure, hand off.
    - `task_request_decision` — you need a human's choice. One clear question, 2–6 distinct options each with its consequences, your `recommendedOption`, and `context` (what you found). After it is answered the task returns to `todo`; whoever picks it up next reads the answer from `decisions[0]` / `statusNote`.
    - `task_request_action` — a human must act. Instructions precise enough to follow without asking you anything: what, where, how to tell it worked.
    - `task_block` — waiting on other tasks (`blockedBy` ids; it returns to `todo` by itself when they are done) or an outside event (`reason`).
@@ -42,7 +44,7 @@ Pick the first row whose signal matches. New work defaults to **backlog**; **tod
 
 **Nothing you found may stay in chat.** Every recommendation you make, part you left out, or problem you noticed goes in `followUps` on the hand-off — no extra calls: each becomes a subtask a human sees, `todo` if you give `acceptanceCriteria`, otherwise `needs_refinement` with `missing` (what a person must decide or supply). Keep each one short; skip it if it is not worth a person's attention.
 
-**Never leave a task claimed and idle. Never mark a task done.** Pass `expectedVersion` (the `version` from your last read) on writes; on `VERSION_CONFLICT`, `task_get`, reconcile, retry.
+**Never leave a task claimed and idle. Never mark a task done — agents stop at `needs_qa` / `verified`; never fabricate QA evidence.** Pass `expectedVersion` (the `version` from your last read) on writes; on `VERSION_CONFLICT`, `task_get`, reconcile, retry.
 
 ## Finding related work
 
@@ -79,7 +81,9 @@ Search before you file, and before you start, so you neither duplicate a task no
 | `TASK_ALREADY_CLAIMED` | Someone else holds it. Pick another task; comments are still allowed. |
 | `NOT_CLAIM_HOLDER` | Your lease lapsed or a human took the task back. Re-read before doing anything. |
 | `VALIDATION_ERROR` | Fix the fields named in `details`. |
-| `ACTOR_NOT_PERMITTED` | You tried to mark it done — use `task_submit_for_qa`. |
+| `ACTOR_NOT_PERMITTED` | You tried to mark it done without passing `verification` + `qa` on that call — fix the evidence, or use `task_submit_for_qa`. |
 | `UNAUTHORIZED` | `TASKS_API_TOKEN` does not match the server's `API_TOKEN`; tell the human. |
 | `INTEGRATION_NOT_CONFIGURED` | The server has no GitHub integration: `task_create` with the issue URL in `links`. |
 | "API not reachable" | The task manager is not running or `TASKS_API_URL` is wrong; tell the human, do not retry in a loop. |
+
+Before stopping unfinished work, call `task_release` with `checkpoint`: optional branch and commit, `completed`, and `remaining`. The next session receives this context. For connection troubleshooting, run `task_ping`; the browser’s `/connect` screen shows recent agent activity.

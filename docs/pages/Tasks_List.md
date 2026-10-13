@@ -8,7 +8,7 @@ status: canonical
 ---
 # Page Review: Tasks List
 
-The most feature-dense page in the app. `/` no longer redirects here — it redirects to [Tasks_Map.md](./Tasks_Map.md), which is now the app's landing page; `/tasks` is still the direct, sortable-table reading of the same URL state, and the header wordmark still links to it.
+The most feature-dense page in the app. `/` no longer redirects here — it redirects to [Tasks_Map.md](./Tasks_Map.md), which is now the app's landing page; `/tasks` is still the direct, sortable-table reading of the same URL state, reached through the List ⇄ Map switch (the header wordmark links to the Map).
 
 ## Route
 
@@ -63,7 +63,7 @@ Otherwise a read-only page; the one bulk write is "Clean up done" ([../features/
 
 ## Behavior / UI flow
 
-1. Land on `/tasks` with defaults: page 1, 20 per page, `createdAt:desc`, no filters. **There is no default status filter** — a bare `/tasks` shows all ten statuses, so "nothing exists" and "nothing matches" stay distinguishable. The "Open work" preset is the one-click way to hide the closed lane.
+1. Land on `/tasks` with defaults: page 1, 20 per page, `createdAt:desc`, no filters. **There is no default status filter** — a bare `/tasks` shows all eleven statuses, so "nothing exists" and "nothing matches" stay distinguishable. The "Open work" preset is the one-click way to hide the closed lane.
 2. **Search** — typing in `q` is debounced 300ms, then written to the URL with `replace: true` so typing does not fill the history stack. Filter changes use `push` so back undoes them. `q` is split into terms (`parseSearchTerms`, shared with the API): every term must match somewhere on the task — title, description, acceptance criteria, status note, links, or a comment — and a quoted phrase counts as one term. Matched terms are highlighted (`<mark>`) in the title column/card.
 3. **Filters** — status, priority, and label are multiselects (checkbox chips) that OR within themselves. **Project is not in the filter bar**: it is the header's project switcher ([App_Shell.md](./App_Shell.md)), the one control for the `project` param — so it gets no chip, is not counted on the Filters button, and survives "Clear all" (`hasActiveFilters` / `activeFilterCount` skip it; `clearFilters` keeps it); assignee is one control (Anyone / Unassigned / Assigned to anyone / each name from facets) because `assignee` and `assigneeIsNull` are mutually exclusive on the wire, the same relationship "Top-level only" (`parentIsNull`) has with `parentId`; "Created by" is a single-select over facets' `creators`. Active filters render as removable chips above the table with a "Clear all" when any is set. The date bounds **clamp** rather than reject: moving one past the other moves the other with it. `parentId`, `dependsOn`, and `dependencyOf` are not set from a control in this bar — they arrive by a link from the detail page (a subtask count, "View all dependents/dependencies in list") — but render as the same removable chip, so it is always clear why the list is narrowed.
 4. **Sorting** — desktop: click a column header to sort, click again to flip direction. Mobile: `SortSelect` dropdown. Sortable columns and the API field they send: Reference → `id`, Title → `title`, Status → `status`, Priority → `priority`, Created → `createdAt`. (`updatedAt` is sortable via `SortSelect`'s "Recently updated" option but has no column of its own.)

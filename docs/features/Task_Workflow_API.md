@@ -25,7 +25,7 @@ Base path `/api/v1`. Errors use the standard envelope ([../engineering/API_ERROR
 | ------ | ---- | ---- | ------- | ----- |
 | GET | `/tasks` | query: `taskListQuerySchema` | 200 `PaginatedTasks` | Filters: `status`, `priority`, `project`, `label` (repeatable), `assignee` / `assigneeIsNull`, `createdBy`, `claimedBy`, `parentId` / `parentIsNull`, `attention`, `dependsOn`, `dependencyOf`, `q`, `createdFrom/To`. `attention=true` selects everything in the [attention queue](./Attention_Queue.md); `false` selects the rest; ANDs with every other filter. `GET /floor` accepts it too (shared filter fields). Full reference: [Task_Query_Filter_Sort_Page.md](./Task_Query_Filter_Sort_Page.md). |
 | GET | `/tasks/facets` | — | 200 `TaskFacets` | Distinct `assignees`, `projects`, `labels`, `creators`. |
-| GET | `/tasks/stats` | query: `project` (repeatable, optional) | 200 `TaskStats` | Count per status (all ten keys present) + `needsAttention` — the size of the whole [attention queue](./Attention_Queue.md), not just the three `HUMAN_ATTENTION_STATUSES`. |
+| GET | `/tasks/stats` | query: `project` (repeatable, optional) | 200 `TaskStats` | Count per status (all eleven keys present) + `needsAttention` — the size of the whole [attention queue](./Attention_Queue.md), not just the four `HUMAN_ATTENTION_STATUSES`. |
 | POST | `/tasks` | `CreateTaskInput` | 201 `Task`; **200** on idempotent replay | `status` ∈ backlog / needs_refinement / todo. Replay = same `idempotencyKey` on a still-open task — see [Idempotent create](#idempotent-create). |
 | POST | `/tasks/cleanup` | `CleanupDoneTasksInput` (optional) | 200 `{ deleted, taskIds, dryRun }` | Hard-deletes `done` tasks; `project`, `olderThanDays`, `dryRun`. Humans only (`ACTOR_NOT_PERMITTED` for agents). See [Task_Cleanup.md](./Task_Cleanup.md). |
 | POST | `/tasks/next` | `NextTaskInput` | 200 `{ task: Task \| null }` | Atomically claims the best available task → `in_progress`. `project` / `label` (repeatable) / `minPriority` narrow the candidates. |
@@ -128,3 +128,27 @@ Each event also carries `taskTitle` — unlike `project` this is **joined at rea
 - [Agent_Integration.md](./Agent_Integration.md) — the MCP server and Claude Code setup
 - [Labels.md](./Labels.md) — `label` filter and `task_next` narrowing
 - [GitHub_Integration.md](./GitHub_Integration.md) — the `github.pull_request` event and the optional webhook
+
+## Session ownership, checkpoints, and verification
+
+Clients can send `X-Claim-Session` with a unique session id (1–128 letters, digits, dots, underscores, colons, or hyphens). Claim, next-task, and transition-to-in-progress store it with the actor. Another session of the same actor cannot modify, renew, or release that live claim. Humans retain override access. Older clients and existing claims without a session id keep actor-based compatibility; MCP always supplies a session id. This is coordination metadata, not authentication.
+
+`task_release` / `POST /tasks/:id/release` accepts `checkpoint`, also editable with PATCH:
+
+```json
+{ "checkpoint": { "branch": "codex/work", "commit": "abc1234", "completed": "Implemented the handler", "remaining": "Run the integration test" }, "expectedVersion": 3 }
+```
+
+Checkpoints persist across claims and handoffs and appear in task reads and task detail. Omission preserves the previous checkpoint; PATCH `checkpoint: null` clears it.
+
+A `needs_qa` transition can include structured verification:
+
+```json
+{ "to": "needs_qa", "summary": "Implemented and checked", "verification": { "commit": "abc1234", "checks": [{ "command": "pnpm test", "result": "passed", "output": "All tests passed" }], "criteria": [{ "criterion": "Requests over the limit receive 429", "result": "passed" }] }, "expectedVersion": 4 }
+```
+
+Check results are `passed`, `failed`, or `not_run`; criterion results are `passed`, `failed`, or `not_checked`. Both arrays require 1–30 entries. The commit is 7–64 hexadecimal characters. These are reported evidence, not independently verified execution. Evidence persists on approval to done, is cleared when work reopens or changes handoff, and is retained in the QA status event for history. Missing evidence remains compatible with legacy submissions but excludes them from batch approval; so does a failed device scenario (`hasPassingVerification`).
+
+**Agent-verified hand-off.** A `verified` transition (`summary`, `verification`, `links?`, `followUps?`; no `concerns`) is for work the agent QA'd itself. `verification` must add `qa` (`qaEvidenceSchema`), a union on `method`: `{ "method": "device", "target": "iPhone 16 simulator", "scenarios": [{ "scenario": "Login shows error", "result": "passed" }], "notes?": "…", "evidence?": [...] }` (1–30 scenarios, `passed` / `failed`) or `{ "method": "not_needed", "reason": "API-only, covered by checks", "evidence?": [...] }`. `evidence` is up to 20 `{ "kind": "photo"\|"video"\|"doc"\|"link", "url" (http/https only), "description?" }` — Estuary stores no files, only URLs (attachments stay out of scope). `qualifiesForVerified` = every check and criterion passed, every device scenario passed, and `qa` present; otherwise 422 `VALIDATION_ERROR` on `verification`. Any actor may submit it — the payload is the gate. `done` carries only `reason?`; agents get `ACTOR_NOT_PERMITTED` on it unless `AGENTS_MAY_COMPLETE`. The stored `verification` is kept when a human moves `needs_qa` / `verified` → `done`, and the `task.status_changed` event payload carries it.
+
+The web’s inbox, map approval/answer actions, and task-detail transitions send `expectedVersion`. Decision answers additionally accept `decisionId`; a replaced question or stale task returns 409. API callers should supply both guards when answering a question they previously read.

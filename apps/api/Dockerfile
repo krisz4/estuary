@@ -134,6 +134,7 @@ RUN pnpm install --frozen-lockfile --prod --filter "@estuary/api..." \
 COPY --from=build /app/packages/contracts/dist packages/contracts/dist
 COPY --from=build /app/apps/api/dist apps/api/dist
 
+COPY apps/api/scripts/database.mjs apps/api/scripts/database.mjs
 COPY apps/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

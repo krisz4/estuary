@@ -25,6 +25,7 @@ export const HUMAN_WAIT_STATUSES = [
   "needs_user_decision",
   "needs_user_action",
   "needs_qa",
+  "verified",
 ] as const satisfies readonly (typeof TASK_STATUSES)[number][];
 
 /**
@@ -71,7 +72,7 @@ export const historyBucketRowSchema = z
     /** Transitions into `done`. */
     completed: z.number().int().nonnegative(),
     deferred: z.number().int().nonnegative(),
-    /** Transitions out of `needs_qa` to anything but `done` / `deferred`. */
+    /** Transitions out of `needs_qa` / `verified` to anything but `done` / `deferred`. */
     sentBack: z.number().int().nonnegative(),
     /** Tasks per status at the bucket's end — the cumulative flow diagram. Every key present. */
     statusCounts: z.record(z.enum(TASK_STATUSES), z.number().int().nonnegative()),
@@ -81,7 +82,7 @@ export const historyBucketRowSchema = z
   .strict();
 export type HistoryBucketRow = z.infer<typeof historyBucketRowSchema>;
 
-/** One pass from `in_progress` to `needs_qa` or `done` that finished in range. */
+/** One pass from `in_progress` to `needs_qa`, `verified`, or `done` that finished in range. */
 export const cycleTimeSchema = z
   .object({
     taskId: z.number().int().positive(),
@@ -113,9 +114,9 @@ export type HumanWait = z.infer<typeof humanWaitSchema>;
 export const agentHistorySchema = z
   .object({
     actor: storedActorSchema,
-    /** Transitions into `needs_qa` made by this actor. */
+    /** Transitions into `needs_qa` or `verified` made by this actor. */
     submitted: z.number().int().nonnegative(),
-    /** Of the tasks this actor submitted, how many then went `needs_qa → done` in range. */
+    /** Of the tasks this actor submitted, how many then went `needs_qa` / `verified` → `done` in range. */
     approved: z.number().int().nonnegative(),
     /** …and how many were sent back instead. */
     sentBack: z.number().int().nonnegative(),

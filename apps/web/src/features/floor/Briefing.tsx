@@ -1,12 +1,12 @@
 import {
   HUMAN_ATTENTION_STATUSES,
-  TERMINAL_TASK_STATUSES,
   type FloorShippedWindow,
   type FloorSnapshot,
   type FloorTask,
   type TaskStatus,
 } from "@estuary/contracts";
 import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useEventLogQuery } from "@/api/events";
 import { cn } from "@/lib/cn";
 import { formatRelative } from "@/lib/formatting";
@@ -145,6 +145,7 @@ export const Briefing = ({
   liveStatusLine,
   liveMotionEnabled = true,
 }: BriefingProps) => {
+  const navigate = useNavigate();
   const eventsQuery = useEventLogQuery({
     project,
     type: ["task.status_changed"],
@@ -178,7 +179,7 @@ export const Briefing = ({
     (event) =>
       (event.payload as { to?: unknown }).to === "in_progress" && event.actor.startsWith("agent:"),
   ).length;
-  const sentToReview = idsTo("needs_qa");
+  const sentToReview = [...new Set([...idsTo("needs_qa"), ...idsTo("verified")])];
   const closed = idsTo("done");
   const askedDecision = idsTo("needs_user_decision");
   const askedAction = idsTo("needs_user_action");
@@ -250,15 +251,14 @@ export const Briefing = ({
   }
 
   const { statusCounts } = snapshot.meta;
-  const needsYou = HUMAN_ATTENTION_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts[status] ?? 0),
-    0,
-  );
+  const needsYou =
+    snapshot.meta.needsAttention ??
+    HUMAN_ATTENTION_STATUSES.reduce((sum, status) => sum + (statusCounts[status] ?? 0), 0);
   const building = statusCounts.in_progress ?? 0;
   const blockedTasks = snapshot.tasks.filter((task) => task.status === "blocked");
   const blockedOnTasks = blockedTasks.filter((task) => task.openBlockerCount > 0).length;
   const blockedExternal = blockedTasks.length - blockedOnTasks;
-  const terminalStatuses: readonly TaskStatus[] = TERMINAL_TASK_STATUSES;
+  const terminalStatuses: readonly TaskStatus[] = ["done"];
   // `snapshot.tasks` already only carries closed tasks *within* the `shipped`
   // window (the DONE/DEFERRED beads on the map) — `meta.statusCounts` counts
   // every closed task regardless of window, which is a different number and
@@ -266,7 +266,7 @@ export const Briefing = ({
   const shippedInWindow = snapshot.tasks.filter((task) =>
     terminalStatuses.includes(task.status),
   ).length;
-  const shippedAllTime = TERMINAL_TASK_STATUSES.reduce(
+  const shippedAllTime = terminalStatuses.reduce(
     (sum, status) => sum + (statusCounts[status] ?? 0),
     0,
   );
@@ -312,7 +312,13 @@ export const Briefing = ({
           value={needsYou}
           tone="attention"
           loud={needsYou > 0}
-          onClick={() => onOpenStatuses([...HUMAN_ATTENTION_STATUSES])}
+          onClick={() => {
+            if (snapshot.meta.at === null)
+              navigate(
+                `/inbox?${project.map((value) => `project=${encodeURIComponent(value)}`).join("&")}`,
+              );
+            else onOpenStatuses([...HUMAN_ATTENTION_STATUSES]);
+          }}
         />
         <Tile
           label="Under way"
@@ -337,7 +343,7 @@ export const Briefing = ({
           value={shippedInWindow}
           tone="success"
           sublabel={`${shippedAllTime} done in total`}
-          onClick={() => onOpenStatuses([...TERMINAL_TASK_STATUSES])}
+          onClick={() => onOpenStatuses(["done"])}
         />
       </dl>
     </section>

@@ -10,6 +10,7 @@ import {
   type TaskLink,
   type TaskPriority,
   type TaskStatus,
+  type Verification,
 } from "@estuary/contracts";
 
 import { env } from "../lib/env.js";
@@ -33,7 +34,7 @@ import {
 } from "./seed-data.js";
 
 /**
- * `db:seed` — 62 software-development tasks across three projects, each with
+ * `db:seed` — 64 software-development tasks across three projects, each with
  * the comment thread, decisions, dependencies, and event trail it would have
  * accumulated had it really been worked through the API.
  *
@@ -83,6 +84,8 @@ export interface SeedTaskWrite {
   status: TaskStatus;
   statusNote: string | null;
   concerns: string | null;
+  /** JSON `Verification`; only `verified` seed tasks carry one. */
+  verification: string | null;
   needsTriage: boolean;
   priority: TaskPriority;
   project: string | null;
@@ -229,6 +232,7 @@ interface Step {
   write: boolean;
   transition?: { from: TaskStatus; to: TaskStatus; note: string | null };
   claim?: boolean;
+  verification?: Verification;
   dependencies?: readonly string[];
   decisionRequest?: number;
   decisionAnswer?: number;
@@ -365,6 +369,14 @@ function planSteps(
         case "needs_qa":
           move(template.status, worker, note());
           break;
+        case "verified": {
+          if (template.verification === undefined) {
+            throw new Error(`Seed template "${template.key}" (verified) needs a verification`);
+          }
+          // Agents verify their own work: in_progress -> verified, no human in the loop.
+          move("verified", worker, note(), { verification: template.verification });
+          break;
+        }
         case "done": {
           if (template.qaSummary === undefined) {
             throw new Error(`Seed template "${template.key}" (done) needs a qaSummary`);
@@ -523,6 +535,7 @@ function buildTask(
 
   let status = creationStatus;
   let statusNote: string | null = null;
+  let verification: string | null = null;
   let version = 1;
   let lastWriteMs = createdMs;
   let startedMs: number | null = null;
@@ -570,7 +583,13 @@ function buildTask(
       const { from, to, note } = step.transition;
       status = to;
       statusNote = note;
-      event("task.status_changed", { from, to, note });
+      event("task.status_changed", {
+        from,
+        to,
+        note,
+        ...(step.verification === undefined ? {} : { verification: step.verification }),
+      });
+      if (step.verification !== undefined) verification = JSON.stringify(step.verification);
 
       if (to === "in_progress" && startedMs === null) startedMs = atMs;
       completedMs = to === "done" ? atMs : null;
@@ -632,6 +651,7 @@ function buildTask(
     acceptanceCriteria: template.acceptanceCriteria ?? null,
     status,
     statusNote,
+    verification: status === "verified" ? verification : null,
     concerns: status === "needs_qa" ? (template.concerns ?? null) : null,
     // The server's rule: an agent filed it and nobody has claimed it since. In
     // the seed nothing a person did touches a never-started task.
@@ -678,7 +698,7 @@ function buildTask(
 function linksFor(template: SeedTaskTemplate, index: number, worker: string): TaskLink[] {
   if (template.links !== undefined) return template.links;
   if (template.project === null) return [];
-  if (template.status !== "needs_qa" && template.status !== "done") return [];
+  if (!["needs_qa", "verified", "done"].includes(template.status)) return [];
 
   const repo = `${GITHUB_ORG_URL}/${template.project}`;
   const pr = PR_NUMBER_BASE[template.project] + index;

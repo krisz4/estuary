@@ -39,7 +39,7 @@ The [inbox](./Inbox.md), one item at a time. The inbox is for scanning — every
 
 ### API calls
 
-Read: `GET /api/v1/tasks?attention=true&pageSize=100&sort=priority:desc[&project=…]` and `GET /api/v1/tasks/:taskId`. Writes are `InboxItem`'s — see [Inbox.md § API calls](./Inbox.md#api-calls).
+Read: paginated `GET /api/v1/tasks?attention=true&pageSize=100&sort=priority:desc[&project=…]` and `GET /api/v1/tasks/:taskId`. Writes are `InboxItem`'s — see [Inbox.md § API calls](./Inbox.md#api-calls).
 
 ## Route params
 
@@ -96,3 +96,5 @@ Single column, `max-w-3xl`, centred. Below `sm` the Previous / Skip buttons drop
 - [Inbox.md](./Inbox.md) — the same queue, all at once, and every clearing action's exact writes
 - [../features/Attention_Queue.md](../features/Attention_Queue.md) — the six attention kinds
 - [App_Shell.md](./App_Shell.md) — project scope and the header switcher
+
+Focus mode fetches subsequent 100-item pages with **Load more waiting items** and automatically continues when the loaded slice is empty. It deduplicates task ids across pages and uses the same evidence, version-guarded actions, and unsnoozed attention filter as the inbox.

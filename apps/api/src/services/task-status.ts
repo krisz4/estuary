@@ -73,6 +73,7 @@ export function statusNoteFor(input: TransitionInput): string | null {
     case "needs_user_action":
       return input.instructions;
     case "needs_qa":
+    case "verified":
       return input.summary;
     case "needs_user_decision":
       return input.decision.question;

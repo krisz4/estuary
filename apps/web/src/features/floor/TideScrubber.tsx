@@ -317,7 +317,7 @@ export const TideScrubber = ({
     const colorFor = (to: unknown): string => {
       if (to === "needs_user_decision" || to === "needs_user_action") return "var(--map-pool-attn)";
       if (to === "blocked") return "var(--map-pool-block)";
-      if (to === "needs_qa" || to === "done") return "var(--map-ok)";
+      if (to === "needs_qa" || to === "verified" || to === "done") return "var(--map-ok)";
       return "var(--map-ink-3)";
     };
     return moves.map((event) => {

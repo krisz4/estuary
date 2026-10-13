@@ -12,7 +12,7 @@ import { actorNotPermitted } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
 import { prisma, writeTransaction } from "../lib/prisma.js";
 import { recordEvent } from "./task-events.js";
-import { unblockDependents } from "./task-guards.js";
+import { syncImpact, unblockDependents } from "./task-guards.js";
 
 /**
  * Bulk hard-delete of `done` tasks (`docs/features/Task_Cleanup.md`): the
@@ -87,6 +87,7 @@ export async function cleanupDoneTasks(
     // Comments, decisions, labels, and dependency rows cascade; subtasks of a
     // deleted parent survive with `parentId` set to null.
     await tx.task.deleteMany({ where: { id: { in: ids } } });
+    await syncImpact(tx);
 
     for (const row of rows) {
       await recordEvent(tx, {

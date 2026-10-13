@@ -26,7 +26,7 @@ The web app sends `human:<slug of the name you set under "You">`. The MCP server
 
 Only two, both guards against a *well-behaved* agent overreaching, not against a hostile caller (who can simply claim to be human):
 
-1. **Agents stop at `needs_qa`.** An `agent:` actor moving a task to `done` gets `ACTOR_NOT_PERMITTED` (403) unless the server runs with `AGENTS_MAY_COMPLETE=true`.
+1. **Only humans mark work done.** An `agent:` actor moving a task to `done` gets `ACTOR_NOT_PERMITTED` (403) unless the server runs with `AGENTS_MAY_COMPLETE=true`. Agents stop at `needs_qa`, or at `verified` when they QA'd the work themselves with passing evidence (the payload is the gate, not the actor). See [Task_Workflow_API.md](./Task_Workflow_API.md#session-ownership-checkpoints-and-verification).
 2. **Agents respect claims; humans override them.** While anyone holds a live claim on a task, agents other than the holder cannot write it (`TASK_ALREADY_CLAIMED`). Humans can always write, and a human may `release` anyone's claim.
 
 ## The optional API token

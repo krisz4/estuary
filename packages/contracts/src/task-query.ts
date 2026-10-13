@@ -27,6 +27,8 @@ export const TASK_SORT_FIELDS = [
   "id",
   "createdAt",
   "updatedAt",
+  "attentionSince",
+  "unlocksCount",
   "title",
   "status",
   "priority",
@@ -221,6 +223,8 @@ export const taskFilterFields = {
   // human statuses, needs_refinement, un-triaged agent suggestions, and tasks
   // blocked on an outside reason only. ANDs with the other filters.
   attention: queryBoolean.optional(),
+  /** With attention=true, show snoozed items instead of the active queue. */
+  snoozed: queryBoolean.optional(),
 
   // Subtasks of one parent.
   // Digits only, like `:taskId` — `z.coerce` would accept `0x2a` and `1e3`.

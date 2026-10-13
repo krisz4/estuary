@@ -7,12 +7,7 @@ import { cn } from "@/lib/cn";
  * `prefers-reduced-motion` like every other animation.
  */
 export const StillWater = ({ className }: { className?: string }) => (
-  <svg
-    viewBox="0 0 140 56"
-    fill="none"
-    aria-hidden="true"
-    className={cn("h-14 w-36", className)}
-  >
+  <svg viewBox="0 0 140 56" fill="none" aria-hidden="true" className={cn("h-14 w-36", className)}>
     <ellipse cx="70" cy="38" rx="62" ry="9" className="fill-map-water/35" />
     <ellipse cx="70" cy="38" rx="46" ry="6.5" className="stroke-map-water-edge/35" />
     <ellipse cx="70" cy="38" rx="30" ry="4.2" className="stroke-map-water-edge/55" />

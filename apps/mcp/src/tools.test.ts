@@ -45,6 +45,7 @@ describe("tool listing", () => {
         "task_comment",
         "task_create",
         "task_events",
+        "task_ping",
         "task_get",
         "task_heartbeat",
         "task_import_github_issue",
@@ -56,6 +57,7 @@ describe("tool listing", () => {
         "task_request_decision",
         "task_stats",
         "task_submit_for_qa",
+        "task_submit_verified",
         "task_transition",
         "task_update",
       ].sort(),
@@ -492,6 +494,51 @@ describe("writes", () => {
     });
   });
 
+  it("task_submit_verified transitions to verified with the summary and the QA evidence", async () => {
+    const { call, requests } = await setup(echoTask({ status: "verified" }));
+    const verification = {
+      commit: "abc1234",
+      checks: [{ command: "pnpm test", result: "passed" }],
+      criteria: [{ criterion: "Badge shows", result: "passed" }],
+      qa: {
+        method: "device",
+        target: "iPhone 16 simulator",
+        scenarios: [{ scenario: "Badge on the inbox tab", result: "passed" }],
+        evidence: [
+          { kind: "photo", url: "https://example.com/badge.png", description: "Badge, 360px" },
+          { kind: "doc", url: "https://example.com/docs/inbox" },
+        ],
+      },
+    };
+    await call("task_submit_verified", {
+      taskId: 42,
+      summary: "Added the badge; checked on device",
+      verification,
+      expectedVersion: 4,
+    });
+    expect(only(requests).body).toEqual({
+      to: "verified",
+      summary: "Added the badge; checked on device",
+      verification,
+      expectedVersion: 4,
+    });
+  });
+
+  it("task_submit_verified requires the QA in its verification", async () => {
+    const { call, requests } = await setup(echoTask({ status: "verified" }));
+    const result = await call("task_submit_verified", {
+      taskId: 42,
+      summary: "Added the badge",
+      verification: {
+        commit: "abc1234",
+        checks: [{ command: "pnpm test", result: "passed" }],
+        criteria: [{ criterion: "Badge shows", result: "passed" }],
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(requests).toHaveLength(0);
+  });
+
   it("task_submit_for_qa carries concerns and follow-ups, and answers without echoing the task", async () => {
     const { call, requests } = await setup(
       echoTask({
@@ -703,7 +750,7 @@ describe("errors", () => {
     ["TASK_ALREADY_CLAIMED", 409, "pick another"],
     ["VALIDATION_ERROR", 422, "Fix the fields named in details"],
     ["UNAUTHORIZED", 401, "TASKS_API_TOKEN"],
-    ["ACTOR_NOT_PERMITTED", 403, "task_submit_for_qa"],
+    ["ACTOR_NOT_PERMITTED", 403, "task_submit_verified"],
   ])("%s gets its hint", async (code, status, hint) => {
     const { call } = await setup(() => apiError(status, code, "nope"));
     const result = await call("task_claim", { taskId: 42 });

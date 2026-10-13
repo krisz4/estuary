@@ -1,3 +1,6 @@
+import { hasPassingVerification } from "@estuary/contracts";
+import { VerificationPanel } from "@/features/tasks/VerificationPanel";
+import { AgentVerifiedPill } from "@/pages/tasks-map/sections/KindPill";
 import {
   attentionKindOf,
   COMMENT_BODY_MAX,
@@ -10,14 +13,10 @@ import {
   type TransitionInput,
 } from "@estuary/contracts";
 import { AlertTriangle, Check, CornerUpLeft, Pause, Undo2 } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, useEffect, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import {
-  useSendBackMutation,
-  useTransitionTaskMutation,
-  useUpdateTaskMutation,
-} from "@/api/tasks";
+import { useSendBackMutation, useTransitionTaskMutation, useUpdateTaskMutation } from "@/api/tasks";
 import { FormErrorSummary } from "@/components/FormErrorSummary";
 import {
   Button,
@@ -79,6 +78,7 @@ export const InboxItem = ({ task }: { task: TaskSummary }) => {
             <NoteOrFallback task={task} fallback="The question is not available here." />
           ) : (
             <DecisionAnswer
+              expectedVersion={task.version}
               taskId={task.id}
               reference={task.reference}
               decision={task.openDecision}
@@ -134,7 +134,11 @@ const ItemShell = ({
         <Link to={`/tasks/${task.id}`} className="font-mono text-primary hover:underline">
           {task.reference}
         </Link>
+        {task.status === "verified" ? <AgentVerifiedPill /> : null}
         <PriorityBadge priority={task.priority} />
+        {(task.unlocksCount ?? 0) > 0 ? (
+          <span>Finishing this unlocks {task.unlocksCount} tasks</span>
+        ) : null}
         {task.project === null ? null : <span>{task.project}</span>}
         <span className="inline-flex items-center gap-1">
           from <ActorBadge actor={task.createdBy} plain />
@@ -142,10 +146,10 @@ const ItemShell = ({
         <span>
           waiting since{" "}
           <time
-            dateTime={toDateTimeAttribute(task.updatedAt)}
-            title={formatAbsolute(task.updatedAt)}
+            dateTime={toDateTimeAttribute(task.attentionSince ?? task.createdAt)}
+            title={formatAbsolute(task.attentionSince ?? task.createdAt)}
           >
-            {formatRelative(task.updatedAt)}
+            {formatRelative(task.attentionSince ?? task.createdAt)}
           </time>
         </span>
       </div>
@@ -166,23 +170,14 @@ const ItemShell = ({
  * kind already says so — a "Suggested" chip for an agent-filed task nobody
  * has triaged yet.
  */
-const RelatedContext = ({
-  task,
-  kind,
-}: {
-  task: TaskSummary;
-  kind: AttentionKind | null;
-}) => {
+const RelatedContext = ({ task, kind }: { task: TaskSummary; kind: AttentionKind | null }) => {
   const parts: ReactNode[] = [];
 
   if (task.parentId !== null) {
     parts.push(
       <span key="parent" className="inline-flex items-center gap-1">
         Follow-up of{" "}
-        <Link
-          to={`/tasks/${task.parentId}`}
-          className="font-mono text-primary hover:underline"
-        >
+        <Link to={`/tasks/${task.parentId}`} className="font-mono text-primary hover:underline">
           {formatReference(task.parentId)}
         </Link>
       </span>,
@@ -249,9 +244,11 @@ const useInboxMove = (task: TaskSummary) => {
   const [pendingTarget, setPendingTarget] = useState<TaskStatus | null>(null);
 
   const run = (input: TransitionInput, success: string) =>
-    mutation.mutateAsync({ taskId: task.id, input }).then(() => {
-      toast.success(success);
-    });
+    mutation
+      .mutateAsync({ taskId: task.id, input: { ...input, expectedVersion: task.version } })
+      .then(() => {
+        toast.success(success);
+      });
 
   const move = (input: TransitionInput, success: string) => {
     if (transitionNeedsInput(input.to, task)) {
@@ -295,7 +292,7 @@ const useFixedMove = (task: TaskSummary) => {
   const run = (input: TransitionInput, success: string) => {
     setIsPending(true);
     return mutation
-      .mutateAsync({ taskId: task.id, input })
+      .mutateAsync({ taskId: task.id, input: { ...input, expectedVersion: task.version } })
       .then(() => toast.success(success))
       .catch((error: unknown) =>
         toast.error(errorCopy(error).title, { description: errorDescription(error) }),
@@ -376,15 +373,16 @@ const ConcernsPanel = ({ text }: { text: string }) => (
 const QaItem = ({ task }: { task: TaskSummary }) => {
   const { move, dialog, pendingTarget, isPending } = useInboxMove(task);
   const [isSendBackOpen, setSendBackOpen] = useState(false);
-  // No `concerns` on the hand-off: routine, so the body is collapsed and
+  // Passing evidence and no concerns: routine, so the body is collapsed and
   // Approve is the obvious next click — the inbox's one-click promise for
   // the common case. A flagged hand-off shows `concerns` in the open instead.
-  const isRoutine = task.concerns === null;
+  const isRoutine = task.concerns === null && hasPassingVerification(task.verification);
 
   const body = (
     <>
       <NoteOrFallback task={task} fallback="No summary was given." />
-      {task.links.length === 0 ? null : <TaskLinks links={task.links} />}
+      <VerificationPanel evidence={task.verification} />
+      {task.links.length === 0 ? null : <TaskLinks links={task.links} taskId={task.id} />}
       {task.acceptanceCriteria === null ? null : (
         <AcceptanceCriteriaDetails criteria={task.acceptanceCriteria} />
       )}
@@ -467,6 +465,7 @@ const SendBackDialog = ({ task, onClose }: { task: TaskSummary; onClose: () => v
       .mutateAsync({
         taskId: task.id,
         reason: trimmed,
+        expectedVersion: task.version,
         ...(needsCriteria ? { acceptanceCriteria: trimmedCriteria } : {}),
       })
       .then(({ commentError }) => {
@@ -586,6 +585,7 @@ const RefineItem = ({ task }: { task: TaskSummary }) => {
         taskId: task.id,
         input: {
           to: "todo",
+          expectedVersion: task.version,
           acceptanceCriteria: trimmedCriteria,
           ...(trimmedNotes === "" ? {} : { reason: trimmedNotes }),
         },
@@ -644,10 +644,7 @@ const RefineItem = ({ task }: { task: TaskSummary }) => {
             isLoading={dismiss.isPending}
             disabled={isSubmitting}
             onClick={() =>
-              dismiss.run(
-                { to: "deferred", reason: DISMISS_REASON },
-                `${task.reference} dismissed`,
-              )
+              dismiss.run({ to: "deferred", reason: DISMISS_REASON }, `${task.reference} dismissed`)
             }
           >
             Dismiss
@@ -716,6 +713,7 @@ const BlockedItem = ({ task }: { task: TaskSummary }) => {
   return (
     <ItemShell task={task} kind="blocked">
       <NoteOrFallback task={task} fallback="No reason was given." />
+      <SnoozeBlocker task={task} />
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button
@@ -730,7 +728,9 @@ const BlockedItem = ({ task }: { task: TaskSummary }) => {
           variant="outline"
           isLoading={park.isPending}
           disabled={isPending}
-          onClick={() => park.run({ to: "deferred", reason: PARK_REASON }, `${task.reference} parked`)}
+          onClick={() =>
+            park.run({ to: "deferred", reason: PARK_REASON }, `${task.reference} parked`)
+          }
         >
           <Pause aria-hidden="true" />
           Park
@@ -739,5 +739,41 @@ const BlockedItem = ({ task }: { task: TaskSummary }) => {
 
       {dialog}
     </ItemShell>
+  );
+};
+
+const SnoozeBlocker = ({ task }: { task: TaskSummary }) => {
+  const mutation = useUpdateTaskMutation(task.id);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const snoozed = task.snoozedUntil != null && Date.parse(task.snoozedUntil) > now;
+  return (
+    <div className="flex flex-col gap-1">
+      {snoozed ? (
+        <p className="text-xs text-muted-foreground">
+          Snoozed until {formatAbsolute(task.snoozedUntil!)}
+        </p>
+      ) : null}
+      <Button
+        variant="outline"
+        isLoading={mutation.isPending}
+        onClick={() => {
+          void mutation
+            .mutateAsync({
+              snoozedUntil: snoozed ? null : new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+              expectedVersion: task.version,
+            })
+            .then(() => toast.success(snoozed ? "Returned to the inbox" : "Snoozed for 24 hours"))
+            .catch((error: unknown) =>
+              toast.error(errorCopy(error).title, { description: errorDescription(error) }),
+            );
+        }}
+      >
+        {snoozed ? "Return to inbox" : "Snooze for 24 hours"}
+      </Button>
+    </div>
   );
 };

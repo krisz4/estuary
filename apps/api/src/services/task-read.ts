@@ -30,7 +30,7 @@ const refSelect = {
  * page.
  */
 export const summaryInclude = {
-  _count: { select: { comments: true, children: true } },
+  _count: { select: { comments: true, children: true, dependents: true } },
   decisions: { where: { status: "open" } },
   dependencies: { select: { dependsOn: { select: { status: true } } } },
   labels: { select: { label: true }, orderBy: { label: "asc" } },

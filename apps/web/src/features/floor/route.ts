@@ -15,6 +15,7 @@ export const MAIN_ORDER: readonly TaskStatus[] = [
   "todo",
   "in_progress",
   "needs_qa",
+  "verified",
   "done",
 ];
 

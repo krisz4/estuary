@@ -26,6 +26,7 @@ import {
   updateTask,
 } from "../services/task.service.js";
 import { cleanupDoneTasks } from "../services/task-cleanup.service.js";
+import { exportTasks } from "../services/task-export.service.js";
 import { listTasks } from "../services/task-query.js";
 import {
   addDependency,
@@ -108,6 +109,15 @@ tasksRouter.get(
   }),
 );
 
+tasksRouter.get(
+  "/export",
+  asyncHandler(async (req, res) => {
+    const query = taskStatsQuerySchema.parse(req.query);
+    res.setHeader("Content-Disposition", 'attachment; filename="estuary-export.json"');
+    res.json(await exportTasks(query.project));
+  }),
+);
+
 /** `GET /tasks/:taskId` — one task with its full comment thread. */
 tasksRouter.get(
   "/:taskId",
@@ -152,7 +162,7 @@ tasksRouter.post(
   "/next",
   asyncHandler(async (req, res) => {
     const input = nextTaskInputSchema.parse(req.body ?? {});
-    res.status(200).json({ task: await nextTask(input, req.actor) });
+    res.status(200).json({ task: await nextTask(input, req.actor, req.claimSessionId) });
   }),
 );
 
@@ -198,7 +208,7 @@ tasksRouter.patch(
     const input = updateTaskInputSchema.parse(req.body);
     if (!hasAtLeastOneField(input)) throw atLeastOneField();
 
-    res.status(200).json(await updateTask(id, input, req.actor));
+    res.status(200).json(await updateTask(id, input, req.actor, req.claimSessionId));
   }),
 );
 
@@ -213,7 +223,7 @@ tasksRouter.delete(
   "/:taskId",
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
-    await deleteTask(id, req.actor);
+    await deleteTask(id, req.actor, req.claimSessionId);
     res.status(204).end();
   }),
 );
@@ -232,7 +242,7 @@ tasksRouter.post(
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
     const input = transitionInputSchema.parse(req.body);
-    res.status(200).json(await transitionTask(id, input, req.actor));
+    res.status(200).json(await transitionTask(id, input, req.actor, req.claimSessionId));
   }),
 );
 
@@ -241,7 +251,7 @@ tasksRouter.post(
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
     const input = claimTaskInputSchema.parse(req.body ?? {});
-    res.status(200).json(await claimTask(id, input.expectedVersion, req.actor));
+    res.status(200).json(await claimTask(id, input.expectedVersion, req.actor, req.claimSessionId));
   }),
 );
 
@@ -249,7 +259,7 @@ tasksRouter.post(
   "/:taskId/heartbeat",
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
-    res.status(200).json(await heartbeatTask(id, req.actor));
+    res.status(200).json(await heartbeatTask(id, req.actor, req.claimSessionId));
   }),
 );
 
@@ -258,7 +268,7 @@ tasksRouter.post(
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
     const input = releaseTaskInputSchema.parse(req.body ?? {});
-    res.status(200).json(await releaseTask(id, input, req.actor));
+    res.status(200).json(await releaseTask(id, input, req.actor, req.claimSessionId));
   }),
 );
 
@@ -267,7 +277,7 @@ tasksRouter.post(
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
     const input = answerDecisionInputSchema.parse(req.body);
-    res.status(200).json(await answerDecision(id, input, req.actor));
+    res.status(200).json(await answerDecision(id, input, req.actor, req.claimSessionId));
   }),
 );
 
@@ -276,7 +286,7 @@ tasksRouter.post(
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
     const input = addDependencyInputSchema.parse(req.body);
-    res.status(200).json(await addDependency(id, input.dependsOnId, req.actor));
+    res.status(200).json(await addDependency(id, input.dependsOnId, req.actor, req.claimSessionId));
   }),
 );
 
@@ -293,6 +303,6 @@ tasksRouter.delete(
   asyncHandler(async (req, res) => {
     const id = parseTaskId(req.params.taskId);
     const dependsOnId = parseTaskId(req.params.dependsOnId);
-    res.status(200).json(await removeDependency(id, dependsOnId, req.actor));
+    res.status(200).json(await removeDependency(id, dependsOnId, req.actor, req.claimSessionId));
   }),
 );

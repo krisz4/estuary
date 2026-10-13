@@ -13,6 +13,7 @@ import { eventsRouter } from "./routes/events.route.js";
 import { floorRouter } from "./routes/floor.route.js";
 import { githubRouter, githubWebhookRouter, taskGithubRouter } from "./routes/github.route.js";
 import { historyRouter } from "./routes/history.route.js";
+import { systemRouter } from "./routes/system.route.js";
 import { tasksRouter } from "./routes/tasks.route.js";
 
 /**
@@ -51,6 +52,7 @@ export const DOCS_PATH = "/docs";
  * second time here.
  */
 export const ROUTER_MOUNTS: readonly { path: string; router: Router }[] = [
+  { path: `${API_V1}/system`, router: systemRouter },
   { path: `${API_V1}/tasks/:taskId/comments`, router: commentsRouter },
   { path: `${API_V1}/tasks`, router: tasksRouter },
   { path: `${API_V1}/tasks`, router: taskGithubRouter },
@@ -124,7 +126,13 @@ export function createApp(): Express {
     cors({
       origin: env.ALLOWED_ORIGINS,
       methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "x-request-id", "x-actor", "authorization"],
+      allowedHeaders: [
+        "Content-Type",
+        "x-request-id",
+        "x-actor",
+        "x-claim-session",
+        "authorization",
+      ],
       // Without this the browser cannot read the id off a failed response, so a
       // user cannot quote it back.
       exposedHeaders: ["x-request-id"],

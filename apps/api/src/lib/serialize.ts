@@ -1,5 +1,7 @@
 import {
   decisionOptionSchema,
+  checkpointSchema,
+  verificationSchema,
   formatReference,
   taskLinkSchema,
   type Comment,
@@ -81,6 +83,12 @@ export interface TaskRow {
   status: string;
   statusNote: string | null;
   concerns: string | null;
+  unlocksCount?: number;
+  verification?: string | null;
+  checkpoint?: string | null;
+  attentionSince?: Date | null;
+  snoozedUntil?: Date | null;
+  claimSessionId?: string | null;
   needsTriage: boolean;
   /** Constrained to `TaskPriority` by the zod enums on every write path. */
   priority: string;
@@ -113,7 +121,7 @@ export interface TaskRefRow {
  * wrong count.
  */
 export interface TaskSummaryRelations {
-  _count: { comments: number; children: number };
+  _count: { comments: number; children: number; dependents?: number };
   /** At least the `open` decision (at most one exists); the detail loads them all. */
   decisions: DecisionRow[];
   /** Every dependency, with just enough of the other task to count the unfinished ones. */
@@ -227,7 +235,11 @@ export const serializeTaskRef = (row: TaskRefRow): TaskRef => ({
  */
 export const serializeClaim = (row: TaskRow, now: Date = new Date()): TaskClaim | null =>
   row.claimedBy !== null && row.claimExpiresAt !== null && row.claimExpiresAt > now
-    ? { actor: row.claimedBy, expiresAt: toIso(row.claimExpiresAt) }
+    ? {
+        actor: row.claimedBy,
+        expiresAt: toIso(row.claimExpiresAt),
+        ...(row.claimSessionId == null ? {} : { sessionId: row.claimSessionId }),
+      }
     : null;
 
 /**
@@ -253,6 +265,18 @@ export const serializeTaskSummary = (row: TaskRow & TaskSummaryRelations): TaskS
     status: row.status as TaskStatus,
     statusNote: row.statusNote,
     concerns: row.concerns,
+    verification:
+      row.verification == null
+        ? null
+        : parseJsonColumn(row.verification, verificationSchema.nullable(), null),
+    checkpoint:
+      row.checkpoint == null
+        ? null
+        : parseJsonColumn(row.checkpoint, checkpointSchema.nullable(), null),
+    attentionSince: toIsoOrNull(row.attentionSince ?? null),
+    snoozedUntil: toIsoOrNull(row.snoozedUntil ?? null),
+    dependentCount: row._count.dependents ?? 0,
+    unlocksCount: row.unlocksCount ?? 0,
     needsTriage: row.needsTriage,
     priority: row.priority as TaskPriority,
     project: row.project,

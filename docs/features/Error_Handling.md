@@ -68,7 +68,7 @@ Every request gets a `requestId` (incoming `x-request-id` if present, else a uui
 | `TASK_NOT_FOUND` on a detail/edit route | Render the "task not found" state with a link back to the list, not a toast over a blank page |
 | `VERSION_CONFLICT` on a mutation | Re-fetch the task and surface "this task changed elsewhere — review and retry" rather than silently overwriting `details.current` |
 | `TASK_ALREADY_CLAIMED` on a write | Inline message naming `details.claimedBy` and `details.expiresAt`; the action stays disabled until the lease clears or the caller is a human |
-| `ACTOR_NOT_PERMITTED` on a `done` transition | Inline message pointing at "submit for QA" instead — an agent cannot close a task without `AGENTS_MAY_COMPLETE` |
+| `ACTOR_NOT_PERMITTED` on a `done` transition | Inline message pointing at "submit for QA" instead — agents cannot close tasks (unless `AGENTS_MAY_COMPLETE`) |
 | Any error on a mutation | Destructive toast; **the form keeps its values** |
 | Any error on a query | In-place error panel with a Retry button calling `refetch()` — never `window.location.reload()` |
 | Network failure / API down | Same error panel, message "Can't reach the server", retry enabled |

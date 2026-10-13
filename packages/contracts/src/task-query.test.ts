@@ -176,7 +176,7 @@ describe("filters", () => {
     ]);
   });
 
-  it("accepts every one of the ten statuses", () => {
+  it("accepts every one of the eleven statuses", () => {
     expect(taskListQuerySchema.parse({ status: [...TASK_STATUSES] }).status).toEqual([
       ...TASK_STATUSES,
     ]);

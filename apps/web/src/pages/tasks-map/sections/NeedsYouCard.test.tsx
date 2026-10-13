@@ -68,7 +68,11 @@ describe("NeedsYouCard", () => {
 
     await user.click(screen.getByRole("button", { name: "Token bucket" }));
     await waitFor(() => expect(posted(requests, "/decision/answer")).toHaveLength(1));
-    expect(posted(requests, "/decision/answer")[0]?.body).toEqual({ choice: "Token bucket" });
+    expect(posted(requests, "/decision/answer")[0]?.body).toEqual({
+      expectedVersion: 3,
+      decisionId: 1,
+      choice: "Token bucket",
+    });
 
     await user.click(screen.getByRole("button", { name: "Other…" }));
     expect(onOpen).toHaveBeenCalledWith(9);
@@ -88,7 +92,7 @@ describe("NeedsYouCard", () => {
 
     await user.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
-    expect(posted(requests, "/transition")[0]?.body).toEqual({ to: "done" });
+    expect(posted(requests, "/transition")[0]?.body).toEqual({ expectedVersion: 3, to: "done" });
   });
 
   it("an action item's 'Done, hand back' hands it back to To do", async () => {

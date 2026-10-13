@@ -37,6 +37,7 @@ describe("pickRouteKind", () => {
       "todo",
       "in_progress",
       "needs_qa",
+      "verified",
       "done",
     ]);
   });

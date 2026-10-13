@@ -11,12 +11,14 @@ import {
   nextTaskInputSchema,
   parseGithubUrl,
   parseReference,
+  qaEvidenceSchema,
   releaseTaskInputSchema,
   taskIdSchema,
   taskListQuerySchema,
   taskStatsQuerySchema,
   transitionInputSchema,
   updateTaskInputSchema,
+  verificationSchema,
   type Comment,
   type EventsResponse,
   type GithubLinkStatus,
@@ -298,6 +300,22 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
       }),
   );
 
+  server.registerTool(
+    "task_ping",
+    {
+      title: "Test Estuary connection",
+      description:
+        "Test the API and database connection and register this agent session in the connection screen.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    () =>
+      run(async () => {
+        await api.get("/system/ready");
+        return `Connected to ${api.baseUrl} as ${config.actor}. Claim session: ${api.sessionId}.`;
+      }),
+  );
+
   /* --------------------------- creating --------------------------- */
 
   server.registerTool(
@@ -334,8 +352,15 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         // A fresh task echoes only what the agent needs next (reference,
         // version); a replay returns the stored task in full, since what is
         // stored may differ from what this call sent.
-        const show = (shown: Task, line: string) =>
-          replay ? formatTask(shown, line) : formatWrite(shown, line);
+        const show = (shown: Task, line: string) => {
+          const receipt =
+            next?.to === "in_progress" &&
+            shown.claim?.sessionId === api.sessionId &&
+            shown.claim.actor === config.actor
+              ? `\nclaimReceipt: ${JSON.stringify({ taskId: shown.id, sessionId: api.sessionId })}`
+              : "";
+          return (replay ? formatTask(shown, line) : formatWrite(shown, line)) + receipt;
+        };
 
         if (next === undefined) return show(task, heading);
 
@@ -524,7 +549,7 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
       description:
         "Give up a task you hold without finishing it; it goes back to todo for someone else. " +
         "Use when you are stopping (end of session, switching tasks, out of your depth) and none of the hand-offs fit. " +
-        "The reason should say what you did and what is left, so the next agent can continue.",
+        "Save a checkpoint with branch/commit, completed work, and remaining work so the next session can resume. The reason should explain why you are stopping.",
       inputSchema: releaseTaskInputSchema.extend({
         taskId: taskIdInput,
         followUps: releaseTaskInputSchema.shape.followUps.describe(FOLLOW_UPS_HELP),
@@ -548,14 +573,14 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
         "Move a task to any status; the payload is what that status requires. " +
         "backlog {reason?} · needs_refinement {reason: what is unclear} · todo {acceptanceCriteria unless the task has them} · " +
         "in_progress {} (claims it for you) · blocked {reason and/or blockedBy task ids} · needs_user_decision {decision} · " +
-        "needs_user_action {instructions} · needs_qa {summary, links?, concerns?, followUps?} · deferred {reason} · done — humans only; agents get ACTOR_NOT_PERMITTED. " +
+        "needs_user_action {instructions} · needs_qa {summary, links?, concerns?, followUps?} · verified {summary, verification with qa, all passing — see task_submit_verified} · deferred {reason} · done — humans only; agents get ACTOR_NOT_PERMITTED. " +
         "Leaving in_progress drops your claim. For hand-offs prefer task_submit_for_qa, task_request_decision, task_request_action, task_block.",
       inputSchema: { taskId: taskIdInput, transition: transitionInputSchema },
     },
     ({ taskId, transition: body }) =>
       run(async () => {
         const { data } = await transition(taskId, body);
-        return formatWrite(data, `Moved to ${body.to}.`);
+        return formatWrite(data, `Moved to ${body.to}.`, api.sessionId);
       }),
   );
 
@@ -565,11 +590,15 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
     {
       title: "Hand off for QA",
       description:
-        "Finish a task: move it to needs_qa for a human to verify. This is how agents complete work — agents cannot mark tasks done. " +
+        "Finish a task: move it to needs_qa for a human to verify. This is how agents complete work — agents cannot mark tasks done; if you QA'd it yourself with all-passing evidence, use task_submit_verified instead. " +
         "Only when the acceptance criteria are met. Releases your claim. " +
+        "Include verification: tested commit, each check command and its actual result, and each acceptance criterion result. Missing or failed evidence requires individual review; batch approval needs all reported results passing and no concerns. " +
         "If the server's GitHub webhook is connected, putting the task reference (e.g. TASK-000042) in the PR title or branch name links the PR to the task automatically; either way, pass the PR in links.",
       inputSchema: {
         taskId: taskIdInput,
+        verification: qa.verification.describe(
+          "Tested commit, commands and results, and acceptance criteria results. Supply passing evidence for batch approval.",
+        ),
         summary: qa.summary.describe(
           "What changed, how to verify it (commands, URLs, screens), and anything deliberately left out.",
         ),
@@ -585,6 +614,48 @@ export const registerTools = (server: McpServer, api: ApiClient, config: Config)
       run(async () => {
         const { data } = await transition(taskId, { to: "needs_qa", ...body });
         return formatWrite(data, "Handed off for QA.");
+      }),
+  );
+
+  const verified = variantFor("verified").shape;
+  server.registerTool(
+    "task_submit_verified",
+    {
+      title: "Hand off work you verified",
+      description:
+        "Finish a task you QA'd yourself: move it to verified, where a human signs it off to done — instead of task_submit_for_qa. Only when every check and acceptance criterion passed AND either " +
+        "you exercised the change on a running device (simulator, emulator, phone, or browser), scenario by scenario, with every scenario passing — qa {method: device} — " +
+        "or the change needs no device check because your checks alone prove it (API-only, a refactor under tests) — qa {method: not_needed, reason}. " +
+        "Anything visible on screen needs the device run. Attach what the reviewer should see as evidence: photo (screenshot URLs), video, doc (documentation the change adds or follows), link — each with a description. " +
+        "Any failed, skipped, or unchecked result is refused with VALIDATION_ERROR: use task_submit_for_qa (with concerns) instead. " +
+        "Releases your claim. Works on a task in needs_qa too, if you are the one QA'ing it. Agents cannot move tasks to done.",
+      inputSchema: {
+        taskId: taskIdInput,
+        summary: verified.summary.describe(
+          "What changed and how you verified it; becomes the task's status note.",
+        ),
+        verification: verificationSchema
+          .extend({
+            qa: qaEvidenceSchema.describe(
+              "device: {target, e.g. 'iPhone 16 simulator, iOS 18.4'; scenarios: [{scenario, result}]; notes?; evidence?}. " +
+                "not_needed: {reason the checks alone prove it; evidence?}. " +
+                "evidence: [{kind: photo|video|doc|link, url (http/https — upload screenshots somewhere reachable first), description?}].",
+            ),
+          })
+          .describe(
+            "Tested commit, each check and its result, each acceptance criterion result, and the QA. Every result must be passed.",
+          ),
+        links: verified.links.describe(
+          "PR, branch, or commit links; appended to the task's links.",
+        ),
+        followUps: verified.followUps.describe(FOLLOW_UPS_HELP),
+        expectedVersion,
+      },
+    },
+    ({ taskId, ...body }) =>
+      run(async () => {
+        const { data } = await transition(taskId, { to: "verified", ...body });
+        return formatWrite(data, "Verified; waiting for a human to sign it off.");
       }),
   );
 

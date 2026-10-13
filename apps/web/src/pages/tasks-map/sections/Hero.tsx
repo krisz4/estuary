@@ -269,7 +269,11 @@ const NeedsYouRail = ({
         ) : null}
       </h2>
       {tasks.length === 0 ? (
-        <EmptyState art="still-water" title="Nothing needs you." description="Slack water. Agents are on it." />
+        <EmptyState
+          art="still-water"
+          title="Nothing needs you."
+          description="Slack water. Agents are on it."
+        />
       ) : (
         <div
           className={

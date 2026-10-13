@@ -1,4 +1,4 @@
-import { actorKindOf, SYSTEM_ACTOR, type TaskStatus } from "@estuary/contracts";
+import { attentionKindOf, actorKindOf, SYSTEM_ACTOR, type TaskStatus } from "@estuary/contracts";
 import type { Prisma } from "@prisma/client";
 
 import { env } from "../lib/env.js";
@@ -26,6 +26,7 @@ export interface GuardedTask {
   version: number;
   status: string;
   claimedBy: string | null;
+  claimSessionId?: string | null;
   claimExpiresAt: Date | null;
 }
 
@@ -34,6 +35,7 @@ export const guardedSelect = {
   version: true,
   status: true,
   claimedBy: true,
+  claimSessionId: true,
   claimExpiresAt: true,
 } satisfies Prisma.TaskSelect;
 
@@ -64,6 +66,9 @@ export async function writeTask(
     data: { ...data, version: task.version + 1 },
   });
 
+  if (count > 0 && data.status !== undefined) await syncImpact(db);
+  if (count > 0) await syncAttention(db, task.id, new Date(), data.status !== undefined);
+
   if (count === 0) {
     const current = await db.task.findUnique({ where: { id: task.id }, select: { version: true } });
     throw versionConflict(task.version, current?.version ?? task.version);
@@ -92,9 +97,14 @@ export function liveClaim(
  * write the task. Humans always may — a person overriding a stuck or wrong agent
  * is the point of having a person in the loop.
  */
-export function assertClaimAllowsWrite(task: GuardedTask, actor: string, now: Date): void {
+export function assertClaimAllowsWrite(
+  task: GuardedTask,
+  actor: string,
+  now: Date,
+  sessionId?: string,
+): void {
   const claim = liveClaim(task, now);
-  if (claim === null || claim.claimedBy === actor) return;
+  if (claim === null || ownsClaim(task, actor, sessionId)) return;
   if (actorKindOf(actor) !== "agent") return;
 
   throw taskAlreadyClaimed(claim.claimedBy, claim.expiresAt);
@@ -105,8 +115,9 @@ export const renewedLease = (
   task: GuardedTask,
   actor: string,
   now: Date,
+  sessionId?: string,
 ): { claimExpiresAt?: Date } =>
-  task.status === "in_progress" && task.claimedBy === actor
+  task.status === "in_progress" && ownsClaim(task, actor, sessionId)
     ? { claimExpiresAt: leaseExpiry(now) }
     : {};
 
@@ -204,4 +215,41 @@ export async function unblockDependents(db: Db, candidateIds: number[]): Promise
       payload: { from: task.status, to, note },
     });
   }
+}
+
+/** Session-bound claims cannot be renewed or written by another session of the same actor. */
+export const ownsClaim = (task: GuardedTask, actor: string, sessionId?: string): boolean =>
+  task.claimedBy === actor && (task.claimSessionId == null || task.claimSessionId === sessionId);
+
+/** Attention age belongs to the request, rather than unrelated edits or heartbeats. */
+export async function syncAttention(db: Db, id: number, now: Date, reset = false): Promise<void> {
+  const task = await db.task.findUniqueOrThrow({
+    where: { id },
+    select: {
+      status: true,
+      needsTriage: true,
+      attentionSince: true,
+      dependencies: { select: { dependsOn: { select: { status: true } } } },
+    },
+  });
+  const kind = attentionKindOf({
+    ...task,
+    status: task.status as TaskStatus,
+    openDependencyCount: task.dependencies.filter((d) => d.dependsOn.status !== "done").length,
+  });
+  await db.task.update({
+    where: { id },
+    data: {
+      attentionSince:
+        kind === null ? null : reset || task.attentionSince === null ? now : task.attentionSince,
+      ...(kind === null || reset ? { snoozedUntil: null } : {}),
+    },
+  });
+}
+
+/** Derived ranking, updated inside the graph write transaction without changing task versions. */
+export async function syncImpact(db: Db): Promise<void> {
+  await db.$executeRawUnsafe(
+    'UPDATE "Task" SET "unlocksCount" = CASE WHEN "status" = \'done\' THEN 0 ELSE (SELECT COUNT(*) FROM "TaskDependency" d JOIN "Task" target ON target."id" = d."taskId" WHERE d."dependsOnId" = "Task"."id" AND target."status" IN (\'todo\', \'blocked\') AND NOT EXISTS (SELECT 1 FROM "TaskDependency" other JOIN "Task" blocker ON blocker."id" = other."dependsOnId" WHERE other."taskId" = target."id" AND other."dependsOnId" <> "Task"."id" AND blocker."status" <> \'done\')) END;',
+  );
 }

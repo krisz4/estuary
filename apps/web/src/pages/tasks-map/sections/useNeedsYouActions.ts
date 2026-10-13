@@ -79,7 +79,14 @@ export const useNeedsYouActions = (task: TaskSummary): NeedsYouActionState => {
           : () => {
               setPendingKey("decide");
               decisionMutation
-                .mutateAsync({ taskId: task.id, input: { choice: recommended } })
+                .mutateAsync({
+                  taskId: task.id,
+                  input: {
+                    choice: recommended,
+                    expectedVersion: task.version,
+                    decisionId: task.openDecision?.id,
+                  },
+                })
                 .then(() => toast.success(`Answered — ${task.reference} is back in To do`))
                 .catch(onError)
                 .finally(() => setPendingKey(null));
@@ -97,7 +104,7 @@ export const useNeedsYouActions = (task: TaskSummary): NeedsYouActionState => {
       runPrimary: () => {
         setPendingKey("approve");
         transition
-          .mutateAsync({ taskId: task.id, input: { to: "done" } })
+          .mutateAsync({ taskId: task.id, input: { to: "done", expectedVersion: task.version } })
           .then(() => toast.success(`${task.reference} approved — marked done`))
           .catch(onError)
           .finally(() => setPendingKey(null));
@@ -115,7 +122,10 @@ export const useNeedsYouActions = (task: TaskSummary): NeedsYouActionState => {
       runPrimary: () => {
         setPendingKey("handback");
         transition
-          .mutateAsync({ taskId: task.id, input: { to: "todo", reason: HAND_BACK_NOTE } })
+          .mutateAsync({
+            taskId: task.id,
+            input: { to: "todo", reason: HAND_BACK_NOTE, expectedVersion: task.version },
+          })
           .then(() => toast.success(`${task.reference} handed back — it's in To do`))
           .catch(onError)
           .finally(() => setPendingKey(null));

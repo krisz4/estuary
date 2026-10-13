@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("StatusSelect", () => {
-  it("offers all ten statuses", async () => {
+  it("offers every status a person can pick — not verified, which needs evidence", async () => {
     const user = userEvent.setup();
     renderInProviders(<StatusSelect value="todo" onChange={vi.fn()} />);
 

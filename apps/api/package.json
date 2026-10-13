@@ -20,7 +20,10 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx src/seed/index.ts",
     "db:reset": "prisma migrate reset",
-    "openapi:gen": "tsx scripts/generate-openapi.ts"
+    "openapi:gen": "tsx scripts/generate-openapi.ts",
+    "db:backup": "node scripts/database.mjs backup",
+    "db:restore": "node scripts/database.mjs restore",
+    "db:verify": "node scripts/database.mjs verify"
   },
   "prisma": {
     "seed": "tsx src/seed/index.ts"

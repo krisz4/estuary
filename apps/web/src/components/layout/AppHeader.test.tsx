@@ -185,7 +185,7 @@ describe("AppHeader — project scope", () => {
     expect(link).toHaveAttribute("href", "/inbox?project=web-app");
     expect(screen.getByRole("link", { name: "Estuary" })).toHaveAttribute(
       "href",
-      "/tasks?project=web-app",
+      "/tasks/map?project=web-app",
     );
     expect(await screen.findByRole("combobox", { name: "Current project" })).toHaveTextContent(
       "web-app",

@@ -230,6 +230,7 @@ export type TaskWhereQuery = Pick<
   | "parentId"
   | "parentIsNull"
   | "attention"
+  | "snoozed"
   | "dependsOn"
   | "dependencyOf"
   | "q"
@@ -392,7 +393,13 @@ export function buildWhere(
     clauses.push({ parentId: query.parentIsNull ? null : { not: null } });
   }
   if (query.attention !== undefined) {
-    clauses.push(query.attention ? attentionWhere : { NOT: attentionWhere });
+    clauses.push(
+      query.attention
+        ? query.snoozed
+          ? { AND: [attentionWhere, { snoozedUntil: { gt: new Date() } }] }
+          : visibleAttentionWhere()
+        : { NOT: attentionWhere },
+    );
   }
   if (query.dependsOn !== undefined) {
     clauses.push({ dependencies: { some: { dependsOnId: query.dependsOn } } });
@@ -438,6 +445,8 @@ const SORT_COLUMN: Record<TaskSort["field"], keyof Prisma.TaskOrderByWithRelatio
   id: "id",
   createdAt: "createdAt",
   updatedAt: "updatedAt",
+  attentionSince: "attentionSince",
+  unlocksCount: "unlocksCount",
   title: "title",
   status: "statusRank",
   priority: "priorityRank",
@@ -524,3 +533,7 @@ export async function listTasks(query: TaskListQuery): Promise<PaginatedTasks> {
     total,
   });
 }
+
+export const visibleAttentionWhere = (now = new Date()): Prisma.TaskWhereInput => ({
+  AND: [attentionWhere, { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] }],
+});

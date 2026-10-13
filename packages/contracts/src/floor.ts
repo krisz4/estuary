@@ -64,6 +64,7 @@ export const FLOOR_FILTER_KEYS = [
   "parentId",
   "parentIsNull",
   "attention",
+  "snoozed",
   "dependsOn",
   "dependencyOf",
   "q",
@@ -135,6 +136,7 @@ export const floorSnapshotSchema = z
         /** Every status key present, counting everything in scope. */
         statusCounts: z.record(z.enum(TASK_STATUSES), z.number().int().nonnegative()),
         /** Rows with `matches: true`. */
+        needsAttention: z.number().int().nonnegative().optional(),
         matchCount: z.number().int().nonnegative(),
         shippedSince: z.iso.datetime(),
         /** Echo of `at`; null for the live floor. */

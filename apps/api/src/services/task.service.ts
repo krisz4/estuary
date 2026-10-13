@@ -19,10 +19,11 @@ import {
   assertVersion,
   guardedSelect,
   renewedLease,
+  syncImpact,
   unblockDependents,
   writeTask,
 } from "./task-guards.js";
-import { attentionWhere } from "./task-query.js";
+import { visibleAttentionWhere } from "./task-query.js";
 import { loadTask } from "./task-read.js";
 import { applyTaskRanks } from "./task-status.js";
 
@@ -96,7 +97,7 @@ export async function getTaskStats(projects?: string[]): Promise<TaskStats> {
   const scope: Prisma.TaskWhereInput = projects === undefined ? {} : { project: { in: projects } };
   const [rows, needsAttention] = await Promise.all([
     prisma.task.groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
-    prisma.task.count({ where: { AND: [scope, attentionWhere] } }),
+    prisma.task.count({ where: { AND: [scope, visibleAttentionWhere()] } }),
   ]);
 
   const byStatus = Object.fromEntries(TASK_STATUSES.map((status) => [status, 0])) as Record<
@@ -246,6 +247,8 @@ export async function insertTask(
       idempotencyKey: input.idempotencyKey ?? null,
       createdBy: actor,
       needsTriage: actorKindOf(actor) === "agent",
+      attentionSince:
+        actorKindOf(actor) === "agent" || input.status === "needs_refinement" ? new Date() : null,
     }),
     select: { id: true },
   });
@@ -279,6 +282,8 @@ const PATCHABLE = [
   "acceptanceCriteria",
   "links",
   "parentId",
+  "checkpoint",
+  "snoozedUntil",
 ] as const;
 
 /**
@@ -290,7 +295,12 @@ const PATCHABLE = [
  * changed, or an agent re-sending the same PATCH would float the task to the
  * top of an `updatedAt` sort and invalidate every other caller's version.
  */
-export async function updateTask(id: number, input: UpdateTaskInput, actor: string): Promise<Task> {
+export async function updateTask(
+  id: number,
+  input: UpdateTaskInput,
+  actor: string,
+  sessionId?: string,
+): Promise<Task> {
   return writeTransaction(async (tx) => {
     const existing = await tx.task.findUnique({
       where: { id },
@@ -305,24 +315,59 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
         links: true,
         parentId: true,
         needsTriage: true,
+        checkpoint: true,
+        snoozedUntil: true,
         labels: { select: { label: true }, orderBy: { label: "asc" } },
       },
     });
     if (existing === null) throw taskNotFound(id);
 
     const now = new Date();
+    if (input.snoozedUntil !== undefined && actorKindOf(actor) === "agent")
+      throw validationError({ snoozedUntil: ["Only humans may snooze attention items"] });
+    if (
+      input.snoozedUntil != null &&
+      (existing.status !== "blocked" || new Date(input.snoozedUntil) <= now)
+    )
+      throw validationError({ snoozedUntil: ["Snooze an external blocker until a future time"] });
+    if (
+      input.snoozedUntil != null &&
+      (await tx.taskDependency.count({
+        where: { taskId: id, dependsOn: { status: { not: "done" } } },
+      })) > 0
+    )
+      throw validationError({
+        snoozedUntil: ["Tasks waiting on unfinished dependencies cannot be snoozed"],
+      });
     assertVersion(existing, input.expectedVersion);
-    assertClaimAllowsWrite(existing, actor, now);
+    assertClaimAllowsWrite(existing, actor, now, sessionId);
 
     const incoming: Partial<Record<(typeof PATCHABLE)[number], unknown>> = {
       ...input,
       links: input.links === undefined ? undefined : JSON.stringify(input.links),
+      checkpoint:
+        input.checkpoint === undefined
+          ? undefined
+          : input.checkpoint === null
+            ? null
+            : JSON.stringify(input.checkpoint),
+      snoozedUntil:
+        input.snoozedUntil === undefined
+          ? undefined
+          : input.snoozedUntil === null
+            ? null
+            : new Date(input.snoozedUntil),
     };
 
     const data: Record<string, unknown> = {};
     for (const field of PATCHABLE) {
       const value = incoming[field];
-      if (value !== undefined && value !== existing[field]) data[field] = value;
+      const current = existing[field];
+      const unchanged =
+        value instanceof Date && current instanceof Date
+          ? value.getTime() === current.getTime()
+          : value === current;
+      if (value !== undefined && !unchanged) data[field] = value;
     }
 
     // A person editing an agent's suggestion has seen it. An explicit value
@@ -347,7 +392,7 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
 
     await writeTask(tx, existing, {
       ...applyTaskRanks(data as { priority?: UpdateTaskInput["priority"] }),
-      ...renewedLease(existing, actor, now),
+      ...renewedLease(existing, actor, now, sessionId),
     });
 
     if (labelsChanged) {
@@ -378,7 +423,7 @@ export async function updateTask(id: number, input: UpdateTaskInput, actor: stri
  * Tasks that were blocked on this one are re-checked afterwards: with the
  * dependency rows gone, one of them may have nothing left to wait for.
  */
-export async function deleteTask(id: number, actor: string): Promise<void> {
+export async function deleteTask(id: number, actor: string, sessionId?: string): Promise<void> {
   await writeTransaction(async (tx) => {
     const existing = await tx.task.findUnique({
       where: { id },
@@ -391,9 +436,10 @@ export async function deleteTask(id: number, actor: string): Promise<void> {
     });
     if (existing === null) throw taskNotFound(id);
 
-    assertClaimAllowsWrite(existing, actor, new Date());
+    assertClaimAllowsWrite(existing, actor, new Date(), sessionId);
 
     await tx.task.delete({ where: { id } });
+    await syncImpact(tx);
     await recordEvent(tx, {
       taskId: id,
       type: "task.deleted",

@@ -211,7 +211,7 @@ Every create and update path calls it, including the seed. A `prisma.task.update
 pnpm --filter @estuary/api db:migrate --name descriptive_snake_case   # create + apply
 pnpm --filter @estuary/api db:deploy                                  # apply only (Docker, CI)
 pnpm --filter @estuary/api db:studio                                  # browse
-pnpm --filter @estuary/api db:seed                                    # wipe and re-seed 62 tasks
+pnpm --filter @estuary/api db:seed                                    # wipe and re-seed 64 tasks
 pnpm --filter @estuary/api db:reset                                   # drop, migrate, seed (destructive)
 ```
 
@@ -235,3 +235,22 @@ Tests never touch it: each worker gets its own temp file, and E2E gets a third, 
 - [../features/Task_Numbering.md](../features/Task_Numbering.md) — why the id is the number
 - [../features/Seed_Data.md](../features/Seed_Data.md)
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
+
+## Backup, verify, and restore
+
+Use the online SQLite backup API rather than copying the main `.db` file: committed work may still be in the WAL. These commands require the supported Node runtime (22.18+ or 24.11+) and run from the API directory:
+
+```sh
+cd apps/api
+pnpm db:backup /absolute/path/to/estuary-backup.db
+pnpm db:verify /absolute/path/to/estuary-backup.db
+pnpm db:restore /absolute/path/to/estuary-backup.db /absolute/path/to/estuary-restored.db
+```
+
+Backup reads the configured `DATABASE_URL`. Restore writes a **new** destination; it refuses an existing database or SQLite sidecars. Both operations verify integrity, foreign keys, and required Estuary tables. Destination permissions are 0600. The live source can remain open during backup, including uncheckpointed WAL writes. The regression test holds a WAL writer open and checks its committed row survives backup and restore.
+
+To activate a restore, stop the API, point `DATABASE_URL` at the verified new file, and run `pnpm db:deploy` before starting the server. Keep the previous database until the restored instance has been checked. Database snapshots include all relational data and migration history; JSON project exports are for inspection and archival and have no import endpoint.
+
+Migration `20261009090000_supervision_evidence_sessions` adds verification, checkpoint, session ownership, attention age, snooze, and transactional unlock ranking, with indexes on attention age and ranking. Existing attention is backfilled from the latest status event or creation time. Existing claims retain legacy actor ownership.
+
+Migration `20261013090000_add_verified_status` is data-only: `verified` was inserted into `TASK_STATUSES` between `needs_qa` and `done`, so it shifts the persisted `statusRank` of existing `done` (8 to 9) and `deferred` (9 to 10) rows. No other column stores a status rank.

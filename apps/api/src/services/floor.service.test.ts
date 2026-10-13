@@ -95,7 +95,7 @@ describe("the shipped window", () => {
 });
 
 describe("meta.statusCounts", () => {
-  it("counts every status in scope, all ten keys present", async () => {
+  it("counts every status in scope, all eleven keys present", async () => {
     await makeTask({ status: "todo" });
     await makeTask({ status: "blocked" });
     await makeTask({ status: "done", completedAt: new Date() });
@@ -105,7 +105,7 @@ describe("meta.statusCounts", () => {
     expect(result.meta.statusCounts.blocked).toBe(1);
     expect(result.meta.statusCounts.done).toBe(1);
     expect(result.meta.statusCounts.backlog).toBe(0);
-    expect(Object.keys(result.meta.statusCounts)).toHaveLength(10);
+    expect(Object.keys(result.meta.statusCounts)).toHaveLength(11);
   });
 });
 

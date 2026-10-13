@@ -62,7 +62,11 @@ export const NeedsYouSection = ({
       ) : error !== null && data === undefined ? (
         <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />
       ) : groups.length === 0 ? (
-        <EmptyState art="still-water" title="Nothing needs you." description="Slack water. Agents are on it." />
+        <EmptyState
+          art="still-water"
+          title="Nothing needs you."
+          description="Slack water. Agents are on it."
+        />
       ) : (
         <div className="mt-4 flex flex-col gap-6">
           {groups.map((group) => (
@@ -153,7 +157,7 @@ const NeedsYouRow = ({
             )}
             aria-hidden="true"
           />
-          {kind === null ? null : <KindPill kind={kind} />}
+          {kind === null ? null : <KindPill kind={kind} verified={task.status === "verified"} />}
           <span className="shrink-0 font-mono text-xs text-muted-foreground">{task.reference}</span>
           <span className="min-w-0 flex-1 truncate font-medium text-foreground">{task.title}</span>
           <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:flex">

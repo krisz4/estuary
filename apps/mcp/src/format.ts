@@ -192,8 +192,16 @@ export const formatTask = (
  * back after every transition was most of the workflow's token cost.
  * `task_get` / `task_claim` / `task_next` still return the full task.
  */
-export const formatWrite = (task: Task, heading: string): string =>
-  [heading, taskLine(task), ...statusNoteLine(task), ...relationLines(task)].join("\n");
+export const formatWrite = (task: Task, heading: string, sessionId?: string): string =>
+  [
+    heading,
+    taskLine(task),
+    ...statusNoteLine(task),
+    ...relationLines(task),
+    ...(sessionId === undefined || task.claim?.sessionId !== sessionId
+      ? []
+      : [`claimReceipt: ${JSON.stringify({ taskId: task.id, sessionId: task.claim.sessionId })}`]),
+  ].join("\n");
 
 /**
  * One line (plus a description snippet) per task. With `verbose`, the page's
@@ -274,7 +282,7 @@ const HINTS: Partial<Record<ApiError["code"], string>> = {
   AT_LEAST_ONE_FIELD: "Send at least one field to change.",
   UNAUTHORIZED: "The API requires a token: check TASKS_API_TOKEN matches the server's API_TOKEN.",
   ACTOR_NOT_PERMITTED:
-    "Agents cannot mark tasks done. Hand finished work over with task_submit_for_qa instead.",
+    "Agents cannot mark tasks done. Hand finished work over with task_submit_verified (passing QA evidence) or task_submit_for_qa.",
   TASK_NOT_FOUND: "No task with that id — find the right one with task_list (q=…).",
   DEPENDENCY_CYCLE:
     "details.path is the loop that dependency would close; drop or reverse one link.",

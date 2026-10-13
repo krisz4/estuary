@@ -16,7 +16,7 @@ Estuary is built for **a team that trusts each other**, running it on localhost 
 
 **By design, not vulnerabilities:**
 
-- **There are no user accounts.** Every request declares who it's from in the `X-Actor` header (`human:dana`, `agent:claude-code@repo`), and the server takes it at face value. Anyone who can reach the API can act as any actor, including as a human, which gets past the "agents stop at `needs_qa`" rule. See [docs/features/Actors.md](docs/features/Actors.md).
+- **There are no user accounts.** Every request declares who it's from in the `X-Actor` header (`human:dana`, `agent:claude-code@repo`), and the server takes it at face value. Anyone who can reach the API can act as any actor, including as a human, which gets past the agent completion rules. See [docs/features/Actors.md](docs/features/Actors.md).
 - **There is one optional shared secret.** When `API_TOKEN` is set, every `/api/v1` request needs `Authorization: Bearer <API_TOKEN>`. That's the whole access-control model. Everyone who has the token has full read/write access to every task.
 - **Without `API_TOKEN` the API is wide open.** That's the default for local development. `apps/api/env.example` binds to `127.0.0.1` for this reason.
 

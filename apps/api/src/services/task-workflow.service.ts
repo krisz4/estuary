@@ -28,6 +28,8 @@ import {
   assertDependencyAllowed,
   assertVersion,
   guardedSelect,
+  ownsClaim,
+  syncImpact,
   leaseExpiry,
   liveClaim,
   unblockDependents,
@@ -59,6 +61,7 @@ const workflowSelect = {
   ...guardedSelect,
   acceptanceCriteria: true,
   links: true,
+  verification: true,
   startedAt: true,
   project: true,
   labels: { select: { label: true }, orderBy: { label: "asc" } },
@@ -172,6 +175,7 @@ export async function transitionTask(
   id: number,
   input: TransitionInput,
   actor: string,
+  sessionId?: string,
 ): Promise<Task> {
   return writeTransaction(async (tx) => {
     const task = await loadForWrite(tx, id);
@@ -180,12 +184,12 @@ export async function transitionTask(
     const to = input.to;
 
     assertVersion(task, input.expectedVersion);
-    assertClaimAllowsWrite(task, actor, now);
+    assertClaimAllowsWrite(task, actor, now, sessionId);
 
-    if (to === "done" && actorKindOf(actor) === "agent" && !env.AGENTS_MAY_COMPLETE) {
+    if (input.to === "done" && actorKindOf(actor) === "agent" && !env.AGENTS_MAY_COMPLETE) {
       throw actorNotPermitted(
-        "Agents hand finished work to needs_qa; a human moves it to done " +
-          "(or run the server with AGENTS_MAY_COMPLETE=true)",
+        "Agents hand finished work to needs_qa, or to verified when they QA'd it with passing " +
+          "evidence; a human moves it to done (or run the server with AGENTS_MAY_COMPLETE=true)",
       );
     }
 
@@ -194,6 +198,12 @@ export async function transitionTask(
       statusNote: statusNoteFor(input),
       // Only a needs_qa hand-off carries concerns; any other move drops them.
       concerns: input.to === "needs_qa" ? (input.concerns ?? null) : null,
+      verification:
+        (input.to === "needs_qa" || input.to === "verified") && input.verification !== undefined
+          ? JSON.stringify(input.verification)
+          : (from === "needs_qa" || from === "verified") && to === "done"
+            ? task.verification
+            : null,
       ...applyStatusSideEffects(from, to, task, now),
       ...(clearsTriage(actor, to) ? { needsTriage: false } : {}),
     };
@@ -210,7 +220,7 @@ export async function transitionTask(
         data.acceptanceCriteria = input.acceptanceCriteria;
     }
 
-    if (input.to === "needs_qa" && input.links !== undefined) {
+    if ((input.to === "needs_qa" || input.to === "verified") && input.links !== undefined) {
       data.links = JSON.stringify(mergeLinks(parseLinksColumn(task.links), input.links));
     }
 
@@ -218,6 +228,7 @@ export async function transitionTask(
     const claimed = to === "in_progress";
     const heldBefore = liveClaim(task, now);
     data.claimedBy = claimed ? actor : null;
+    data.claimSessionId = claimed ? (sessionId ?? null) : null;
     data.claimExpiresAt = claimed ? leaseExpiry(now) : null;
 
     if (input.to === "blocked") {
@@ -249,7 +260,14 @@ export async function transitionTask(
       taskId: id,
       type: "task.status_changed",
       actor,
-      payload: { from, to, note: data.statusNote ?? null },
+      payload: {
+        from,
+        to,
+        note: data.statusNote ?? null,
+        ...((input.to === "needs_qa" || input.to === "verified") && input.verification !== undefined
+          ? { verification: input.verification }
+          : {}),
+      },
     });
 
     if (claimed && heldBefore?.claimedBy !== actor) {
@@ -283,7 +301,8 @@ export async function transitionTask(
     }
 
     if (to === "done") await unblockDependentsOf(tx, id);
-    if (input.to === "needs_qa") await fileFollowUps(tx, task, input.followUps, actor);
+    if (input.to === "needs_qa" || input.to === "verified")
+      await fileFollowUps(tx, task, input.followUps, actor);
 
     return loadTask(tx, id);
   });
@@ -309,11 +328,13 @@ export const claimTask = (
   id: number,
   expectedVersion: number | undefined,
   actor: string,
+  sessionId?: string,
 ): Promise<Task> =>
   transitionTask(
     id,
     expectedVersion === undefined ? { to: "in_progress" } : { to: "in_progress", expectedVersion },
     actor,
+    sessionId,
   );
 
 /**
@@ -325,12 +346,12 @@ export const claimTask = (
  * version would make every heartbeat a `VERSION_CONFLICT` for a human editing
  * the same task. (`updatedAt` does move — Prisma manages it on every update.)
  */
-export async function heartbeatTask(id: number, actor: string): Promise<Task> {
+export async function heartbeatTask(id: number, actor: string, sessionId?: string): Promise<Task> {
   return writeTransaction(async (tx) => {
     const task = await loadForWrite(tx, id);
     const now = new Date();
 
-    if (task.status !== "in_progress" || task.claimedBy !== actor) {
+    if (task.status !== "in_progress" || !ownsClaim(task, actor, sessionId)) {
       throw notClaimHolder(liveClaim(task, now));
     }
 
@@ -348,6 +369,7 @@ export async function releaseTask(
   id: number,
   input: ReleaseTaskInput,
   actor: string,
+  sessionId?: string,
 ): Promise<Task> {
   return writeTransaction(async (tx) => {
     const task = await loadForWrite(tx, id);
@@ -356,7 +378,8 @@ export async function releaseTask(
     assertVersion(task, input.expectedVersion);
 
     const mayRelease =
-      task.status === "in_progress" && (task.claimedBy === actor || actorKindOf(actor) !== "agent");
+      task.status === "in_progress" &&
+      (ownsClaim(task, actor, sessionId) || actorKindOf(actor) !== "agent");
     if (!mayRelease) throw notClaimHolder(liveClaim(task, now));
 
     const to: TaskStatus = "todo";
@@ -366,6 +389,8 @@ export async function releaseTask(
       ...applyTaskRanks({ status: to }),
       statusNote: note,
       claimedBy: null,
+      claimSessionId: null,
+      ...(input.checkpoint === undefined ? {} : { checkpoint: JSON.stringify(input.checkpoint) }),
       claimExpiresAt: null,
       ...(clearsTriage(actor, to) ? { needsTriage: false } : {}),
     });
@@ -417,14 +442,18 @@ const NEXT_ROUNDS = 5;
  *
  * Returns `null` — not an error — only when a fresh read finds no candidate.
  */
-export async function nextTask(input: NextTaskInput, actor: string): Promise<Task | null> {
+export async function nextTask(
+  input: NextTaskInput,
+  actor: string,
+  sessionId?: string,
+): Promise<Task | null> {
   for (let round = 0; round < NEXT_ROUNDS; round += 1) {
     const now = new Date();
     const candidates = await readNextCandidates(input, now);
     if (candidates.length === 0) return null;
 
     for (const candidate of candidates) {
-      const claimed = await claimCandidate(candidate, actor, now);
+      const claimed = await claimCandidate(candidate, actor, now, sessionId);
       if (claimed !== null) return claimed;
     }
   }
@@ -485,6 +514,7 @@ async function claimCandidate(
   candidate: NextCandidate,
   actor: string,
   now: Date,
+  sessionId?: string,
 ): Promise<Task | null> {
   const from = candidate.status as TaskStatus;
   const to: TaskStatus = "in_progress";
@@ -512,12 +542,16 @@ async function claimCandidate(
         ...applyStatusSideEffects(from, to, candidate, now),
         statusNote: note,
         claimedBy: actor,
+        claimSessionId: sessionId ?? null,
+        attentionSince: null,
+        snoozedUntil: null,
         claimExpiresAt: expiresAt,
         needsTriage: false,
         version: candidate.version + 1,
       },
     });
     if (count === 0) return null;
+    await syncImpact(tx);
 
     await recordEvent(tx, {
       taskId: candidate.id,
@@ -550,10 +584,14 @@ export async function answerDecision(
   id: number,
   input: AnswerDecisionInput,
   actor: string,
+  sessionId?: string,
 ): Promise<Task> {
   return writeTransaction(async (tx) => {
     const task = await loadForWrite(tx, id);
+    assertVersion(task, input.expectedVersion);
+    assertClaimAllowsWrite(task, actor, new Date(), sessionId);
     const openId = task.decisions[0]?.id;
+    if (input.decisionId !== undefined && input.decisionId !== openId) throw noOpenDecision();
     if (task.status !== "needs_user_decision" || openId === undefined) throw noOpenDecision();
 
     const decision = await tx.decision.findUniqueOrThrow({ where: { id: openId } });
@@ -623,13 +661,21 @@ async function addDependencyRow(
   return true;
 }
 
-export async function addDependency(id: number, dependsOnId: number, actor: string): Promise<Task> {
+export async function addDependency(
+  id: number,
+  dependsOnId: number,
+  actor: string,
+  sessionId?: string,
+): Promise<Task> {
   return writeTransaction(async (tx) => {
     const task = await loadForWrite(tx, id);
-    assertClaimAllowsWrite(task, actor, new Date());
+    assertClaimAllowsWrite(task, actor, new Date(), sessionId);
 
     const added = await addDependencyRow(tx, id, dependsOnId, actor, "dependsOnId");
-    if (added) await writeTask(tx, task, {});
+    if (added) {
+      await writeTask(tx, task, {});
+      await syncImpact(tx);
+    }
 
     return loadTask(tx, id);
   });
@@ -644,14 +690,16 @@ export async function removeDependency(
   id: number,
   dependsOnId: number,
   actor: string,
+  sessionId?: string,
 ): Promise<Task> {
   return writeTransaction(async (tx) => {
     const task = await loadForWrite(tx, id);
-    assertClaimAllowsWrite(task, actor, new Date());
+    assertClaimAllowsWrite(task, actor, new Date(), sessionId);
 
     const { count } = await tx.taskDependency.deleteMany({ where: { taskId: id, dependsOnId } });
     if (count > 0) {
       await writeTask(tx, task, {});
+      await syncImpact(tx);
       await recordEvent(tx, {
         taskId: id,
         type: "dependency.removed",

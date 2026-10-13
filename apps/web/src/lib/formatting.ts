@@ -29,6 +29,7 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   needs_user_decision: "Needs decision",
   needs_user_action: "Needs action",
   needs_qa: "Needs QA",
+  verified: "Verified",
   done: "Done",
   deferred: "Deferred",
 };
@@ -48,6 +49,7 @@ export const TASK_STATUS_DESCRIPTIONS: Record<TaskStatus, string> = {
   needs_user_decision: "An agent asked a question only a human can answer.",
   needs_user_action: "A human has to do a manual step.",
   needs_qa: "The work is done. Someone needs to verify it.",
+  verified: "The agent QA'd its own work with passing evidence. A human signs it off.",
   done: "Finished and verified.",
   deferred: "Parked on purpose. The reason is recorded.",
 };
@@ -76,6 +78,12 @@ export const statusOptions = TASK_STATUSES.map((value) => ({
   value,
   label: TASK_STATUS_LABELS[value],
 }));
+
+/**
+ * Options for the manual status picker. `verified` is left out: it needs
+ * structured QA evidence only an agent supplies, so a human cannot pick it.
+ */
+export const manualStatusOptions = statusOptions.filter((option) => option.value !== "verified");
 
 export const priorityOptions = TASK_PRIORITIES.map((value) => ({
   value,

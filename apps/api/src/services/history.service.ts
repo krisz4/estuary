@@ -4,6 +4,7 @@ import {
   HISTORY_MAX_BUCKETS,
   HISTORY_MAX_CYCLE_TIMES,
   HUMAN_WAIT_STATUSES,
+  REVIEW_TASK_STATUSES,
   TASK_STATUSES,
   type AgentHistory,
   type CycleTime,
@@ -58,6 +59,8 @@ function ceilToBoundary(date: Date, bucket: HistoryBucket): Date {
     : new Date(floored.getTime() + BUCKET_MS[bucket]);
 }
 
+const REVIEW_SET = new Set<string>(REVIEW_TASK_STATUSES);
+const isReviewStatus = (status: string): boolean => REVIEW_SET.has(status);
 const HUMAN_WAIT_SET = new Set<string>(HUMAN_WAIT_STATUSES);
 const isHumanWaitStatus = (status: string): status is (typeof HUMAN_WAIT_STATUSES)[number] =>
   HUMAN_WAIT_SET.has(status);
@@ -239,14 +242,25 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
           deferred += 1;
           totalDeferred += 1;
         }
-        if (from === "needs_qa" && to !== undefined && to !== "done" && to !== "deferred") {
+        if (
+          from !== undefined &&
+          isReviewStatus(from) &&
+          to !== undefined &&
+          to !== "done" &&
+          to !== "deferred" &&
+          !isReviewStatus(to)
+        ) {
           sentBack += 1;
           totalSentBack += 1;
         }
 
-        // Cycle time: in_progress → needs_qa | done.
+        // Cycle time: in_progress → needs_qa | verified | done.
         if (to === "in_progress") cycleStart.set(event.taskId, event.createdAt);
-        else if ((to === "needs_qa" || to === "done") && cycleStart.has(event.taskId)) {
+        else if (
+          to !== undefined &&
+          (isReviewStatus(to) || to === "done") &&
+          cycleStart.has(event.taskId)
+        ) {
           const start = cycleStart.get(event.taskId)!;
           cycleStart.delete(event.taskId);
           cycleTimes.push({
@@ -276,11 +290,11 @@ export async function getTaskHistory(query: HistoryQuery): Promise<HistoryRespon
           openHumanWait.set(event.taskId, { status: to, startedAt: event.createdAt });
         }
 
-        // Agents: submissions into needs_qa, and their outcome.
-        if (to === "needs_qa") {
+        // Agents: submissions into needs_qa / verified, and their outcome.
+        if (to !== undefined && isReviewStatus(to)) {
           submissionActor.set(event.taskId, event.actor);
           touchAgent(event.actor).submitted += 1;
-        } else if (from === "needs_qa") {
+        } else if (from !== undefined && isReviewStatus(from)) {
           const submitter = submissionActor.get(event.taskId);
           if (submitter !== undefined) {
             if (to === "done") touchAgent(submitter).approved += 1;

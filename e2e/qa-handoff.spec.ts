@@ -58,10 +58,10 @@ test("sends an agent's work back from the inbox with feedback, then approves the
 
   await page.goto("/inbox");
 
-  const readyForQa = page.getByRole("region", { name: /^Ready for QA \(\d+\)$/ });
+  const readyForQa = page.getByRole("region", { name: /^Review \(\d+\)$/ });
   const item = inboxItem(page, task);
   await expect(readyForQa.getByRole("article", { name: task.title })).toBeVisible();
-  await expect(item.getByRole("region", { name: "QA summary" })).toContainText(firstSummary);
+  await expect(item).toContainText(firstSummary);
   await expect(item.getByRole("link", { name: pr.label })).toHaveAttribute("href", pr.url);
 
   await item.getByRole("button", { name: "Send back" }).click();
@@ -95,7 +95,7 @@ test("sends an agent's work back from the inbox with feedback, then approves the
 
   await page.reload();
 
-  await expect(item.getByRole("region", { name: "QA summary" })).toContainText(secondSummary);
+  await expect(item).toContainText(secondSummary);
   await expect(item.getByRole("link", { name: pr.label })).toHaveCount(1);
 
   await item.getByRole("button", { name: "Approve" }).click();

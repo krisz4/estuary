@@ -34,7 +34,7 @@ Every **non-closed** task in scope is returned. A **closed** task (`done` or `de
 
 Capped at `FLOOR_TASK_CAP` (2000) rows; `meta.truncated` says so. Rows are chosen **must-show first**, then by priority, then recency:
 
-1. **Must-show**: a human-attention status (`needs_user_decision`, `needs_user_action`, `needs_qa`), `in_progress`, `blocked`, or `urgent` priority.
+1. **Must-show**: a human-attention status (`needs_user_decision`, `needs_user_action`, `needs_qa`, `verified`), `in_progress`, `blocked`, or `urgent` priority.
 2. Everything else, ordered by `priority` (severity) descending, then `updatedAt` descending.
 
 ## The dependency graph

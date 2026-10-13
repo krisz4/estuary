@@ -46,7 +46,7 @@ Sortable fields: `id`, `createdAt`, `updatedAt`, `title`, `status`, `priority`, 
 `id` is the reference order (`TASK-000042`'s number). Two fields do **not** sort alphabetically:
 
 - **`priority`** sorts by severity (`urgent` > `high` > `medium` > `low`), not by string.
-- **`status`** sorts by lifecycle order (`backlog` → `needs_refinement` → `todo` → `in_progress` → `blocked` → `needs_user_decision` → `needs_user_action` → `needs_qa` → `done` → `deferred` — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md)).
+- **`status`** sorts by lifecycle order (`backlog` → `needs_refinement` → `todo` → `in_progress` → `blocked` → `needs_user_decision` → `needs_user_action` → `needs_qa` → `verified` → `done` → `deferred` — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md)).
 
 SQLite cannot express that ordering on a text column, so both are backed by integer rank columns (`priorityRank`, `statusRank`) maintained by the service on every write. Any code path that sets `status` or `priority` **must** go through `applyTaskRanks()` or sorting silently breaks. See [Task_Priority.md](./Task_Priority.md).
 
@@ -206,3 +206,9 @@ The last one is worth stating explicitly: the **server rejects** an inverted dat
 
 - [../pages/Tasks_List.md](../pages/Tasks_List.md) — the only consumer of plain filtering
 - [Attention_Queue.md](./Attention_Queue.md) — `attention=true`, the inbox's query
+
+## Supervision ordering
+
+`attentionSince:asc` orders requests by when they entered human attention; ordinary edits do not reset the time. `unlocksCount:desc` ranks how many tasks in todo/blocked would have no unfinished dependency after this task finished, with the usual id tie-breaker. `dependentCount` in summaries reports all direct dependent links separately.
+
+`attention=true` excludes external blockers snoozed into the future. Combine it with `snoozed=true` to list those reminders instead. The inbox stores order, snoozed view, page, and page size in its URL and uses the standard pagination metadata. Focus mode continues through subsequent pages.

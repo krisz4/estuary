@@ -35,8 +35,9 @@ export const readHookInput = () => {
   }
 };
 
-const request = async (method, path, actor, body) => {
+const request = async (method, path, actor, body, sessionId) => {
   const headers = { Accept: "application/json", "X-Actor": actor };
+  if (sessionId !== undefined) headers["X-Claim-Session"] = sessionId;
   if (token !== undefined) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(`${apiUrl}${path}`, {
@@ -50,7 +51,8 @@ const request = async (method, path, actor, body) => {
 };
 
 export const getJson = (path, actor) => request("GET", path, actor);
-export const postJson = (path, actor, body) => request("POST", path, actor, body);
+export const postJson = (path, actor, body, sessionId) =>
+  request("POST", path, actor, body, sessionId);
 
 /* ------------------------------------------------------------------ *
  * Default project and actor.

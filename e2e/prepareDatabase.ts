@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { API_DIR, E2E_DATABASE_URL, E2E_DB_PATH } from "./env";
@@ -89,6 +89,9 @@ const run = (command: string, args: string[], extraEnv: NodeJS.ProcessEnv = {}):
 
 export const prepareDatabase = (): void => {
   removeDatabase();
+  // Some SQLite schema-engine builds cannot deploy to an absent file.
+  // This is the disposable test database, created before any server opens it.
+  writeFileSync(E2E_DB_PATH, "", { flag: "wx" });
 
   run(bin("prisma"), ["migrate", "deploy"]);
 

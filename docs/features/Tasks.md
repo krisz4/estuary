@@ -31,7 +31,7 @@ The single core resource. Everything else in the product — comments, decisions
 | `acceptanceCriteria` | `String?` | ≤5000 chars. Required (supplied or already stored) before a task can be `todo` — see [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) |
 | `status` | `String` | One of ten values, default `backlog`. See [Task_Status_Lifecycle.md](./Task_Status_Lifecycle.md) |
 | `statusNote` | `String?` | The "why" of the current status — reason, question, instructions, or summary. Replaced on every transition |
-| `concerns` | `String?` | ≤2000 chars. Optional on a `needs_qa` hand-off — what a reviewer must not miss. `null` = routine. Cleared on any transition out of `needs_qa`. See [Attention_Queue.md](./Attention_Queue.md) |
+| `concerns` | `String?` | ≤2000 chars. Optional on a `needs_qa` hand-off — what a reviewer must not miss. `null` = routine. Cleared on any transition out of `needs_qa`; not accepted on `verified`. See [Attention_Queue.md](./Attention_Queue.md) |
 | `priority` | `String` | `low` \| `medium` \| `high` \| `urgent`. Default `medium`. See [Task_Priority.md](./Task_Priority.md) |
 | `project` | `String?` | Lowercase slug grouping tasks by codebase/effort. Canonicalized on write so exact-match filtering is safe |
 | `assignee` | `String?` | Free-form name/handle of who is working it |

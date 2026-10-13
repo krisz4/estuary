@@ -1,3 +1,4 @@
+import { ExportTasksButton } from "@/features/tasks/ExportTasksButton";
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -44,6 +45,7 @@ export const CleanupDoneButton = ({ project }: { project: readonly string[] }) =
 
   return (
     <>
+      <ExportTasksButton project={project} />
       <Button
         variant="outline"
         onClick={() => setOpen(true)}
@@ -60,6 +62,9 @@ export const CleanupDoneButton = ({ project }: { project: readonly string[] }) =
         title="Clean up done tasks?"
         description={
           <>
+            <span className="mb-2 block">
+              <ExportTasksButton project={project} />
+            </span>
             Permanently delete {formatCount(doneCount, "done task")} in {scope}, with their comments
             and decisions. The Logbook keeps a record of each deletion. Tasks done for longer than
             the server&apos;s retention period (90 days by default) are removed automatically.

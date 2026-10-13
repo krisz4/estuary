@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Estuary** is an AI task manager: AI agents (Claude Code, via the MCP server in `apps/mcp`) and humans create, triage, claim, and hand off tasks across ten statuses, and humans answer agents' decisions and actions from an inbox. It began as a helpdesk code challenge ([docs/history/instructions.md](docs/history/instructions.md) is that original brief, kept for history). Runs on localhost and is self-hostable. Open source under **AGPL-3.0-only** ([LICENSE](LICENSE)); contributor workflow in [CONTRIBUTING.md](CONTRIBUTING.md). **No accounts and no user management** — who did what is a self-declared actor (`X-Actor`), and an optional shared `API_TOKEN` gates self-hosted instances ([docs/features/Actors.md](docs/features/Actors.md)). Do not add real auth.
+**Estuary** is an AI task manager: AI agents (Claude Code, via the MCP server in `apps/mcp`) and humans create, triage, claim, and hand off tasks across eleven statuses, and humans answer agents' decisions and actions from an inbox. It began as a helpdesk code challenge ([docs/history/instructions.md](docs/history/instructions.md) is that original brief, kept for history). Runs on localhost and is self-hostable. Open source under **AGPL-3.0-only** ([LICENSE](LICENSE)); contributor workflow in [CONTRIBUTING.md](CONTRIBUTING.md). **No accounts and no user management** — who did what is a self-declared actor (`X-Actor`), and an optional shared `API_TOKEN` gates self-hosted instances ([docs/features/Actors.md](docs/features/Actors.md)). Do not add real auth.
 
 ## Agent checklist (before finishing)
 
@@ -18,7 +18,7 @@ Standard scripts are in `package.json` (root and per-workspace). What isn't obvi
 
 - `pnpm dev` runs both apps via Turborepo → API on **4000**, web on **5173**. `pnpm dev:api` / `pnpm dev:web` run one.
 - **`db:*` scripts are always invoked as `pnpm --filter @estuary/api db:<script>`** from the repo root (they are defined in `apps/api/package.json` and resolve paths relative to it). Use that form everywhere, including in docs. The SQLite file lives at `apps/api/prisma/data/estuary.db` and is gitignored.
-- `db:reset` drops and re-seeds — destructive. `db:seed` generates 62 realistic tasks across three projects — every status represented, with comment threads, decisions, dependencies, and a matching event trail — so the map, list, and inbox have something to show; it is guarded by `ALLOW_SEED`, not `NODE_ENV`.
+- `db:reset` drops and re-seeds — destructive. `db:seed` generates 64 realistic tasks across three projects — every status represented, with comment threads, decisions, dependencies, and a matching event trail — so the map, list, and inbox have something to show; it is guarded by `ALLOW_SEED`, not `NODE_ENV`.
 - `pnpm test` = vitest across workspaces. API tests run against a **temp SQLite file per worker**, never the dev DB. E2E uses its own third database.
 - `pnpm test:e2e` = Playwright; it boots both apps itself via `webServer` config, on **dedicated ports** (API 4010, web 5183) against a third database at `e2e/estuary-e2e.db`. It never reuses a running `pnpm dev` — that would point the mutating specs at your local data.
 - OpenAPI spec is generated from the zod contracts: `pnpm --filter @estuary/api openapi:gen` → `apps/api/openapi.json`, served at `GET /docs`.
@@ -119,7 +119,7 @@ Specialised agents live in `.claude/agents/`. Prefer them for scoped work: `api-
 
 - **Status changes only through `POST /tasks/:id/transition`** (plus `next` / `claim` / `release` / decision answer / system auto-unblock). PATCH never carries `status`. What a target status requires lives in `transitionInputSchema`, not in a from→to table.
 - **Every task write** goes through `writeTask()` (version-conditional, bumps `version`) and records a `TaskEvent` in the same transaction. Heartbeats and comments deliberately don't bump `version`.
-- **Agents stop at `needs_qa`** unless `AGENTS_MAY_COMPLETE`; agents can't write tasks someone else holds a live claim on; humans can override both.
+- **Agents stop at `needs_qa` / `verified`**; only humans move to `done` unless `AGENTS_MAY_COMPLETE` is set; agents can't write tasks someone else holds a live claim on; humans can override both.
 - Spec: [docs/features/Task_Workflow_API.md](docs/features/Task_Workflow_API.md), [docs/features/Task_Status_Lifecycle.md](docs/features/Task_Status_Lifecycle.md).
 
 ## Out of scope (do not add unasked)

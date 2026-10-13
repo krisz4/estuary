@@ -1,3 +1,4 @@
+import { CheckpointPanel, VerificationPanel } from "@/features/tasks/VerificationPanel";
 import { type Task, type TaskStatus, type TransitionInput } from "@estuary/contracts";
 import { AlertTriangle, Check, ExternalLink, FolderGit2, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -190,10 +191,12 @@ export const TaskDetailView = ({
 
   /** Posts a move. The dialog awaits it; a direct pick fires and forgets. */
   const transition = (input: TransitionInput) =>
-    transitionMutation.mutateAsync({ taskId, input }).then((updated) => {
-      setPending(null);
-      announce(updated);
-    });
+    transitionMutation
+      .mutateAsync({ taskId, input: { ...input, expectedVersion: task.version } })
+      .then((updated) => {
+        setPending(null);
+        announce(updated);
+      });
 
   const changeStatus = (next: TaskStatus) => {
     setStatusError(null);
@@ -373,7 +376,12 @@ export const TaskDetailView = ({
             {!task.needsTriage ? null : (
               <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span>Suggested by an agent — not reviewed yet.</span>
-                <Button size="sm" variant="outline" isLoading={isAccepting} onClick={acceptSuggestion}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  isLoading={isAccepting}
+                  onClick={acceptSuggestion}
+                >
                   <Check aria-hidden="true" />
                   Accept
                 </Button>
@@ -381,6 +389,7 @@ export const TaskDetailView = ({
             )}
             {openDecision === null ? null : (
               <DecisionAnswer
+                expectedVersion={task.version}
                 taskId={task.id}
                 reference={task.reference}
                 decision={openDecision}
@@ -409,6 +418,12 @@ export const TaskDetailView = ({
               <p className="text-sm whitespace-pre-wrap text-foreground">{task.description}</p>
             </Section>
 
+            <CheckpointPanel checkpoint={task.checkpoint} />
+            {task.status === "needs_qa" ||
+            task.status === "verified" ||
+            task.verification != null ? (
+              <VerificationPanel evidence={task.verification} />
+            ) : null}
             <Section id="criteria-heading" title="Acceptance criteria">
               {task.acceptanceCriteria === null ? (
                 <p className="text-sm text-muted-foreground">

@@ -50,7 +50,12 @@ export const MAP_REGIONS: readonly MapRegion[] = [
     place: "headwaters",
     statuses: ["backlog", "needs_refinement", "todo"],
   },
-  { key: "doing", name: "DOING", place: "the reach", statuses: ["in_progress", "needs_qa"] },
+  {
+    key: "doing",
+    name: "DOING",
+    place: "the reach",
+    statuses: ["in_progress", "needs_qa", "verified"],
+  },
   {
     key: "waiting",
     name: "WAITING",
@@ -75,6 +80,7 @@ export const POOL_STATIONS: Record<TaskStatus, "attn" | "block" | undefined> = {
   todo: undefined,
   in_progress: undefined,
   needs_qa: "attn",
+  verified: "attn",
   done: undefined,
   deferred: undefined,
   blocked: "block",
@@ -622,8 +628,7 @@ export type BuildMapLayoutInput = {
 export const DONE_SETTLE_MS = 6 * 60 * 60 * 1000;
 export const MAX_LOOSE_DONE = 8;
 
-const shippedAt = (task: FloorTask): number =>
-  Date.parse(task.completedAt ?? task.updatedAt) || 0;
+const shippedAt = (task: FloorTask): number => Date.parse(task.completedAt ?? task.updatedAt) || 0;
 
 const emptyPriorityMix = (): Record<TaskPriority, number> => ({
   low: 0,

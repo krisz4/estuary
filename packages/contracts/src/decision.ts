@@ -78,6 +78,8 @@ export type DecisionRequest = z.infer<typeof decisionRequestSchema>;
  */
 export const answerDecisionInputSchema = z
   .object({
+    expectedVersion: z.number().int().positive().optional(),
+    decisionId: z.number().int().positive().optional(),
     choice: z.string().trim().min(1).max(DECISION_OPTION_LABEL_MAX).optional(),
     note: z.string().trim().min(1).max(DECISION_ANSWER_MAX).optional(),
   })

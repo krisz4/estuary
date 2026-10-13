@@ -23,7 +23,7 @@ export type LogbookZone = (typeof LOGBOOK_ZONES)[number];
 export const ZONE_STATUSES: Record<LogbookZone, readonly TaskStatus[]> = {
   planning: ["backlog", "needs_refinement", "todo"],
   build: ["in_progress"],
-  waiting: ["blocked", "needs_user_decision", "needs_user_action", "needs_qa"],
+  waiting: ["blocked", "needs_user_decision", "needs_user_action", "needs_qa", "verified"],
   shipped: ["done", "deferred"],
 };
 

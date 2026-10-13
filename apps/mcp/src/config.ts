@@ -2,7 +2,13 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 
-import { ACTOR_NAME_MAX, ACTOR_PATTERN, actorSchema, projectSchema } from "@estuary/contracts";
+import {
+  ACTOR_NAME_MAX,
+  ACTOR_PATTERN,
+  claimSessionIdSchema,
+  actorSchema,
+  projectSchema,
+} from "@estuary/contracts";
 import { z } from "zod";
 
 /**
@@ -54,6 +60,13 @@ const envSchema = z.object({
 
   /** Validated with the same schema the API applies to `X-Actor`, so a typo fails here, at boot. */
   TASKS_ACTOR: optionalString.pipe(actorSchema.optional()),
+  TASKS_SESSION_ID: optionalString.pipe(claimSessionIdSchema.optional()),
+  TASKS_CLIENT: optionalString.pipe(
+    z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9._-]{0,30}$/)
+      .optional(),
+  ),
 
   TASKS_API_TOKEN: optionalString,
 
@@ -69,6 +82,7 @@ export interface Config {
    * `TASKS_ACTOR`, else derived from the checkout — see `deriveActor`.
    */
   actor: string;
+  sessionId?: string;
   token: string | undefined;
   /**
    * What `task_create` and `task_next` use when the call names no project.
@@ -257,8 +271,12 @@ const ACTOR_HASH_LENGTH = 6;
  * A name past `ACTOR_NAME_MAX` is cut and suffixed with a hash of the whole
  * name, so two long worktree names sharing a prefix stay distinct.
  */
-export const deriveActor = (project: string | undefined, worktree: string | undefined): string => {
-  if (project === undefined) return DEFAULT_ACTOR;
+export const deriveActor = (
+  project: string | undefined,
+  worktree: string | undefined,
+  client = ACTOR_BASE_NAME,
+): string => {
+  if (project === undefined) return `agent:${client}`;
   const tree =
     worktree === undefined
       ? ""
@@ -266,7 +284,7 @@ export const deriveActor = (project: string | undefined, worktree: string | unde
           .toLowerCase()
           .replace(/[^a-z0-9._@-]+/g, "-")
           .replace(/^-+|-+$/g, "");
-  let name = `${ACTOR_BASE_NAME}@${project}${tree === "" ? "" : `/${tree}`}`;
+  let name = `${client}@${project}${tree === "" ? "" : `/${tree}`}`;
   if (name.length > ACTOR_NAME_MAX) {
     const hash = createHash("sha256").update(name).digest("hex").slice(0, ACTOR_HASH_LENGTH);
     name = `${name.slice(0, ACTOR_NAME_MAX - ACTOR_HASH_LENGTH - 1)}-${hash}`;
@@ -314,7 +332,9 @@ export const loadConfig = (
   const remote = info.originUrl === undefined ? undefined : parseRemoteUrl(info.originUrl);
   return {
     apiUrl: values.TASKS_API_URL,
-    actor: values.TASKS_ACTOR ?? deriveActor(defaultProject, worktreeName(info)),
+    actor:
+      values.TASKS_ACTOR ?? deriveActor(defaultProject, worktreeName(info), values.TASKS_CLIENT),
+    ...(values.TASKS_SESSION_ID === undefined ? {} : { sessionId: values.TASKS_SESSION_ID }),
     token: values.TASKS_API_TOKEN,
     defaultProject,
     githubRepo: remote?.githubRepo,

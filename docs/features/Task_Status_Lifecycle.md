@@ -1,7 +1,7 @@
 ---
 type: Feature
 title: Task status lifecycle
-description: The ten task statuses, what each means, what a transition into it requires, and the side effects it triggers.
+description: The eleven task statuses, what each means, what a transition into it requires, and the side effects it triggers.
 resource: apps/api/src/services/task-workflow.service.ts
 tags: [tasks, status, workflow, agents]
 status: canonical
@@ -12,7 +12,7 @@ status: canonical
 
 | Concern | Location |
 | ------- | -------- |
-| Enum, lanes, attention set | `TASK_STATUSES`, `TASK_STATUS_LANES`, `HUMAN_ATTENTION_STATUSES` in `packages/contracts/src/task.ts` |
+| Enum, lanes, attention set | `TASK_STATUSES`, `TASK_STATUS_LANES`, `HUMAN_ATTENTION_STATUSES`, `REVIEW_TASK_STATUSES` in `packages/contracts/src/task.ts` |
 | What each transition requires | `transitionInputSchema` in `packages/contracts/src/task-workflow.ts` |
 | Transition, claims, decisions, unblocking | `apps/api/src/services/task-workflow.service.ts`, `task-guards.ts` |
 | Ranks, status note, timestamps (pure) | `apps/api/src/services/task-status.ts` |
@@ -31,11 +31,12 @@ The array order is the persisted `statusRank`, so "sort by status" follows this 
 | 4 | `blocked` | waiting | Waiting on other tasks (`blockedBy`) or an external reason | agent |
 | 5 | `needs_user_decision` | waiting | An agent asked a question with options and cannot proceed without an answer | agent |
 | 6 | `needs_user_action` | waiting | A human must do something manual (credentials, a console click, a purchase) | agent |
-| 7 | `needs_qa` | doing | Work done; a human (or QA agent) verifies it | agent |
-| 8 | `done` | closed | Verified complete. **Agents cannot move here** unless `AGENTS_MAY_COMPLETE=true` | human |
-| 9 | `deferred` | closed | Parked on purpose — the fallback when no other status applies, always with a reason | anyone |
+| 7 | `needs_qa` | doing | Work done; a human verifies it (anything failed, skipped, or worth a look) | agent |
+| 8 | `verified` | doing | An agent QA'd its own work with passing evidence (device scenarios or a reasoned `not_needed`); a human signs it off | agent |
+| 9 | `done` | closed | Verified complete. **Humans only** — an agent gets `ACTOR_NOT_PERMITTED` unless `AGENTS_MAY_COMPLETE=true` | human |
+| 10 | `deferred` | closed | Parked on purpose — the fallback when no other status applies, always with a reason | anyone |
 
-`needs_user_decision`, `needs_user_action`, and `needs_qa` (`HUMAN_ATTENTION_STATUSES`) are the three statuses where an agent explicitly stopped and asked. They are a subset of the broader **attention queue** — `needs_refinement`, an un-triaged `backlog`/`todo` suggestion, and a `blocked` task with no unfinished dependency also sit in front of a person, for reasons nothing about their status alone declares. `GET /tasks/stats`'s `needsAttention` counts the whole attention set, not just these three. See [Attention_Queue.md](./Attention_Queue.md) for the six kinds, `needsTriage`, and `concerns`.
+`needs_user_decision`, `needs_user_action`, `needs_qa`, and `verified` (`HUMAN_ATTENTION_STATUSES`; the last two are `REVIEW_TASK_STATUSES`) are the statuses where an agent explicitly stopped and asked. They are a subset of the broader **attention queue** — `needs_refinement`, an un-triaged `backlog`/`todo` suggestion, and a `blocked` task with no unfinished dependency also sit in front of a person, for reasons nothing about their status alone declares. `GET /tasks/stats`'s `needsAttention` counts the whole attention set, not just these three. See [Attention_Queue.md](./Attention_Queue.md) for the six kinds, `needsTriage`, and `concerns`.
 
 ## Transitions
 
@@ -51,7 +52,8 @@ The array order is the persisted `statusRank`, so "sort by status" follows this 
 | `needs_user_decision` | **`decision`**: `question`, `options` (2–6 unique labels), `recommendedOption?` (one of the labels), `context?` | creates a `Decision`; withdraws any older open one |
 | `needs_user_action` | **`instructions`** | — |
 | `needs_qa` | **`summary`**, `links?`, `concerns?`, `followUps?` | links are appended to the task's links, de-duplicated by URL. `concerns`: what a reviewer must not miss (omit for a routine hand-off). `followUps` (max 10): work found but not done, filed as subtasks — see [Attention_Queue.md](./Attention_Queue.md) |
-| `done` | `reason?` | agent actors → `ACTOR_NOT_PERMITTED` (403) unless `AGENTS_MAY_COMPLETE` |
+| `verified` | **`summary`** (→ `statusNote`), **`verification`**, `links?`, `followUps?` | `verification` must pass `qualifiesForVerified` (every check/criterion passed, every device scenario passed, `qa` present) or 422 `VALIDATION_ERROR` on `verification`. No `concerns` — use `needs_qa` for anything a reviewer must not miss. Any actor may do it: the payload is the gate. Stored `verification` is kept when a human later moves the task to `done` |
+| `done` | `reason?` | agent actors → `ACTOR_NOT_PERMITTED` (403) unless `AGENTS_MAY_COMPLETE`. Keeps the stored `verification` |
 | `deferred` | **`reason`** | — |
 
 Every transition body also accepts `expectedVersion` (→ `VERSION_CONFLICT` on mismatch).
@@ -80,7 +82,7 @@ Applied in the same write as the status:
 | `statusNote` replaced | Every transition: `reason` / `instructions` / `summary` / the decision's question, or `null` |
 | `concerns` set or cleared | Set only by a `needs_qa` transition (from its optional `concerns`); **any** other transition clears it, including `needs_qa → needs_qa` with no `concerns` sent |
 | `needsTriage` cleared | A human actor's transition; an agent transitioning to `in_progress`, `done`, or `deferred`. An agent moving its own suggestion to any other status (e.g. refining it into `todo`) leaves it set — see [Attention_Queue.md](./Attention_Queue.md) |
-| follow-ups filed | `needs_qa` transition and `release`, from their optional `followUps` — each a subtask, see [Attention_Queue.md](./Attention_Queue.md) |
+| follow-ups filed | `needs_qa` or `verified` transition and `release`, from their optional `followUps` — each a subtask, see [Attention_Queue.md](./Attention_Queue.md) |
 | `statusRank` recomputed | Every status write, via `applyTaskRanks()` — the only writer |
 | `startedAt = now` | First entry into `in_progress` only; never cleared |
 | `completedAt = now` | → `done` |
@@ -106,7 +108,7 @@ No client keeps its own copy of these rules beyond the shared contract: the web 
 | `VERSION_CONFLICT` | 409 | `expectedVersion` mismatch |
 | `TASK_ALREADY_CLAIMED` | 409 | An agent writing a task someone else holds a live claim on |
 | `DEPENDENCY_CYCLE` | 409 | A `blockedBy` entry would close a loop |
-| `ACTOR_NOT_PERMITTED` | 403 | An agent moving a task to `done` without `AGENTS_MAY_COMPLETE` |
+| `ACTOR_NOT_PERMITTED` | 403 | An agent moving a task to `done` while `AGENTS_MAY_COMPLETE` is off |
 | `TASK_NOT_FOUND` | 404 | No such task |
 
 ## Related

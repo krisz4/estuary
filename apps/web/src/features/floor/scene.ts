@@ -88,6 +88,7 @@ export const STATION: Record<TaskStatus, Pt> = {
   todo: [0.27, 0.33],
   in_progress: [0.4, 0.35],
   needs_qa: [0.68, 0.355],
+  verified: [0.81, 0.37],
   done: [0.93, 0.365],
   deferred: [0.855, 0.12],
   blocked: [0.43, 0.64],
@@ -127,6 +128,15 @@ export const HUMAN_STATION_MARK: Partial<
       "M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
     ],
     verb: "to review",
+  },
+  // Lucide `BadgeCheck`: same "review" verb, drawn as a check so the plate
+  // reads as "the agent already verified this".
+  verified: {
+    icon: [
+      "M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z",
+      "m9 12 2 2 4-4",
+    ],
+    verb: "to sign off",
   },
 };
 
@@ -198,8 +208,7 @@ export type SceneGeometry = {
  * would flood the right third of the map.
  */
 const hwMain = (u: number, BS: number, riverScale: number): number =>
-  BS *
-  ((6 + 9 * Math.max(0, u)) * riverScale + Math.pow(Math.max(0, u - 0.8), 1.5) * 330);
+  BS * ((6 + 9 * Math.max(0, u)) * riverScale + Math.pow(Math.max(0, u - 0.8), 1.5) * 330);
 
 const cumLen = (poly: [number, number][]): number[] => {
   const l = [0];
@@ -664,6 +673,7 @@ const STATION_CHANNEL: Record<TaskStatus, ChannelKey> = {
   todo: "main",
   in_progress: "main",
   needs_qa: "main",
+  verified: "main",
   done: "main",
   blocked: "loop",
   needs_user_decision: "loop",
@@ -761,7 +771,10 @@ export const placeBeads = (
   // The first and last channel samples inside the map frame (with a bead of
   // margin), in each channel's own index space.
   const inFrame = ([x, y]: [number, number]): boolean =>
-    x >= 16 + spacing && x <= geometry.W - 16 - spacing && y >= 16 + spacing && y <= geometry.H - 16 - spacing;
+    x >= 16 + spacing &&
+    x <= geometry.W - 16 - spacing &&
+    y >= 16 + spacing &&
+    y <= geometry.H - 16 - spacing;
   const firstVisible = {} as Record<ChannelKey, number>;
   const lastVisible = {} as Record<ChannelKey, number>;
   for (const key of Object.keys(channels) as ChannelKey[]) {
@@ -818,7 +831,11 @@ export const placeBeads = (
     for (let row = -maxRow; row <= maxRow; row += 1) {
       const c = row * dy;
       const shift = Math.abs(row) % 2 === 1 ? spacing / 2 : 0;
-      for (let k = -Math.ceil(upSpan / spacing) - 1; k <= Math.ceil(downSpan / spacing) + 1; k += 1) {
+      for (
+        let k = -Math.ceil(upSpan / spacing) - 1;
+        k <= Math.ceil(downSpan / spacing) + 1;
+        k += 1
+      ) {
         const a = k * spacing + shift;
         if (a < -upSpan || a > downSpan) continue;
         const { hw } = channelPoint(ch, s0 + a);
@@ -846,8 +863,7 @@ export const placeBeads = (
       const groupRank = new Map(sectorGroups.map((g, i) => [g.key, i]));
       ordered = [...cluster.beads].sort(
         (p, q) =>
-          (groupRank.get(p.groupKey) ?? 0) - (groupRank.get(q.groupKey) ?? 0) ||
-          p.order - q.order,
+          (groupRank.get(p.groupKey) ?? 0) - (groupRank.get(q.groupKey) ?? 0) || p.order - q.order,
       );
     } else {
       beadSlots = chosen.slice(0, cluster.beads.length);

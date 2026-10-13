@@ -30,6 +30,7 @@ import { ActorBadge } from "@/features/tasks/ActorBadge";
  */
 export type DecisionAnswerProps = {
   taskId: number;
+  expectedVersion?: number;
   reference: string;
   decision: Decision;
   /** Heading level for the question, so it nests correctly on both pages. */
@@ -38,6 +39,7 @@ export type DecisionAnswerProps = {
 
 export const DecisionAnswer = ({
   taskId,
+  expectedVersion,
   reference,
   decision,
   headingLevel = 3,
@@ -64,7 +66,11 @@ export const DecisionAnswer = ({
 
     setError(undefined);
     setPending(key);
-    const input: AnswerDecisionInput = parsed.data;
+    const input: AnswerDecisionInput = {
+      ...parsed.data,
+      decisionId: decision.id,
+      ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    };
 
     // `mutateAsync`: answering takes the task out of `needs_user_decision`,
     // which unmounts this panel (on the inbox *and* on the detail page) once

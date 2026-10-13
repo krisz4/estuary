@@ -1,7 +1,8 @@
 import { formatReference, type TaskSummary } from "@estuary/contracts";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { queryKeys } from "@/api/queryKeys";
 import { DISMISS_REASON, HAND_BACK_NOTE, PARK_REASON } from "@/pages/inbox/InboxItem";
 import { useProjectScopeStore } from "@/stores/projectScope";
 import { InboxPage } from "@/pages/inbox/InboxPage";
@@ -24,6 +25,12 @@ vi.mock("sonner", () => ({ toast }));
  * every hand-back through the real request path: the right transition, the
  * right payload, and — for a QA send-back — the comment that goes with it.
  */
+
+const passingVerification = {
+  commit: "a".repeat(40),
+  checks: [{ command: "pnpm test", result: "passed" as const }],
+  criteria: [{ criterion: "Requests over 10/min get a 429.", result: "passed" as const }],
+};
 
 const task = (id: number, overrides: Partial<TaskSummary>): TaskSummary =>
   makeSummary({ id, reference: formatReference(id), title: `Task ${id}`, ...overrides });
@@ -49,14 +56,14 @@ const qaTask = task(9, {
 
 const renderInbox = (handlers: Record<string, RouteHandler>, initialEntry = "/inbox") => {
   const api = mockApi(handlers);
-  const { router } = renderRoute({
+  const { router, queryClient } = renderRoute({
     routes: [
       { path: "/inbox", element: <InboxPage /> },
       { path: "/tasks/map", element: <div>Map</div> },
     ],
     initialEntries: [initialEntry],
   });
-  return { ...api, router };
+  return { ...api, router, queryClient };
 };
 
 const inboxList =
@@ -74,6 +81,40 @@ beforeEach(() => {
 });
 
 describe("InboxPage — states", () => {
+  it("reaches items beyond the first hundred and preserves the selected order", async () => {
+    const user = userEvent.setup();
+    const first = Array.from({ length: 100 }, (_, index) =>
+      task(index + 1, { status: "needs_user_action" }),
+    );
+    const last = task(101, { status: "needs_user_action" });
+    const { requests, router } = renderInbox(
+      {
+        "GET /tasks": ({ url }) => {
+          const page = Number(url.searchParams.get("page"));
+          return {
+            body: {
+              data: page === 1 ? first : [last],
+              meta: {
+                page,
+                pageSize: 100,
+                total: 101,
+                totalPages: 2,
+                hasNextPage: page === 1,
+                hasPrevPage: page === 2,
+              },
+            },
+          };
+        },
+      },
+      "/inbox?project=estuary&sort=attentionSince:asc",
+    );
+    await user.click(await screen.findByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("Task 101", { exact: true })).toBeInTheDocument();
+    expect(router.state.location.search).toContain("page=2");
+    const lastRequest = requests.at(-1)!;
+    expect(lastRequest.url.searchParams.get("sort")).toBe("attentionSince:asc");
+    expect(lastRequest.url.searchParams.getAll("project")).toEqual(["estuary"]);
+  });
   it("shows a skeleton while loading, then the groups", async () => {
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
@@ -173,6 +214,8 @@ describe("InboxPage — decisions", () => {
 
     await waitFor(() => expect(posted(requests, "/decision/answer")).toHaveLength(1));
     expect(posted(requests, "/decision/answer")[0]?.body).toEqual({
+      expectedVersion: 3,
+      decisionId: 7,
       choice: "Fixed window",
       note: "Keep the old endpoint unlimited for a release.",
     });
@@ -197,6 +240,8 @@ describe("InboxPage — decisions", () => {
 
     await waitFor(() => expect(posted(requests, "/decision/answer")).toHaveLength(1));
     expect(posted(requests, "/decision/answer")[0]?.body).toEqual({
+      expectedVersion: 3,
+      decisionId: 7,
       note: "Neither — use the gateway's limiter.",
     });
   });
@@ -239,6 +284,7 @@ describe("InboxPage — manual actions", () => {
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
     expect(posted(requests, "/transition")[0]?.body).toEqual({
+      expectedVersion: 3,
       to: "todo",
       reason: HAND_BACK_NOTE,
     });
@@ -257,7 +303,7 @@ describe("InboxPage — manual actions", () => {
     await user.click(await screen.findByRole("button", { name: "Mark done" }));
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
-    expect(posted(requests, "/transition")[0]?.body).toEqual({ to: "done" });
+    expect(posted(requests, "/transition")[0]?.body).toEqual({ expectedVersion: 3, to: "done" });
   });
 
   it("asks for acceptance criteria before handing back a task that has none", async () => {
@@ -297,7 +343,7 @@ describe("InboxPage — QA", () => {
     await user.click(await screen.findByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
-    expect(posted(requests, "/transition")[0]?.body).toEqual({ to: "done" });
+    expect(posted(requests, "/transition")[0]?.body).toEqual({ expectedVersion: 3, to: "done" });
   });
 
   it("sends back to To do with the reason, and leaves a qa_feedback comment", async () => {
@@ -324,6 +370,7 @@ describe("InboxPage — QA", () => {
 
     await waitFor(() => expect(posted(requests, "/comments")).toHaveLength(1));
     expect(posted(requests, "/transition")[0]?.body).toEqual({
+      expectedVersion: 3,
       to: "todo",
       reason: "The 429 has no Retry-After header.",
     });
@@ -438,6 +485,7 @@ describe("InboxPage — review: routine vs concerns", () => {
     title: "Routine hand-off",
     statusNote: "Added the throttle; ran the suite locally.",
     concerns: null,
+    verification: passingVerification,
   });
 
   const flaggedQaTask = task(21, {
@@ -472,18 +520,61 @@ describe("InboxPage — review: routine vs concerns", () => {
   });
 });
 
+describe("InboxPage — verified", () => {
+  const verifiedTask = task(40, {
+    status: "verified",
+    title: "Verified export",
+    statusNote: "QA'd on the simulator.",
+    concerns: null,
+    verification: passingVerification,
+  });
+  const verifiedTwo = task(41, {
+    status: "verified",
+    title: "Verified import",
+    statusNote: "No device needed.",
+    concerns: null,
+    verification: passingVerification,
+  });
+
+  it("groups a verified item with review, marked 'Agent verified', and approves it to done", async () => {
+    const user = userEvent.setup();
+    const { requests } = renderInbox({
+      "GET /tasks": inboxList([qaTask, verifiedTask]),
+      "POST /tasks/40/transition": () => ({ body: makeTask({ id: 40, status: "done" }) }),
+    });
+
+    const article = (await screen.findByText("Verified export")).closest("article")!;
+    expect(within(article).getByText("Agent verified")).toBeInTheDocument();
+    const qaArticle = screen.getByText("Rate-limit exports").closest("article")!;
+    expect(within(qaArticle).queryByText("Agent verified")).not.toBeInTheDocument();
+
+    await user.click(within(article).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(posted(requests, "/tasks/40/transition")).toHaveLength(1));
+    expect(posted(requests, "/tasks/40/transition")[0]!.body).toMatchObject({ to: "done" });
+  });
+
+  it("includes verified items in the batch approval", async () => {
+    renderInbox({ "GET /tasks": inboxList([verifiedTask, verifiedTwo]) });
+    expect(
+      await screen.findByRole("button", { name: "Approve all routine (2)" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("InboxPage — approve all routine", () => {
   const routineA = task(30, {
     status: "needs_qa",
     title: "Routine A",
     statusNote: "Done.",
     concerns: null,
+    verification: passingVerification,
   });
   const routineB = task(31, {
     status: "needs_qa",
     title: "Routine B",
     statusNote: "Done.",
     concerns: null,
+    verification: passingVerification,
   });
   const flagged = task(32, {
     status: "needs_qa",
@@ -524,6 +615,56 @@ describe("InboxPage — approve all routine", () => {
     await screen.findByText("Routine A");
     expect(screen.queryByRole("button", { name: /Approve all routine/ })).not.toBeInTheDocument();
   });
+
+  it("excludes missing and failed evidence from batch approval", async () => {
+    renderInbox({
+      "GET /tasks": inboxList([
+        routineA,
+        { ...routineB, verification: null },
+        {
+          ...routineB,
+          id: 35,
+          title: "Failed check",
+          verification: {
+            ...passingVerification,
+            checks: [{ command: "pnpm test", result: "failed" }],
+          },
+        },
+      ]),
+    });
+    await screen.findByText("Failed check");
+    expect(screen.queryByRole("button", { name: /Approve all routine/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/No verification evidence supplied/)).toBeInTheDocument();
+  });
+
+  it("approves the versions captured before a refreshed handoff changes them", async () => {
+    const user = userEvent.setup();
+    let rows = [routineA, routineB];
+    const { requests, queryClient } = renderInbox({
+      "GET /tasks": () => ({ body: makePage(rows, 100) }),
+      "POST /tasks/30/transition": () => ({
+        status: 409,
+        body: { error: { code: "VERSION_CONFLICT", message: "Changed", requestId: "batch" } },
+      }),
+      "POST /tasks/31/transition": () => ({ body: makeTask({ id: 31, status: "done" }) }),
+    });
+    await user.click(await screen.findByRole("button", { name: "Approve all routine (2)" }));
+    rows = [{ ...routineA, version: 4, statusNote: "Changed after review" }, routineB];
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() });
+    });
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Approve all" }),
+    );
+    await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(2));
+    expect(posted(requests, "/transition")[0]?.body).toEqual({ to: "done", expectedVersion: 3 });
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "1 task approved, 1 task failed",
+        expect.any(Object),
+      ),
+    );
+  });
 });
 
 describe("InboxPage — refine", () => {
@@ -562,6 +703,7 @@ describe("InboxPage — refine", () => {
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
     expect(posted(requests, "/transition")[0]?.body).toEqual({
+      expectedVersion: 3,
       to: "todo",
       acceptanceCriteria: "Exporting produces a CSV with one row per task.",
       reason: "CSV, not JSON.",
@@ -579,6 +721,7 @@ describe("InboxPage — refine", () => {
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
     expect(posted(requests, "/transition")[0]?.body).toEqual({
+      expectedVersion: 3,
       to: "deferred",
       reason: DISMISS_REASON,
     });
@@ -622,6 +765,7 @@ describe("InboxPage — suggested", () => {
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
     expect(posted(requests, "/transition")[0]?.body).toEqual({
+      expectedVersion: 3,
       to: "deferred",
       reason: DISMISS_REASON,
     });
@@ -659,7 +803,7 @@ describe("InboxPage — blocked outside", () => {
     await user.click(await screen.findByRole("button", { name: "Unblock" }));
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
-    expect(posted(requests, "/transition")[0]?.body).toEqual({ to: "todo" });
+    expect(posted(requests, "/transition")[0]?.body).toEqual({ expectedVersion: 3, to: "todo" });
   });
 
   it("parks with a fixed reason, one click, no dialog", async () => {
@@ -673,6 +817,7 @@ describe("InboxPage — blocked outside", () => {
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
     expect(posted(requests, "/transition")[0]?.body).toEqual({
+      expectedVersion: 3,
       to: "deferred",
       reason: PARK_REASON,
     });

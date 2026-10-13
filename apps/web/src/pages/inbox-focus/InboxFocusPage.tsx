@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, ExternalLink, Inbox, Map as MapIcon, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { getTask, useInboxQuery, useTaskQuery } from "@/api/tasks";
+import { getTask, useInfiniteInboxQuery, useTaskQuery } from "@/api/tasks";
 import { queryKeys } from "@/api/queryKeys";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorPanel } from "@/components/ErrorPanel";
@@ -86,9 +86,22 @@ const isTypingTarget = (target: EventTarget | null) =>
 const FocusSession = ({ projects, kind }: { projects: string[]; kind: AttentionKind | null }) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data, error, isPending, isFetching, refetch } = useInboxQuery(projects);
+  const {
+    data,
+    error,
+    isPending,
+    isFetching,
+    refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteInboxQuery(projects);
 
-  const allTasks = data?.data ?? [];
+  const allTasks = [
+    ...new Map(
+      (data?.pages.flatMap((page) => page.data) ?? []).map((task) => [task.id, task]),
+    ).values(),
+  ];
   // Inbox reading order — by kind, then priority — so a session that starts
   // fresh walks the queue exactly as the inbox page lists it.
   const ordered = groupByAttentionKind(allTasks)
@@ -114,6 +127,9 @@ const FocusSession = ({ projects, kind }: { projects: string[]; kind: AttentionK
   if (currentId !== cursor && currentId !== null) setCursor(currentId);
 
   const current = currentId === null ? undefined : byId.get(currentId);
+  useEffect(() => {
+    if (current === undefined && hasNextPage && !isFetching && error === null) void fetchNextPage();
+  }, [current, hasNextPage, isFetching, error, fetchNextPage]);
   const steps = currentId === null ? null : stepsFrom(merged, live, currentId);
   const cleared = merged.length - live.size;
 
@@ -201,6 +217,15 @@ const FocusSession = ({ projects, kind }: { projects: string[]; kind: AttentionK
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+      {hasNextPage ? (
+        <Button
+          variant="outline"
+          isLoading={isFetchingNextPage}
+          onClick={() => void fetchNextPage()}
+        >
+          Load more waiting items
+        </Button>
+      ) : null}
       <header className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
@@ -260,7 +285,7 @@ const FocusSession = ({ projects, kind }: { projects: string[]; kind: AttentionK
         <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />
       ) : null}
 
-      {isPending ? (
+      {isPending || (current === undefined && hasNextPage && error === null) ? (
         <FocusSkeleton />
       ) : error !== null && data === undefined ? (
         <ErrorPanel error={error} onRetry={() => void refetch()} isRetrying={isFetching} />

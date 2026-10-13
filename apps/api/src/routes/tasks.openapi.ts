@@ -13,6 +13,7 @@ import {
   taskIdParamSchema,
   taskListQuerySchema,
   taskStatsQuerySchema,
+  taskExportSchema,
   transitionInputSchema,
   updateTaskInputSchema,
 } from "@estuary/contracts";
@@ -116,6 +117,7 @@ export const QUERY_DESCRIPTIONS: Record<string, string> = {
     "Exact actor that created the task, e.g. agent:claude-code. Lowercased before matching, like the stored value; GET /tasks/facets lists the creators present.",
   claimedBy:
     "Exact actor holding the task's claim, e.g. agent:claude-code — lowercased before matching. Matches the stored holder even after the lease expired, so an agent can find the work it was doing before a crash.",
+  snoozed: "With attention=true, select future-snoozed blockers instead of active attention items.",
   attention:
     "true returns everything waiting on a person — needs_user_decision, needs_user_action, needs_qa, needs_refinement, agent-filed backlog/todo nobody has triaged yet (needsTriage), and tasks blocked on an outside reason only (no unfinished dependency). false returns the rest. GET /tasks/stats counts the same set as needsAttention.",
   parentId: "Only the direct subtasks of this task id. Decimal digits only.",
@@ -391,18 +393,20 @@ function registerWorkflowPaths(): void {
       "| needs_user_decision | `decision`: question, 2–6 options, optional recommendation |",
       "| needs_user_action | `instructions` |",
       "| needs_qa | `summary`; optional `links` are appended |",
+      "| verified | `summary` and `verification` — every check, criterion, and device scenario passed, with `qa` evidence; optional `links`, `followUps` |",
+      "| done | nothing |",
       "| deferred | `reason` |",
       "",
       "The reason / instructions / summary / question becomes `statusNote`, replacing the previous one. Entering in_progress claims the task for the caller; leaving it drops the claim. Leaving needs_user_decision withdraws the open decision. Reaching done stamps completedAt and unblocks dependents whose dependencies are now all done. A needs_qa hand-off may carry concerns (what a reviewer must not miss; omit for routine work) and followUps, each filed as a needsTriage subtask — todo with acceptance criteria, needs_refinement without. A person's transition, a claim, done, or deferred clears needsTriage.",
       "",
-      "An `agent:` actor may not move a task to done unless the server runs with AGENTS_MAY_COMPLETE=true.",
+      'An `agent:` actor may not move a task to done unless the server runs with AGENTS_MAY_COMPLETE=true. An agent that QA\'d its own work uses verified, with `verification` whose checks and criteria all passed and whose `qa` is `{ method: "device", target, scenarios }` (every scenario passed) or `{ method: "not_needed", reason }`. A human then moves verified (or needs_qa) to done, which keeps the stored verification.',
     ].join("\n"),
     request: { params: taskId, body: jsonBody(transitionInputSchema) },
     responses: {
       200: taskResponse("The task in its new status."),
       ...bodyParserResponses(),
       403: errorResponse(
-        "ACTOR_NOT_PERMITTED: an agent tried to move the task to done while AGENTS_MAY_COMPLETE is off. Agents hand finished work to needs_qa.",
+        "ACTOR_NOT_PERMITTED: an agent tried to move the task to done while AGENTS_MAY_COMPLETE is off. Agents hand work to needs_qa or verified.",
         ["ACTOR_NOT_PERMITTED"],
       ),
       404: TASK_404(),
@@ -542,6 +546,20 @@ function registerWorkflowPaths(): void {
 
 /** Registers every task and workflow operation. Called once, by `getOpenApiDocument()`. */
 export function registerTaskPaths(): void {
+  registerV1Path({
+    method: "get",
+    path: "/api/v1/tasks/export",
+    tags: ["Tasks"],
+    summary: "Export tasks, comments, decisions and events as JSON",
+    request: { query: buildTaskStatsQueryParams() },
+    responses: {
+      200: {
+        description: "Consistent snapshot in the requested project scope.",
+        content: { "application/json": { schema: taskExportSchema } },
+      },
+      422: VALIDATION_422("Invalid project filter."),
+    },
+  });
   registerResourcePaths();
   registerWorkflowPaths();
 }

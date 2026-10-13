@@ -47,8 +47,9 @@ describe("rank tables", () => {
       needs_user_decision: 5,
       needs_user_action: 6,
       needs_qa: 7,
-      done: 8,
-      deferred: 9,
+      verified: 8,
+      done: 9,
+      deferred: 10,
     });
   });
 
@@ -70,7 +71,7 @@ describe("applyTaskRanks", () => {
     expect(applyTaskRanks({ status: "done", priority: "urgent" })).toEqual({
       status: "done",
       priority: "urgent",
-      statusRank: 8,
+      statusRank: 9,
       priorityRank: 3,
     });
   });
@@ -111,6 +112,18 @@ describe("statusNoteFor", () => {
   it("uses the summary for needs_qa", () => {
     expect(statusNoteFor(transition({ to: "needs_qa", summary: "Added retries; run e2e" }))).toBe(
       "Added retries; run e2e",
+    );
+  });
+
+  it("uses the summary for verified", () => {
+    const verification = {
+      commit: "abc1234",
+      checks: [{ command: "pnpm test", result: "passed" as const }],
+      criteria: [{ criterion: "It works", result: "passed" as const }],
+      qa: { method: "not_needed" as const, reason: "Covered by tests" },
+    };
+    expect(statusNoteFor(transition({ to: "verified", summary: "QA'd it", verification }))).toBe(
+      "QA'd it",
     );
   });
 

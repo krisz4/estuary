@@ -49,6 +49,7 @@ export async function addComment(
   taskId: number,
   input: CreateCommentInput,
   actor: string,
+  sessionId?: string,
 ): Promise<Comment> {
   const row = await writeTransaction(async (tx) => {
     const parent = await tx.task.findUnique({ where: { id: taskId }, select: guardedSelect });
@@ -64,7 +65,7 @@ export async function addComment(
       payload: { commentId: comment.id, kind: input.kind },
     });
 
-    const lease = renewedLease(parent, actor, new Date());
+    const lease = renewedLease(parent, actor, new Date(), sessionId);
     if (lease.claimExpiresAt !== undefined) {
       await tx.task.update({ where: { id: taskId }, data: lease });
     }

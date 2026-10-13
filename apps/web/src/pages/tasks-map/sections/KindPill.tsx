@@ -1,5 +1,5 @@
 import { type AttentionKind } from "@estuary/contracts";
-import { Ban, Eye, Hand, Lightbulb, PenLine, Split } from "lucide-react";
+import { Ban, BadgeCheck, Eye, Hand, Lightbulb, PenLine, Split } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ATTENTION_GROUP_META } from "@/pages/inbox/attentionGroups";
 
@@ -18,7 +18,17 @@ const KIND_ICON = {
  * else; they differ by icon, so they are told apart by shape at a glance
  * without spending more hues on it.
  */
-export const KindPill = ({ kind, className }: { kind: AttentionKind; className?: string }) => {
+export const KindPill = ({
+  kind,
+  className,
+  verified = false,
+}: {
+  kind: AttentionKind;
+  className?: string;
+  /** A `verified` task: the agent already QA'd it, so the pill says so (green, not amber). */
+  verified?: boolean;
+}) => {
+  if (verified) return <AgentVerifiedPill className={className} />;
   const Icon = KIND_ICON[kind];
   return (
     <span
@@ -33,3 +43,17 @@ export const KindPill = ({ kind, className }: { kind: AttentionKind; className?:
     </span>
   );
 };
+
+/** "Agent verified" — distinct from "Needs QA": the evidence is already in and a human signs off. */
+export const AgentVerifiedPill = ({ className }: { className?: string }) => (
+  <span
+    className={cn(
+      "inline-flex shrink-0 items-center gap-1 rounded-full bg-success-subtle px-1.5 py-0.5",
+      "text-[10px] font-semibold tracking-wide text-success-subtle-foreground uppercase",
+      className,
+    )}
+  >
+    <BadgeCheck className="size-3" aria-hidden="true" />
+    Agent verified
+  </span>
+);

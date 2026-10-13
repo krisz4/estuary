@@ -95,11 +95,17 @@ test("creates a To do task with a project and criteria, then finds it by project
   /* ------------------------------- List -------------------------------- */
 
   /*
-    Back to the list through the header's own link — a client-side navigation,
-    not a `page.goto`. A full reload would start from an empty query cache and
-    prove nothing about invalidation.
+    Back to the list through the header's wordmark (home, the map) and the
+    map's List ⇄ Map switch — client-side navigations, not a `page.goto`. A
+    full reload would start from an empty query cache and prove nothing about
+    invalidation.
   */
   await page.getByRole("banner").getByRole("link", { name: "Estuary", exact: true }).click();
+  await expect(page).toHaveURL(/\/tasks\/map$/);
+  await page
+    .getByRole("navigation", { name: "Task view" })
+    .getByRole("link", { name: "List" })
+    .click();
   await expect(page).toHaveURL(/\/tasks$/);
 
   const firstRow = tableRows(page).first();

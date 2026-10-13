@@ -264,6 +264,12 @@ const toPayload = (
       case "deferred":
         return { to: values.to, reason: required("reason", values.reason, REQUIRED_COPY.deferred) };
 
+      // Not offered to humans (it needs structured QA evidence); reported
+      // rather than sent should a caller ever ask for it.
+      case "verified":
+        issues.push({ path: "to", message: "Verified is set by an agent with QA evidence" });
+        return { to: values.to };
+
       case "backlog":
       case "in_progress":
       case "done": {
@@ -608,6 +614,13 @@ const TargetFields = ({
           </Field>
           <LinkRows register={register} control={control} errors={errors} />
         </>
+      );
+
+    case "verified":
+      return (
+        <p className="text-sm text-muted-foreground">
+          Verified is set by an agent with QA evidence. Use Done to sign it off.
+        </p>
       );
 
     case "deferred":

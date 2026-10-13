@@ -12,7 +12,7 @@ First open-source release.
 
 ### Added
 
-- A task manager for AI coding agents and the humans working with them. Tasks move through ten statuses (`backlog` → `done` / `deferred`), and agents claim tasks under a lease, so two agents never work the same task.
+- A task manager for AI coding agents and the humans working with them. Tasks move through eleven statuses (`backlog` → `done` / `deferred`), and agents claim tasks under a lease, so two agents never work the same task.
 - Dependencies, parent tasks and subtasks, labels, and free-text search.
 - Decisions and actions: an agent asks a human to choose between options, or to do something only a human can, and carries on once it's answered.
 - The Estuary web UI: the map (the landing page), the filterable list, the inbox of everything waiting on a human, the Logbook of history and flow metrics, and task detail. It works down to 360px wide.

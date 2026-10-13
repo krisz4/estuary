@@ -64,6 +64,7 @@ const floorSnapshot = (tasks: FloorTask[]): FloorSnapshot => ({
       needs_user_decision: tasks.filter((t) => t.status === "needs_user_decision").length,
       needs_user_action: tasks.filter((t) => t.status === "needs_user_action").length,
       needs_qa: tasks.filter((t) => t.status === "needs_qa").length,
+      verified: tasks.filter((t) => t.status === "verified").length,
       done: tasks.filter((t) => t.status === "done").length,
       deferred: 0,
     },
@@ -133,9 +134,9 @@ describe("computeSince", () => {
 
 describe("statusListTitle", () => {
   it("names the briefing tiles' status sets, and labels a single station", () => {
-    expect(statusListTitle(["needs_user_decision", "needs_user_action", "needs_qa"])).toBe(
-      "Waiting on you",
-    );
+    expect(
+      statusListTitle(["needs_user_decision", "needs_user_action", "needs_qa", "verified"]),
+    ).toBe("Waiting on you");
     expect(statusListTitle(["done", "deferred"])).toBe("Shipped");
     expect(statusListTitle(["backlog"])).toBe("Backlog");
   });

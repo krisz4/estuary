@@ -50,7 +50,7 @@ describe("NeedsYouSection", () => {
     await user.click(await screen.findByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(posted(requests, "/transition")).toHaveLength(1));
-    expect(posted(requests, "/transition")[0]?.body).toEqual({ to: "done" });
+    expect(posted(requests, "/transition")[0]?.body).toEqual({ expectedVersion: 3, to: "done" });
   });
 
   it("shows the empty state when nothing needs a human", async () => {

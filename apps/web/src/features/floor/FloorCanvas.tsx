@@ -162,7 +162,7 @@ const summaryFor = (layout: MapLayout): string => {
   );
   const regionSummary = [
     "backlog,needs_refinement,todo:Planning",
-    "in_progress,needs_qa:Under way",
+    "in_progress,needs_qa,verified:Under way",
     "blocked,needs_user_decision,needs_user_action:Waiting",
     "done,deferred:Shipped",
   ]
