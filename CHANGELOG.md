@@ -6,13 +6,25 @@ How a release is cut: [docs/operations/RELEASING.md](docs/operations/RELEASING.m
 
 ## [Unreleased]
 
+### Added
+
+- A `verified` status: work an agent QA'd itself with passing evidence waits there for a human to sign off. Agents hand off with `task_submit_verified`.
+- Supervision evidence on handoffs: verification results, checkpoints on release, session-owned claims, attention age and snooze.
+- A **Connect agent** page with client configuration, readiness, and recent agent activity.
+- JSON task export (`GET /api/v1/tasks/export`) and verified SQLite backup, verify, and restore scripts (`db:backup`, `db:verify`, `db:restore`).
+- Inbox focus mode: the attention queue one item at a time.
+
+### Changed
+
+- Tasks now move through eleven statuses rather than ten. The migration shifts the stored rank of `done` and `deferred` rows; nothing else needs doing.
+
 ## [0.1.0] - 2026-09-26
 
 First open-source release.
 
 ### Added
 
-- A task manager for AI coding agents and the humans working with them. Tasks move through eleven statuses (`backlog` → `done` / `deferred`), and agents claim tasks under a lease, so two agents never work the same task.
+- A task manager for AI coding agents and the humans working with them. Tasks move through ten statuses (`backlog` → `done` / `deferred`), and agents claim tasks under a lease, so two agents never work the same task.
 - Dependencies, parent tasks and subtasks, labels, and free-text search.
 - Decisions and actions: an agent asks a human to choose between options, or to do something only a human can, and carries on once it's answered.
 - The Estuary web UI: the map (the landing page), the filterable list, the inbox of everything waiting on a human, the Logbook of history and flow metrics, and task detail. It works down to 360px wide.

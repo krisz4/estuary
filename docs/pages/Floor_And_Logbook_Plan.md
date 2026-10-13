@@ -153,7 +153,7 @@ This doc lists what to keep, what breaks, and how the real page should work.
 History as its own page. It shares scope (the project switcher) and the actor filter, and adds a range (`?range=24h|7d|30d|90d` or `from`/`to`).
 
 1. **Since you left**: shipped, new decisions and actions for you, and agent sessions. The last-visit timestamp goes in a client store.
-2. **Flow**: a cumulative flow diagram banded by the four zones (toggle for all ten statuses). A widening Waiting-dock band is a bottleneck you can see.
+2. **Flow**: a cumulative flow diagram banded by the four zones (toggle for all eleven statuses). A widening Waiting-dock band is a bottleneck you can see.
 3. **Throughput**: created vs shipped per bucket, plus how many were sent back from QA.
 4. **Waiting on humans**: median and p90 time spent in decide, act, or review per bucket, and the ten longest waits. This is the key metric for a human-and-agent loop.
 5. **Cycle time**: a dot strip from in progress to needs QA or done, split by agent.

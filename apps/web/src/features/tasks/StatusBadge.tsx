@@ -6,7 +6,7 @@ import { TASK_STATUS_LABELS } from "@/lib/formatting";
 /**
  * Status pill, per `docs/features/Task_Status_Lifecycle.md` § UI mapping.
  *
- * Ten statuses and six tones, so hue is grouped by *what the status asks of
+ * Eleven statuses and six tones, so hue is grouped by *what the status asks of
  * the reader* rather than one colour each — ten hues on one screen is noise:
  *
  * | Tone | Statuses | Reads as |

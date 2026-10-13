@@ -325,7 +325,7 @@ describe("GET /api/v1/tasks/facets", () => {
 });
 
 describe("GET /api/v1/tasks/stats", () => {
-  it("is matched as its own route and reports all ten statuses", async () => {
+  it("is matched as its own route and reports all eleven statuses", async () => {
     const res = await request(app).get(`${BASE}/stats`);
 
     expect(res.status).toBe(200);

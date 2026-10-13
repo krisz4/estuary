@@ -725,7 +725,7 @@ describe("getTaskFacets", () => {
  * ------------------------------------------------------------------ */
 
 describe("getTaskStats", () => {
-  it("reports all ten statuses, zero included", async () => {
+  it("reports all eleven statuses, zero included", async () => {
     const stats = await getTaskStats();
 
     expect(Object.keys(stats.byStatus).sort()).toEqual([...TASK_STATUSES].sort());

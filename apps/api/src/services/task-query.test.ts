@@ -287,7 +287,7 @@ describe("filters", () => {
    * A drifted row is not merely filed under the wrong status — it is
    * unreachable through the status filter entirely: it fails the *text* term
    * under its true status and the *rank* term under the drifted one. So the
-   * union of all ten statuses returns strictly fewer rows than no status
+   * union of all eleven statuses returns strictly fewer rows than no status
    * filter at all, and the two `meta.total` values disagree.
    *
    * That is the intended trade (a drifted row is corrupt data; hiding it beats
